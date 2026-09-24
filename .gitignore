@@ -31,3 +31,7 @@ tmp/
 web/public/test-videos
 
 .composition-pull-*/
+
+# Build output (./build.sh default OUT_DIR)
+/out/
+__pycache__/
