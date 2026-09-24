@@ -2,7 +2,7 @@
  * lights — LED-bar show effects bundle.
  *
  * All effects for the 4-bar performance live here. See
- * SHOW_EFFECTS_PLAN.md at the repo root for the design.
+ * docs/SHOW_EFFECTS_PLAN.md for the design.
  *
  * Bundle ID:  com.nano.lights
  * Effect IDs: gen.*  (generators), fx.*  (post-process complicators)

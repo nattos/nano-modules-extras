@@ -3,6 +3,7 @@
 #
 #   NANO_SDK=/path/to/nano-sdk ./build.sh              # every bundle
 #   NANO_SDK=/path/to/nano-sdk ./build.sh nano lights  # just these
+#   ./build.sh --list                                   # the bundle names
 #
 #   OUT_DIR   where the .wasm files go        (default: ./out)
 #   TMP_DIR   generated shader headers, SPIR-V (default: $OUT_DIR/tmp)
@@ -13,12 +14,18 @@
 # (nano-modules' build_all.sh --extras <this dir>).
 set -euo pipefail
 cd "$(dirname "$0")"
+
+ALL=(nano lights legacy)
+if [ "${1:-}" = "--list" ]; then
+  printf '%s\n' "${ALL[@]}"
+  exit 0
+fi
+
 : "${NANO_SDK:?set NANO_SDK to the Nano effect SDK directory (the one holding scripts/ and include/)}"
 export NANO_SDK
 export OUT_DIR="${OUT_DIR:-$PWD/out}"
 export TMP_DIR="${TMP_DIR:-$OUT_DIR/tmp}"
 
-ALL=(nano lights legacy)
 bundles=("$@")
 [ ${#bundles[@]} -eq 0 ] && bundles=("${ALL[@]}")
 

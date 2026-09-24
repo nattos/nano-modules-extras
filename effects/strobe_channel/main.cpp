@@ -1,7 +1,7 @@
 /*
  * source.light.strobe_channel — Logistic-map-driven single-bar selector.
  *
- * See SHOW_EFFECTS_PLAN.md for the design. This is the v1 scaffold:
+ * See docs/SHOW_EFFECTS_PLAN.md for the design. This is the v1 scaffold:
  * - Triangle-wave ping-pong drives the seed x0.
  * - N iterations of x' = r * x * (1 - x) from x0 each frame.
  * - Final x mapped to a bar index in [0, 4); that bar lights up.
