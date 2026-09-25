@@ -60,6 +60,13 @@ compile_shaders_compute_var_spv vcr_halo composite
 _emit_spv_header_var vcr_halo prefilter down up composite
 echo "  vcr_halo shaders compiled (SPV: prefilter + down + up + composite)"
 
+# ember_tone: hue histogram -> analyze (anchor + two tones) -> grade.
+compile_shaders_compute_var_spv ember_tone hist
+compile_shaders_compute_var_spv ember_tone analyze
+compile_shaders_compute_var_spv ember_tone render
+_emit_spv_header_var ember_tone hist analyze render
+echo "  ember_tone shaders compiled (SPV: hist + analyze + render)"
+
 # soft_glow has two compute shaders — color (rgba8) and motion
 # (rgba16f). Separate variants because naga substitutes one storage-
 # texture format per shader module.
@@ -154,6 +161,7 @@ wasm_build \
   $NANO_EFFECTS_ROOT/three_planes/main.cpp \
   $NANO_EFFECTS_ROOT/three_walls/main.cpp \
   $NANO_EFFECTS_ROOT/vcr_halo/main.cpp \
-  $NANO_EFFECTS_ROOT/sweep_choke/main.cpp
+  $NANO_EFFECTS_ROOT/sweep_choke/main.cpp \
+  $NANO_EFFECTS_ROOT/ember_tone/main.cpp
 
 echo "Built: $OUT_DIR/$MODULE_NAME.wasm ($(wc -c < "$OUT_DIR/$MODULE_NAME.wasm")B)"

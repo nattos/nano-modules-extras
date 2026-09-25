@@ -1558,6 +1558,51 @@ Per-pixel iteration over ≤128 rectangles with a small per-mode branch is still
 - **Mode-specific lifetime tuning.** Noise mode at high `flicker_rate` is the most chaotic; black mode lives longer; mosaic somewhere between. Could expose `mode_*_life_mult` per mode if defaults don't read well on hardware. Defer.
 - **Additional dehance modes worth adding later**: chroma_strip (luminance-only / desaturate), invert, color_quantize (palette reduction), source_offset (sample from a jittered uv — essentially `warp.dispersion` constrained to the rect). All easy to slot in as new mode IDs + weights.
 
+### filter.color.ember_tone — "Ember Tone" *(built)*
+
+A warm two-tone grade: part LUT, part saturation non-linearity, part colourise. It reads only the
+pixel's lightness (OkLab L); the input's own colour only steers two optional extras. Worked in OkLCh
+throughout.
+
+**Climb, roll-off, sizzle.**
+- `x = L_in · drive` climbs through an exponential shoulder,
+  `(1 − e^(−3·x^e)) / (1 − e^−3)`, onto **Body** lightness.
+  - `e` is Roll-off Curve through the standard signed-slider exponent.
+- Chroma climbs with it, so black stays black.
+- Past **Sizzle Point**, over a span of 0.2 in `x`, lightness goes to 1 and chroma goes out on
+  `1 − heat²`. The hottest pixels therefore pass through a bright tint of the strong hue before
+  blowing out.
+
+**Two tones.**
+- **Strong Hue** is an ordinary HSV-wheel hue, converted to its OkLCh angle.
+- The weak hue is the OkLCh complement, turned by **Weak Offset**.
+- A soft threshold on `L_in` (low by default, 0.3 ≈ sRGB 0.18) picks between them.
+- The crossing interpolates the *hue angle* along the short arc, with chroma held. Two near-opposite
+  colours therefore meet at a third, equally saturated colour, not at grey. The offset's sign picks
+  which side of the wheel the arc takes.
+- At the defaults, the ramp runs:
+
+  | Stage | Colour |
+  |---|---|
+  | Shadows | Blue |
+  | Crossing | Violet → magenta |
+  | Body | Orange |
+  | Top | Peach → white |
+
+**Source hue (optional).**
+- The anchor is the image's dominant hue, found with bicolor_grad's chroma-weighted 64-bin YIQ
+  histogram plus parabolic peak. It is eased over **Follow** seconds as a unit vector. **Fixed** uses
+  **Anchor Hue** instead.
+- Each pixel's hue offset `d` from the anchor turns the output hue by
+  `amount · sign(d) · (2|d|)^e · ½ turn`, where `e` is Hue Curve's signed-slider exponent.
+- The turn is gated by the pixel's own chroma, since grey has no hue.
+- **Source Saturation** scales chroma toward the input's HSV saturation.
+
+**Gamut.**
+- `shaders/nano_oklab.hlsl` has `nano_oklch_gamut_clip`: it bisects to the most chroma that sRGB can
+  carry at that lightness and hue.
+- Only chroma gives, so every hue stays as punchy as the display allows.
+
 ---
 
 ## Build order

@@ -30,6 +30,7 @@ NANO_DECLARE_INSTANCE_EFFECT(three_planes)
 NANO_DECLARE_INSTANCE_EFFECT(three_walls)
 NANO_DECLARE_INSTANCE_EFFECT(vcr_halo)
 NANO_DECLARE_INSTANCE_EFFECT(sweep_choke)
+NANO_DECLARE_INSTANCE_EFFECT(ember_tone)
 
 extern "C" {
 
@@ -240,6 +241,17 @@ void nano_module_main() {
         "sweep,choke,knob,gradient,roll,tail,flicker,glint,mask,led,bar,show",
         "la-sliders-h",
         NANO_INSTANCE_LIFECYCLE(sweep_choke),
+    });
+
+    nano::registerEffect({
+        2,
+        "filter.color.ember_tone",
+        "Ember Tone",
+        "A warm two-tone grade: part LUT, part saturation, part colourise. Brightness climbs and rolls off onto a full, warm body in OkLCh, and the brightest pixels still sizzle through a hot tint to white. A soft threshold low in the range splits it into a weak tone in the shadows and the strong tone above; the weak hue is the strong one's OkLCh opposite turned by an offset, and the crossing walks round the hue wheel with chroma held instead of blending through grey. Optionally each pixel's hue difference from the image's dominant hue (bicolor_grad's hue histogram, eased over time, or a fixed anchor) turns the output hue, by an amount and a signed curve, and the input's saturation can be mixed back in. Every colour is held to the most chroma sRGB can show at its lightness and hue.",
+        "filter",
+        "color,grade,lut,duotone,colorize,warm,saturation",
+        "la-fire",
+        NANO_INSTANCE_LIFECYCLE(ember_tone),
     });
 }
 
