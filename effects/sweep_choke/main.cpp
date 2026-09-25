@@ -2,8 +2,8 @@
  * source.light.sweep_choke — one knob that sweeps and chokes the four LED bars.
  *
  * Three Planes Rig's sweep, taken off the tower and put straight onto the rig:
- * the centre is a solid colour at full, moving out tilts the fade across the
- * grid at a set angle, the ends choke to black, and a hard sweep into a choke
+ * the knob sets a level, full in the middle and black at the ends, and every
+ * change to it rolls across the grid at a set angle; a hard sweep into a choke
  * leaves a flickering tail ringing behind it. All of the behaviour lives in
  * <sketch/sweep_choke_core.h>, host-free so the goldens can drive it at an exact
  * dt; this file is the schema, the patch plumbing and one small pass.
@@ -11,9 +11,9 @@
  * Two outputs, both the house rig's pixel map — four bars, ten segments, flat
  * blocks — drawn by the shared nano_led_bars.hlsl pass. `tex_out` is what the
  * bars show: the glints, the thrown tail and the bounce's flash, over an
- * optional base. `mask_out` is the tilt itself, gray, for choking and
- * revealing other effects; it is only drawn while something is wired to it. Both are control
- * signals, so they are opaque and ignore the input.
+ * optional base. `mask_out` is the level itself, gray, for choking and
+ * revealing other effects; it is only drawn while something is wired to it.
+ * Both are control signals, so they are opaque and ignore the input.
  */
 
 #include <gpu.h>
@@ -79,24 +79,26 @@ void module_init() {
         "**flashes** past full and springs back. Past full, a segment blows "
         "out toward white.\n\n"
         "**Mask** is the **position**, in gray, for choking and revealing "
-        "other effects. Parked in the middle it is white. Out past the "
-        "deadzone a soft front travels across the grid at **Angle** while "
-        "the rest dims toward gray; keep going and it slides off into black "
-        "at either end — the **choke**.\n\n"
+        "other effects. Parked in the middle it is white; out past the "
+        "deadzone it dims toward black at either end — the **choke**. Park "
+        "anywhere and it settles solid at that level. Only a CHANGE is a "
+        "gradient: it rolls across the grid along **Angle**, one side first, "
+        "and passes.\n\n"
         "**How you swept is what you hear afterwards.** A hard pass through "
         "the middle charges; reaching a choke throws that charge as a "
         "flickering tail on the bars, gathered where the light went out "
         "last, and slings the glints off with it.\n\n"
         "**Try:** *Sides* One-Way and *Angle* 90, *Base* at 0.3, then rock the "
-        "knob to the beat — glints and the front both keep climbing, in and "
-        "out.")
+        "knob to the beat — glints and every change to the mask climb the "
+        "bars, in and out.")
 
       // ---------------- Sweep ----------------
       .group("sweep", "Sweep")
         .groupHelp(
           "**Sweep** is the knob; the rest shape what it does. **Deadzone** is "
           "how much of each half stays fully lit — ride inside it without "
-          "touching the mask. Entering it is what launches a glint. **Depth** is how far the ends go; below full the "
+          "touching the mask. Entering it is what launches a glint. **Depth** is "
+          "how far the ends go; below full the "
           "ends never choke, so nothing is thrown. **Sensitivity** and "
           "**Motion Decay** set how the knob's speed is read, which is what "
           "charges a throw.")
@@ -129,46 +131,44 @@ void module_init() {
       // ---------------- Gradient ----------------
       .group("gradient", "Gradient")
         .groupHelp(
-          "The shape of the fade, as the mask shows it. **Angle** is the way "
-          "the dark travels across the grid, counter-clockwise from "
-          "left-to-right: 90 rises from the floor, 0 sweeps left to right. "
-          "**Sides** decides the rest: **Ping-Pong** mirrors it for the other "
-          "half of the knob, so which way you turned shows in the light; "
-          "**Forward** keeps one direction; **One-Way** keeps the front "
-          "moving the same way coming back in too — the light returns from "
-          "the side that went out first, like a glint. It turns round only at "
-          "the ends, so reversing mid-fade retraces. **Tilt** is how much of a "
-          "front it is: 0 dims every segment together, 1 is a narrow edge. "
-          "**Fade** dims the whole mask as well while the front moves, so a "
-          "sweep leaves gray behind as well as an edge.")
+          "How the mask gets to where the knob asks. It always settles to one "
+          "solid level; a change **rolls** across the grid to get there, so "
+          "one side moves before the other and the gradient is the change "
+          "passing through.\n\n"
+          "**Angle** is the way it rolls, counter-clockwise from "
+          "left-to-right: 90 climbs the bars, 0 runs left to right — the same "
+          "way whether the mask is getting darker or lighter. **Sides**: "
+          "**Ping-Pong** turns it round on the knob's lower half, so which way "
+          "you turned shows in the light; **One-Way** keeps it. **Roll** is "
+          "how long a change takes to cross the grid — 0 changes it all at "
+          "once. **Soften** eases each segment on, so a jump rolls through as "
+          "a smooth gradient rather than a hard edge.")
       .floatField("angle", 90.f, 0.f, 360.f, state::PrimaryInput,
                   nullptr, 0.f, nullptr,
-                  "Direction the dark travels, degrees CCW from +x.")
+                  "Direction changes roll, degrees CCW from +x.")
         .label("Angle", "Ang")
       .selectField("side_mode", sweep_choke_core::SidePingPong, state::PrimaryInput,
                    {{"Ping-Pong", sweep_choke_core::SidePingPong},
-                    {"Forward", sweep_choke_core::SideForward},
                     {"One-Way", sweep_choke_core::SideOneWay}}, false,
-                   "Ping-Pong mirrors the angle for the lower half of the "
-                   "knob; Forward uses the same angle both ways; One-Way "
-                   "keeps the front travelling along the angle in and out.")
+                   "Ping-Pong turns the roll round for the lower half of the "
+                   "knob; One-Way rolls along the angle both ways.")
         .label("Sides", "Sides")
-      .floatField("tilt", 0.6f, 0.f, 1.f, state::PrimaryInput,
-                  nullptr, 0.f, nullptr,
-                  "0 an even dimmer, 1 a narrow travelling edge.")
-        .label("Tilt", "Tilt")
-      .floatField("fade", 0.5f, 0.f, 1.f, state::PrimaryInput,
-                  nullptr, 0.f, nullptr,
-                  "How far the whole mask dims under the front as the knob "
-                  "goes out. 0 is just the edge moving.")
-        .label("Fade", "Fade")
+      .floatField("roll", 0.35f, 0.f, 4.f, state::PrimaryInput,
+                  nullptr, 0.f, "s",
+                  "Seconds a change takes to cross the grid. 0 all at once.")
+        .label("Roll", "Roll")
+      .floatField("soften", 0.12f, 0.f, 2.f, state::PrimaryInput,
+                  nullptr, 0.f, "s",
+                  "Seconds each segment eases toward what reaches it. Higher is "
+                  "a softer, longer gradient.")
+        .label("Soften", "Soft")
 
       // ---------------- Light ----------------
       .group("light", "Light")
         .groupHelp(
           "What the bars show. **Base** puts the mask under the glints, in "
           "colour — 0 leaves the bars black between gestures, 1 is the full "
-          "tilt. **Bounce** is the flash coming back in fast; **Overdrive "
+          "mask. **Bounce** is the flash coming back in fast; **Overdrive "
           "White** is how far anything past full — a bright glint, a hard "
           "bounce — blows out toward white.")
       .rgbField("color", 1.00f, 0.22f, 0.62f, state::PrimaryInput)
@@ -244,15 +244,12 @@ void module_init() {
           "it was (**Charge Drive**), and the charge leaks away over **Charge "
           "Hold** — so a flick then a dawdle throws a soft one. Reaching a "
           "choke throws it, and it rings out over **Ring Time** as segments "
-          "blinking where the light went out last (**Bias**).\n\n"
+          "blinking where the roll reaches last (**Bias**).\n\n"
           "The tail never dims. Blinks keep arriving at **Blink Rate**; what "
           "runs down is how LONG each one is (**Blink Length**), until they "
           "start missing frames and it sputters out. **Density** is segments "
           "per blink. **Chunk** makes them bigger and fewer: runs up the bar, "
-          "to whole bars at 1.\n\n"
-          "Separately, any motion inside the fade wakes a **Stutter** in the "
-          "mask's half-lit segments that **Settle** lets die away once the "
-          "knob stops.")
+          "to whole bars at 1.")
       .floatField("latch_drive", 2.0f, 0.f, 6.f, state::PrimaryInput,
                   nullptr, 0.f, nullptr,
                   "How readily a pass through the middle charges a throw.")
@@ -280,21 +277,13 @@ void module_init() {
         .label("Density", "Dens")
       .floatField("tail_bias", 0.75f, 0.f, 1.f, state::PrimaryInput,
                   nullptr, 0.f, nullptr,
-                  "0 blinks anywhere; 1 only where the light went out last.")
+                  "0 blinks anywhere; 1 only where the roll reaches last.")
         .label("Bias", "Bias")
       .floatField("tail_chunk", 0.0f, 0.f, 1.f, state::PrimaryInput,
                   nullptr, 0.f, nullptr,
                   "Blink size. 0 single segments; up from there runs of random "
                   "length up the bar, fewer of them; 1 whole bars.")
         .label("Chunk", "Chunk")
-      .floatField("flicker", 0.6f, 0.f, 1.f, state::PrimaryInput,
-                  nullptr, 0.f, nullptr,
-                  "How hard half-lit segments stutter while the knob moves.")
-        .label("Stutter", "Stut")
-      .floatField("settle", 1.2f, 0.05f, 6.f, state::SecondaryInput,
-                  nullptr, 0.f, nullptr,
-                  "Seconds the stutter carries on after the knob stops.")
-        .label("Settle", "Settle")
 
       // ---------------- Output ----------------
       .group("output", "Output")
@@ -388,7 +377,8 @@ void on_state_patched(void* self, int n, const char* pb, const int* off,
     else if (state::pathIs(path, l, "window"))       p.window = state::patchFloat(i);
     else if (state::pathIs(path, l, "angle"))        p.angle_deg = state::patchFloat(i);
     else if (state::pathIs(path, l, "side_mode"))    p.side_mode = state::patchInt(i);
-    else if (state::pathIs(path, l, "tilt"))         p.tilt = state::patchFloat(i);
+    else if (state::pathIs(path, l, "roll"))         p.roll = state::patchFloat(i);
+    else if (state::pathIs(path, l, "soften"))       p.soften = state::patchFloat(i);
     else if (state::pathIs(path, l, "bounce"))       p.bounce = state::patchFloat(i);
     else if (state::pathIs(path, l, "latch_drive"))  p.latch_drive = state::patchFloat(i);
     else if (state::pathIs(path, l, "latch_decay"))  p.latch_decay = state::patchFloat(i);
@@ -397,8 +387,6 @@ void on_state_patched(void* self, int n, const char* pb, const int* off,
     else if (state::pathIs(path, l, "tail_duty"))    p.tail_duty = state::patchFloat(i);
     else if (state::pathIs(path, l, "tail_density")) p.tail_density = state::patchFloat(i);
     else if (state::pathIs(path, l, "tail_bias"))    p.tail_bias = state::patchFloat(i);
-    else if (state::pathIs(path, l, "flicker"))      p.flicker = state::patchFloat(i);
-    else if (state::pathIs(path, l, "settle"))       p.settle = state::patchFloat(i);
     else if (state::pathIs(path, l, "base"))         p.base = state::patchFloat(i);
     else if (state::pathIs(path, l, "glint_ratio"))  p.glint_ratio = state::patchFloat(i);
     else if (state::pathIs(path, l, "glint_chaos"))  p.glint_chaos = state::patchFloat(i);
@@ -406,7 +394,6 @@ void on_state_patched(void* self, int n, const char* pb, const int* off,
     else if (state::pathIs(path, l, "glint_shadow")) p.glint_shadow = state::patchFloat(i);
     else if (state::pathIs(path, l, "glint_linger")) p.glint_linger = state::patchFloat(i);
     else if (state::pathIs(path, l, "tail_chunk"))   p.tail_chunk = state::patchFloat(i);
-    else if (state::pathIs(path, l, "fade"))         p.fade = state::patchFloat(i);
     else if (state::pathIs(path, l, "glint_width"))  p.glint_width = state::patchFloat(i);
     else if (state::pathIs(path, l, "glint_sling"))  p.glint_sling = state::patchFloat(i);
     else if (state::pathIs(path, l, "color")) {
@@ -425,10 +412,9 @@ void render(void* self, int vp_w, int vp_h) {
   auto out = gpu::Device::textureForField("tex_out");
   if (!out.valid()) return;
 
-  // A ZERO-dt tick: re-reads where the knob is now without ageing anything —
-  // every clock, blink and spring in the core is gated on dt > 0. So a host
-  // that renders without ticking (thumbnails, previews) still sees the right
-  // position rather than whatever the last tick left.
+  // A ZERO-dt tick: ages nothing — every clock, blink, spring and the mask's
+  // roll are gated on dt > 0 — but it seeds a card rendered before its first
+  // tick (thumbnails, previews) at the knob's own level, settled.
   s->core.tick(s->p, 0.0f);
   publishRails(*s);
 

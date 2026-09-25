@@ -7,67 +7,47 @@
  * native/src/sketch/three_planes_rig.h) lifted off the tower and onto the rig
  * itself. Everything that made that sweep a performance survives — the wide
  * deadzone at full brightness, the bounce coming back in, the charge a hard
- * pass through the middle earns and the throw that spends it at the choke, the
- * stutter that motion wakes and stillness settles — and the constants carry
- * the same values for the same reasons. What changes is what it is dimming.
- * The rig dimmed three floors as one; this dims forty segments, and not as
- * one:
+ * pass through the middle earns and the throw that spends it at the choke —
+ * and the constants carry the same values for the same reasons.
  *
- * THE FADE IS A TILT. Out of the deadzone the grid does not dim evenly — a
- * soft front travels across it at `angle_deg`, so one side is already out
- * while the other is still at full. Park anywhere in the fade and you have a
- * gradient; keep going and the gradient slides off the far edge into black.
- * The shape of the light is a fact about where the knob is, exactly as the
- * rig's single level was, which is what lets you ride it. `tilt` is how much
- * of a front it is: 0 is the rig's even dimmer, 1 a narrow edge.
+ * TWO PICTURES, the position and the gesture.
  *
- * Which edge goes first when the knob goes the OTHER way is a choice
- * (`side_mode`): Ping-Pong mirrors it, so the knob's direction shows up in the
- * light; Forward keeps one direction, so only distance from centre matters;
- * One-Way (below) keeps the front travelling one way in AND out.
+ * THE MASK is the position: `level`, 0..1 per segment, published gray for
+ * other effects to be choked and revealed by. The knob sets ONE level — full
+ * across the deadzone, easing to `1 - depth` at either end — and the mask
+ * always settles to exactly that, solid. What the grid does NOT do is change
+ * all at once: every change ROLLS across it along `angle_deg`, the near side
+ * first and the far side `roll` seconds later, each segment easing on over
+ * `soften`. So a sweep is a smooth gradient travelling across the grid, and
+ * stillness is a flat mask — the gradient is only ever the change passing
+ * through. Which way it rolls on the knob's lower half is `side_mode`:
+ * Ping-Pong mirrors it, One-Way keeps it. Either way it rolls the same way
+ * whether the level is falling or rising.
  *
- * THE TAIL. Reaching the choke with a charge spends it as `release`, which
- * rings out linearly over `ring_time` — and while it rings, segments BLINK.
- * Blinks are drawn toward the side of the tilt that went out LAST, so the tail
- * reads as what the sweep left behind rather than as noise on the grid. Like
- * three_planes_strobe.h, the tail never dims: blinks arrive at a constant rate
- * and it is their LENGTH the release takes away, until they are shorter than a
- * frame and start missing outright. A thinning tail reads as a thing running
- * down; a dimming one reads as a light going out.
- *
- * A blink TOGGLES what it lands on — dark comes up to full, lit goes to
- * black — so a tail over a lit Base shows as holes punched in it, and is never
- * lost under it. `tail_chunk` sizes them: 0 single segments, 1 whole bars, and
- * in between runs up the bar of a random length, fewer of them, so the same
- * number of segments is lit on average.
- *
- * TWO PICTURES. The tilt and the stutter are `level` — 0..1 per segment, and
- * what the effect publishes as a GRAYSCALE MASK for other effects to be
- * choked and revealed by. Past the front the whole mask also dims with the
- * fade (`fade`), so a sweep leaves gray behind the edge as well as moving it.
- * What the bars themselves show is `glow`: the GESTURE rather than the
- * position —
+ * THE BARS are the gesture: `glow`, 0 and up, past 1 pushing toward white —
  *
  *   GLINTS, three_planes_glints.h whole: one launched each time the knob enters
- *   the middle band, travelling at the knob's own speed along the gradient's
- *   `angle_deg`, always the same way whichever way the knob went, gliding on
- *   after it stops for `glint_linger` and puttering out; chaos ones under a
- *   brisk sweep; held and slung by a throw. A glint is pure overdrive — past 1
- *   a segment pushes toward white.
+ *   the middle band, travelling at the knob's own speed along `angle_deg`,
+ *   always the same way whichever way the knob went, gliding on after it stops
+ *   for `glint_linger` and puttering out; chaos ones under a brisk sweep; held
+ *   and slung by a throw. A glint is pure overdrive.
  *
- *   THE TAIL, above.
+ *   THE TAIL. Reaching the choke with a charge spends it as `release`, which
+ *   rings out linearly over `ring_time` — and while it rings, the bars BLINK.
+ *   Blinks are drawn toward the side the roll reaches last, so the tail reads
+ *   as what the sweep left behind rather than as noise on the grid. Like
+ *   three_planes_strobe.h, the tail never dims: blinks arrive at a constant
+ *   rate and it is their LENGTH the release takes away, until they are shorter
+ *   than a frame and start missing outright. A blink TOGGLES what it lands on,
+ *   so over a lit Base it punches holes. `tail_chunk` sizes them: 0 single
+ *   segments, 1 whole bars, and in between runs up the bar of a random length,
+ *   fewer of them, so the same number of segments is lit on average.
  *
  *   THE BOUNCE, as a flash: coming back in fast, the whole grid overshoots and
  *   springs back.
  *
  *   A BASE, optional: the mask itself at `base`, which the glints' dark wake
  *   shades as they pass. 0 leaves the bars black between gestures.
- *
- * ONE-WAY. The third `side_mode`, and the tilt's answer to a glint: the front
- * always travels toward +axis. Going out the dark chases it; coming back in,
- * the light does, re-entering from the side that went out FIRST. Which way it
- * runs flips only at the ends — at the choke and back in the deadzone — where
- * both ways agree, so it never jumps. Reverse mid-fade and it retraces.
  *
  * Host-free, like three_planes_glints.h and three_planes_strobe.h: no effect
  * ABI, no GPU, so the Catch2 goldens drive the whole thing at an exact dt.
@@ -121,23 +101,22 @@ constexpr float kGlintWakeReach = 5.5f;
 constexpr float kGlintWake = 1.5f;
 constexpr float kGlintWakeW = 1.8f;
 
-/// The stutter's wake, in knob ranges per second: any motion past this re-arms
-/// it outright. Well under one MIDI step per rate window. See the rig.
-constexpr float kFlickWake = 0.02f;
-
 /// Below this the choke counts as reached and a held charge is thrown. Tested
-/// against the BRIGHTEST segment, so a tilt still has to have finished
-/// sliding off the grid before it throws.
+/// against the knob's level, not the rolling mask: where the mute is is a fact
+/// about the knob.
 constexpr float kMuteGain = 0.06f;
 
-/// How wide a front `tilt = 1` is, in axis units: the smoothstep transition
-/// spans 1/kSpread of the grid. Larger is a narrower edge.
-constexpr float kSpread = 2.0f;
-
-/// Blink slots. Enough for a dense tail and a stutter at once.
+/// Blink slots. Enough for a dense tail.
 constexpr int kMaxBlinks = 16;
 
-enum SideMode { SidePingPong = 0, SideForward = 1, SideOneWay = 2 };
+/// The level's history, for the roll to read back into: one entry per tick,
+/// so the longest roll is this many frames — over four seconds at 240 fps.
+constexpr int kHistory = 1024;
+constexpr float kMaxRoll = 4.0f;
+
+/// Ping-Pong mirrors the roll on the knob's lower half; One-Way keeps it.
+/// (Anything else reads as One-Way.)
+enum SideMode { SidePingPong = 0, SideOneWay = 1 };
 
 /// Read fresh each tick — a wire may be moving any of it.
 struct Params {
@@ -148,14 +127,12 @@ struct Params {
   float deadzone = 0.45f;   ///< fraction of each half that stays fully lit
   float depth = 1.0f;       ///< how far the ends fade; 1 = to black
 
-  float angle_deg = 90.0f;  ///< which way the dark travels, CCW from +x; 90 = upward
+  float angle_deg = 90.0f;  ///< which way changes roll, CCW from +x; 90 = upward
   int side_mode = SidePingPong;
-  float tilt = 0.6f;        ///< 0 even dimmer .. 1 narrow travelling front
-  float fade = 0.5f;        ///< how far the whole mask dims under the front, 0..1
+  float roll = 0.35f;       ///< s for a change to cross the grid; 0 all at once
+  float soften = 0.12f;     ///< s each segment eases toward what reaches it
 
   float bounce = 0.55f;     ///< how far a fast return overshoots
-  float flicker = 0.6f;     ///< how hard segments stutter inside the fade
-  float settle = 1.2f;      ///< seconds the stutter carries on after the knob stops
 
   float latch_drive = 2.0f; ///< how readily a pass through the middle charges
   float latch_decay = 1.2f; ///< seconds a charge survives before it bleeds away
@@ -179,14 +156,12 @@ struct Params {
 };
 
 /// A run of segments mid-blink: `len` of them up one bar from `cell`. It
-/// toggles them (blended by `strength`) until `t_left` runs out. A TAIL blink
-/// lands on the bars; a stutter blink lands on the mask.
+/// toggles them on the bars (blended by `strength`) until `t_left` runs out.
 struct Blink {
   int cell = -1;
   int len = 1;
   float t_left = 0.0f;
   float strength = 0.0f;
-  bool tail = false;
   bool live = false;
 
   bool covers(int i) const {
@@ -235,33 +210,16 @@ inline float fadeProgress(const Params& p, float sweep) {
   return clamp01((mag - dz) / (1.0f - dz > 1e-4f ? 1.0f - dz : 1e-4f));
 }
 
-/// The position law for ONE segment at axis coordinate `a`. The front: every
-/// segment is lit at progress 0 and out at progress 1, and between them the
-/// edge at a = 0 leads by `tilt * kSpread` of the fade. Smoothstep, so the
-/// shoulder has no corner in it to see as you ride past. Under the front the
-/// whole grid also dims with progress by `fade`, so what the front has not
-/// reached yet is gray rather than white.
-inline float cellGain(const Params& p, float progress, float a) {
-  const float k = clamp01(p.tilt) * kSpread;
-  const float t = progress * (1.0f + k) - k * a;
-  const float lit = (1.0f - smooth01(t)) * (1.0f - clamp01(p.fade) * smooth01(progress));
-  return clamp01(1.0f - (1.0f - lit) * clamp01(p.depth));
-}
-
-/// Mean positional gain over the grid. Independent of direction — mirroring
-/// the axis only reorders the cells — which is what lets the bounce read it
-/// across a window that straddles the centre.
-inline float meanGain(const Params& p, float sweep, const float axis[kCells]) {
-  const float prog = fadeProgress(p, sweep);
-  float sum = 0.0f;
-  for (int i = 0; i < kCells; ++i) sum += cellGain(p, prog, axis[i]);
-  return sum / (float)kCells;
+/// The level the knob asks for: full across the deadzone, easing to
+/// `1 - depth` at either end. Smoothstep, so the shoulder where the fade
+/// begins has no corner in it to see as you ride past.
+inline float positionLevel(const Params& p, float sweep) {
+  return clamp01(1.0f - smooth01(fadeProgress(p, sweep)) * clamp01(p.depth));
 }
 
 struct Core {
   knob_rate::KnobRate rate;
   float speed = 0.0f;       ///< 0..1 motion envelope
-  float flick_life = 0.0f;  ///< how much stutter is left; see the rig
 
   float charge = 0.0f;
   float release = 0.0f;
@@ -271,19 +229,23 @@ struct Core {
   float bounce = 0.0f;
   float bounce_v = 0.0f;
 
-  /// One-Way only: the knob is on its way back IN, so the front is the light
-  /// returning rather than the dark leaving. Latched at the ends.
-  bool inbound = false;
-
   three_planes_glints::Core glints;
 
+  /// The knob's level over time, for the roll to read back into: a ring of
+  /// (clock, level), newest at `hist_head`.
+  float hist_t[kHistory] = {};
+  float hist_v[kHistory] = {};
+  int hist_head = 0;
+  int hist_count = 0;
+  float clock = 0.0f;
+  bool seeded = false;
+
   float tail_clock = 0.0f;  ///< launches owed, fractional
-  float settle_t = 0.0f;    ///< seconds to the next stutter blink
   Blink blinks[kMaxBlinks];
   unsigned rng = 0x9e3779b9u;
 
   // --- This frame ---------------------------------------------------------
-  /// The mask per segment, 0..1: tilt, tail and stutter.
+  /// The mask per segment, 0..1.
   float level[kCells] = {};
   /// What the bars show per segment, 0.. (past 1 pushes toward white).
   float glow[kCells] = {};
@@ -310,8 +272,8 @@ struct Core {
     const float sw = (p.sweep == p.sweep) ? clamp01(p.sweep) : kSweepCenter;
     sweep_out = sw;
 
-    // --- 1. Speed, and the stutter's life. Both off knob_rate's boxcar — see
-    //        there for why a MIDI knob cannot be differenced per frame.
+    // --- 1. Speed, off knob_rate's boxcar — see there for why a MIDI knob
+    //        cannot be differenced per frame.
     const float r = rate.sample(sw, dt, p.window);
     const float ar = r < 0.0f ? -r : r;
     if (dt > 0.0f) {
@@ -319,43 +281,24 @@ struct Core {
       const float rel = std::exp(-dt / (p.decay > 1e-3f ? p.decay : 1e-3f));
       speed = v > speed * rel ? v : speed * rel;
       if (speed < 1e-4f) speed = 0.0f;
-
-      const float woke = clamp01(ar / kFlickWake);
-      const float srel = std::exp(-dt / (p.settle > 1e-3f ? p.settle : 1e-3f));
-      flick_life = woke > flick_life * srel ? woke : flick_life * srel;
-      if (flick_life < 1e-4f) flick_life = 0.0f;
     }
 
-    // --- 2. The axis for this side of the knob, and the positional gains.
+    // --- 2. The level the knob asks for, and the axis it rolls along on
+    //        this side of the knob.
     float base_axis[kCells];
     axisCoords(p.angle_deg, base_axis);
-    const float prog = fadeProgress(p, sw);
-    // One-Way turns round only where both directions agree: fully out, or
-    // fully home. So it can never jump mid-fade.
-    if (prog >= 1.0f - 1e-4f) inbound = true;
-    else if (prog <= 0.0f) inbound = false;
-    const bool flip = p.side_mode == SideOneWay
-                          ? inbound
-                          : (p.side_mode == SidePingPong && sw < kSweepCenter);
+    const bool flip = p.side_mode == SidePingPong && sw < kSweepCenter;
     for (int i = 0; i < kCells; ++i) axis[i] = flip ? 1.0f - base_axis[i] : base_axis[i];
+    const float lvl = positionLevel(p, sw);
 
-    float gain[kCells];
-    float brightest = 0.0f, sum = 0.0f;
-    for (int i = 0; i < kCells; ++i) {
-      gain[i] = cellGain(p, prog, axis[i]);
-      brightest = gain[i] > brightest ? gain[i] : brightest;
-      sum += gain[i];
-    }
-    const float mean = sum / (float)kCells;
-
-    // --- 2a. THE BOUNCE, as in the rig: the secant of the (mean) dimmer across
-    //         the rate window drives a stiff spring, inward only. The bars
-    //         show it as a flash over the whole grid that springs back (step
-    //         7); the mask never sees it — a mask has nothing past full.
+    // --- 2a. THE BOUNCE, as in the rig: the secant of the dimmer across the
+    //         rate window drives a stiff spring, inward only. The bars show it
+    //         as a flash over the whole grid that springs back (step 6); the
+    //         mask never sees it — a mask has nothing past full.
     float target = 0.0f;
     if (rate.last_span > 1e-6f) {
-      const float from = meanGain(p, clamp01(rate.last_from), base_axis);
-      const float climb = (mean - from) / rate.last_span;
+      const float from = positionLevel(p, clamp01(rate.last_from));
+      const float climb = (lvl - from) / rate.last_span;
       if (climb > 0.0f) target = kBounceLead * clamp01(p.bounce) * climb;
     }
     if (dt > 0.0f) {
@@ -391,7 +334,7 @@ struct Core {
       charge *= std::exp(-dt / (p.latch_decay > 1e-3f ? p.latch_decay : 1e-3f));
       if (charge < 1e-3f) charge = 0.0f;
     }
-    const bool fresh_throw = armed && brightest <= kMuteGain && charge > 0.0f;
+    const bool fresh_throw = armed && lvl <= kMuteGain && charge > 0.0f;
     if (fresh_throw) {
       if (charge > release) release = charge;
       charge = 0.0f;
@@ -463,7 +406,7 @@ struct Core {
           const int bar = cell / kSegments, seg = cell % kSegments;
           int s0 = seg - (int)(rand01() * (float)run);
           s0 = s0 < 0 ? 0 : (s0 > kSegments - run ? kSegments - run : s0);
-          spawn(led_bars::cellIndex(bar, s0), len - age, 1.0f, run, true);
+          spawn(led_bars::cellIndex(bar, s0), len - age, 1.0f, run);
         }
       }
     } else if (release <= 0.0f) {
@@ -472,46 +415,38 @@ struct Core {
       tail_clock = 0.0f;
     }
 
-    // --- 5. THE SETTLE STUTTER. The rig's per-floor drive, per segment:
-    //        loudest where a segment is halfway out, gated by the life motion
-    //        re-arms. One scheduler across the grid, so it reads as one
-    //        struggling fixture rather than as static — but a wide fade band
-    //        has more places to struggle in, and the gap closes for it.
-    float drive[kCells];
-    float drive_max = 0.0f, drive_sum = 0.0f;
-    int band = 0;
-    for (int i = 0; i < kCells; ++i) {
-      drive[i] = clamp01(4.0f * gain[i] * (1.0f - gain[i])) * clamp01(p.flicker) * flick_life;
-      if (drive[i] > drive_max) drive_max = drive[i];
-      drive_sum += drive[i];
-      if (drive[i] > 0.05f) ++band;
-    }
-    if (drive_max <= 1e-3f) {
-      settle_t = 0.0f;
+    // --- 5. THE MASK. The level goes into the history; each segment reads it
+    //        back `axis * roll` seconds ago — the near side now, the far side
+    //        last — and eases toward that over `soften`. Stillness is a flat
+    //        mask at the knob's level; a change is a gradient rolling across.
+    if (!seeded) {
+      // A card that comes up with the knob already parked shows a mask that
+      // settled long ago, not one still rolling in from full.
+      seeded = true;
+      clock = 0.0f;
+      hist_head = 0;
+      hist_count = 1;
+      hist_t[0] = 0.0f;
+      hist_v[0] = lvl;
+      for (int i = 0; i < kCells; ++i) level[i] = lvl;
     } else if (dt > 0.0f) {
-      settle_t -= dt;
-      if (settle_t <= 0.0f) {
-        const int cell = pickWeighted(drive, drive_sum);
-        if (cell >= 0 && !blinking(cell)) spawn(cell, 0.02f + 0.07f * rand01(), drive[cell]);
-        const float gap = 0.55f + (0.05f - 0.55f) * drive_max;
-        settle_t = gap * (0.4f + 1.2f * rand01()) / (1.0f + 0.25f * (float)band);
+      clock += dt;
+      hist_head = (hist_head + 1) % kHistory;
+      hist_t[hist_head] = clock;
+      hist_v[hist_head] = lvl;
+      if (hist_count < kHistory) ++hist_count;
+      const float rl = clampf(p.roll, 0.0f, kMaxRoll);
+      const float ease = p.soften > 1e-3f ? 1.0f - std::exp(-dt / p.soften) : 1.0f;
+      for (int i = 0; i < kCells; ++i) {
+        const float want = history(clock - axis[i] * rl);
+        level[i] += (want - level[i]) * ease;
       }
     }
-
-    // --- 6. The mask. Position first, then the stutter toggles against it: a
-    //        dark segment comes up to full, a lit one goes out. The TAIL is
-    //        not here — it is on the bars (step 7).
     float lsum = 0.0f;
-    for (int i = 0; i < kCells; ++i) level[i] = gain[i];
-    for (int i = 0; i < kMaxBlinks; ++i) {
-      const Blink& b = blinks[i];
-      if (!b.live || b.tail) continue;
-      toggle(level, b);
-    }
     for (int i = 0; i < kCells; ++i) lsum += level[i];
     mean_level = lsum / (float)kCells;
 
-    // --- 7. The glow. The base (the mask, shaded by the glints' wakes), the
+    // --- 6. The glow. The base (the mask, shaded by the glints' wakes), the
     //        tail's runs toggling against it, then the bounce's flash and the
     //        glint cores on top — additive, so they land on black as well as
     //        on a lit grid. Glints run along the gradient's own angle, toward
@@ -540,13 +475,30 @@ struct Core {
     }
     for (int i = 0; i < kMaxBlinks; ++i) {
       const Blink& b = blinks[i];
-      if (!b.live || !b.tail) continue;
+      if (!b.live) continue;
       toggle(glow, b);
     }
     for (int i = 0; i < kCells; ++i) glow[i] += cores[i];
   }
 
  private:
+  /// The level as it stood at clock time `t`, interpolated between ticks.
+  /// Before the oldest entry it is the oldest: a roll longer than the history
+  /// simply reads back as far as there is.
+  float history(float t) const {
+    int i = hist_head;
+    for (int n = 0; n + 1 < hist_count; ++n) {
+      const int j = (i - 1 + kHistory) % kHistory;   // the entry before i
+      if (hist_t[j] <= t) {
+        const float span = hist_t[i] - hist_t[j];
+        const float u = span > 1e-9f ? clamp01((t - hist_t[j]) / span) : 1.0f;
+        return hist_v[j] + (hist_v[i] - hist_v[j]) * u;
+      }
+      i = j;
+    }
+    return hist_v[i];
+  }
+
   float rand01() {
     rng ^= rng << 13;
     rng ^= rng >> 17;
@@ -600,11 +552,11 @@ struct Core {
 
   /// A blink with no time left was over before the frame was sampled: it is
   /// not placed at all, which is how a closing window starts missing frames.
-  void spawn(int cell, float t_left, float strength, int len = 1, bool tail = false) {
+  void spawn(int cell, float t_left, float strength, int len = 1) {
     if (!(t_left > 0.0f) || strength <= 0.0f) return;
     for (int i = 0; i < kMaxBlinks; ++i) {
       Blink& b = blinks[i];
-      if (b.live && b.cell == cell && b.len == len && b.tail == tail) {   // extend rather than double up
+      if (b.live && b.cell == cell && b.len == len) {   // extend rather than double up
         if (t_left > b.t_left) b.t_left = t_left;
         if (strength > b.strength) b.strength = strength;
         return;
@@ -616,7 +568,6 @@ struct Core {
       b.live = true;
       b.cell = cell;
       b.len = len;
-      b.tail = tail;
       b.t_left = t_left;
       b.strength = strength;
       return;

@@ -13,6 +13,8 @@ import type { Sketch } from '@nano/web/src/sketch-types';
  *
  * The bars show the gesture (glints, the bounce's flash), which a parked knob
  * never makes, so the position tests put the mask on the bars with Base 1.
+ * Parked, the mask is always flat — the roll that makes it a gradient only
+ * happens while it changes, which the native goldens drive.
  *
  * The knob is PARKED from the first frame in every case. knob_rate seeds at
  * wherever the knob already is, so a stored value is never read as motion —
@@ -37,7 +39,7 @@ describe(`Sweep Choke (${backend})`, () => {
       bundle: 'lights',
       width: W, height: H,
       inputColor: [0.3, 0.3, 0.3, 1.0],
-      params: [['color', [1.0, 0.0, 0.5]], ['base', 1.0], ['fade', 0.0], ...params],
+      params: [['color', [1.0, 0.0, 0.5]], ['base', 1.0], ...params],
       dumpName,
     });
 
@@ -67,51 +69,17 @@ describe(`Sweep Choke (${backend})`, () => {
         frame.expectPixelAt(colOfBar(bar), rowOfSegment(seg), { r: 255, g: 0, b: 128, a: 255 }, 4);
   });
 
-  it('parked in the fade at 90 deg, the floor is out and the top still lit', async () => {
-    const frame = await render('sweep_choke_tilt_up', [
-      ['sweep', 0.86], ['angle', 90], ['tilt', 1.0],
-    ]);
+  it('parked in the fade, the base is one flat level: a gradient only passes through', async () => {
+    const frame = await render('sweep_choke_parked_fade', [['sweep', 0.86], ['angle', 45]]);
     expect(frame.success).toBe(true);
-    const bottom = frame.pixelAt(colOfBar(1), rowOfSegment(0));
-    const top = frame.pixelAt(colOfBar(1), rowOfSegment(9));
-    expect(bottom.r).toBeLessThan(40);
-    expect(top.r).toBeGreaterThan(200);
-  });
-
-  it('Ping-Pong turns it over on the other half of the knob', async () => {
-    const frame = await render('sweep_choke_tilt_down', [
-      ['sweep', 0.14], ['angle', 90], ['tilt', 1.0], ['side_mode', 0],
-    ]);
-    expect(frame.success).toBe(true);
-    const bottom = frame.pixelAt(colOfBar(1), rowOfSegment(0));
-    const top = frame.pixelAt(colOfBar(1), rowOfSegment(9));
-    expect(bottom.r).toBeGreaterThan(200);
-    expect(top.r).toBeLessThan(40);
-  });
-
-  it('at 0 deg the dark sweeps left to right', async () => {
-    const frame = await render('sweep_choke_tilt_right', [
-      ['sweep', 0.86], ['angle', 0], ['tilt', 1.0],
-    ]);
-    expect(frame.success).toBe(true);
-    const left = frame.pixelAt(colOfBar(0), rowOfSegment(5));
-    const right = frame.pixelAt(colOfBar(3), rowOfSegment(5));
-    expect(left.r).toBeLessThan(right.r - 100);
-  });
-
-  it('segments are flat blocks', async () => {
-    const frame = await render('sweep_choke_flat', [
-      ['sweep', 0.86], ['angle', 45], ['tilt', 1.0],
-    ]);
-    expect(frame.success).toBe(true);
-    // Corners of one cell agree with its centre.
-    const x0 = BAR + 2, x1 = 2 * BAR - 3;
-    const y = rowOfSegment(4);
-    const c = frame.pixelAt(colOfBar(1), y);
-    for (const [x, yy] of [[x0, y - 3], [x1, y - 3], [x0, y + 3], [x1, y + 3]]) {
-      const p = frame.pixelAt(x, yy);
-      expect(Math.abs(p.r - c.r)).toBeLessThan(2);
-    }
+    const ref = frame.pixelAt(colOfBar(0), rowOfSegment(0));
+    expect(ref.r).toBeGreaterThan(30);
+    expect(ref.r).toBeLessThan(225);
+    for (let bar = 0; bar < 4; bar++)
+      for (const seg of [0, 3, 6, 9]) {
+        const px = frame.pixelAt(colOfBar(bar), rowOfSegment(seg));
+        expect(Math.abs(px.r - ref.r)).toBeLessThanOrEqual(1);
+      }
   });
 
   it('both ends choke to black', async () => {
@@ -165,25 +133,18 @@ describe('Sweep Choke mask_out (engine path)', () => {
         r.trace('out').expectPixelAt(colOfBar(bar), rowOfSegment(seg), { r: 255, g: 255, b: 255 }, 3);
   });
 
-  it('in the fade the mask is the tilt, in gray', async () => {
-    const r = await run('mask_tilt', { sweep: 0.86, angle: 90, tilt: 1.0, fade: 0.0 });
+  it('parked in the fade the mask is one flat gray', async () => {
+    const r = await run('mask_parked', { sweep: 0.86, angle: 90 });
     expect(r.success).toBe(true);
-    const bottom = r.trace('out').pixelAt(colOfBar(1), rowOfSegment(0));
-    const top = r.trace('out').pixelAt(colOfBar(1), rowOfSegment(9));
-    expect(bottom.r).toBeLessThan(40);
-    expect(top.r).toBeGreaterThan(200);
-    for (const px of [bottom, top, r.trace('out').pixelAt(colOfBar(2), rowOfSegment(5))]) {
-      expect(Math.abs(px.r - px.g)).toBeLessThanOrEqual(1);
-      expect(Math.abs(px.r - px.b)).toBeLessThanOrEqual(1);
-    }
-  });
-
-  it('Fade grays what the front has not reached', async () => {
-    const r = await run('mask_fade', { sweep: 0.86, angle: 90, tilt: 1.0, fade: 1.0 });
-    expect(r.success).toBe(true);
-    const top = r.trace('out').pixelAt(colOfBar(1), rowOfSegment(9));
-    expect(top.r).toBeGreaterThan(60);
-    expect(top.r).toBeLessThan(180);
-    expect(r.trace('out').pixelAt(colOfBar(1), rowOfSegment(0)).r).toBeLessThan(20);
+    const ref = r.trace('out').pixelAt(colOfBar(0), rowOfSegment(0));
+    expect(ref.r).toBeGreaterThan(30);
+    expect(ref.r).toBeLessThan(225);
+    for (let bar = 0; bar < 4; bar++)
+      for (const seg of [0, 5, 9]) {
+        const px = r.trace('out').pixelAt(colOfBar(bar), rowOfSegment(seg));
+        expect(Math.abs(px.r - ref.r)).toBeLessThanOrEqual(1);
+        expect(Math.abs(px.r - px.g)).toBeLessThanOrEqual(1);
+        expect(Math.abs(px.r - px.b)).toBeLessThanOrEqual(1);
+      }
   });
 });

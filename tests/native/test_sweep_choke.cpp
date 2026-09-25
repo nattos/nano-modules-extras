@@ -7,15 +7,14 @@
 //
 // The brief these pin, in the order the header states it:
 //
-//   * home is a solid colour at full, and the deadzone does not touch it;
-//   * out of it the fade is a TILT along the angle, and the far end is black;
-//   * Ping-Pong mirrors the tilt for the other half of the knob, Forward not;
+//   * home is a solid mask at full, and the deadzone does not touch it;
+//   * parked anywhere, the mask settles FLAT at the knob's level, black at
+//     the ends;
+//   * a change rolls across along the angle — the same way falling or
+//     rising — and Ping-Pong mirrors it on the lower half, One-Way does not;
 //   * a hard pass into a choke throws a tail; a crawl does not;
 //   * the tail thins rather than dims, and ends — on the bars, not the mask;
 //   * Chunk grows the tail's blinks up the bar, to whole bars at 1;
-//   * Fade grays the mask as well as moving its edge;
-//   * motion in the fade stutters, and stillness settles it;
-//   * One-Way keeps the front travelling the same way in and out;
 //   * the bars show glints — one per pass, always the same way, gliding on
 //     after the knob stops — and the bounce as a flash; past full is white.
 
@@ -40,7 +39,6 @@ constexpr float kDt = 1.0f / 120.0f;
 /// about the position law sees only the position law.
 Params still() {
   Params p;
-  p.flicker = 0.0f;
   p.bounce = 0.0f;
   p.latch_drive = 0.0f;
   return p;
@@ -138,61 +136,96 @@ TEST_CASE("sweep_choke: both ends are black", "[sweep_choke]") {
   }
 }
 
-TEST_CASE("sweep_choke: the fade is a tilt along the angle", "[sweep_choke]") {
-  Core c;
+TEST_CASE("sweep_choke: parked, the mask settles flat at the knob's level", "[sweep_choke]") {
   Params p = still();
-  p.tilt = 1.0f;
+  for (float x : {0.86f, 0.14f, 0.8f}) {
+    Core c;
+    park(c, p, 0.5f, 0.2f);
+    glide(c, p, x, 0.2f);
+    park(c, p, x, 2.0f);
+    const float want = positionLevel(p, x);
+    REQUIRE(want > 0.05f);
+    REQUIRE(want < 0.95f);
+    for (int i = 0; i < kCells; ++i) REQUIRE_THAT(c.level[i], WithinAbs(want, 1e-4));
+  }
+}
 
-  SECTION("90 deg: the dark rises from the floor") {
+namespace {
+/// Settle at `from`, jump the knob to `to`, and look `after` seconds later.
+Core rollFrom(Params p, float from, float to, float after) {
+  Core c;
+  park(c, p, from, 2.0f);
+  p.sweep = to;
+  for (float t = 0.0f; t < after; t += kDt) c.tick(p, kDt);
+  return c;
+}
+float bottomMinusTop(const Core& c) { return rowMean(c, 0) - rowMean(c, kSegments - 1); }
+}  // namespace
+
+TEST_CASE("sweep_choke: a change rolls across along the angle", "[sweep_choke]") {
+  Params p = still();
+  p.roll = 0.5f;
+  p.soften = 0.05f;
+
+  SECTION("90 deg: falling, the floor goes first and the top follows") {
     p.angle_deg = 90.0f;
-    park(c, p, 0.85f);
-    // Every bar sees the same thing; rows go out from the bottom up.
+    const Core c = rollFrom(p, 0.5f, 0.86f, 0.25f);
     for (int k = 0; k + 1 < kSegments; ++k) REQUIRE(rowMean(c, k) <= rowMean(c, k + 1) + 1e-6f);
-    REQUIRE(rowMean(c, 0) < rowMean(c, kSegments - 1) - 0.5f);
+    REQUIRE(bottomMinusTop(c) < -0.3f);
     for (int k = 0; k < kSegments; ++k)
       for (int b = 1; b < kBars; ++b) REQUIRE_THAT(cell(c, b, k), WithinAbs(cell(c, 0, k), 1e-6));
   }
 
-  SECTION("0 deg: the dark sweeps left to right") {
-    p.angle_deg = 0.0f;
-    park(c, p, 0.85f);
-    for (int b = 0; b + 1 < kBars; ++b) REQUIRE(barMean(c, b) <= barMean(c, b + 1) + 1e-6f);
-    REQUIRE(barMean(c, 0) < barMean(c, kBars - 1) - 0.5f);
+  SECTION("...and rising, the floor comes back first too") {
+    p.angle_deg = 90.0f;
+    p.side_mode = SideOneWay;
+    const Core c = rollFrom(p, 0.86f, 0.5f, 0.25f);
+    REQUIRE(bottomMinusTop(c) > 0.3f);
   }
 
-  SECTION("tilt 0 is an even dimmer") {
-    p.tilt = 0.0f;
-    park(c, p, 0.85f);
-    for (int i = 1; i < kCells; ++i) REQUIRE_THAT(c.level[i], WithinAbs(c.level[0], 1e-6));
-    REQUIRE(c.level[0] > 0.0f);
-    REQUIRE(c.level[0] < 1.0f);
+  SECTION("0 deg: left to right") {
+    p.angle_deg = 0.0f;
+    const Core c = rollFrom(p, 0.5f, 0.86f, 0.25f);
+    for (int b = 0; b + 1 < kBars; ++b) REQUIRE(barMean(c, b) <= barMean(c, b + 1) + 1e-6f);
+    REQUIRE(barMean(c, 0) < barMean(c, kBars - 1) - 0.3f);
+  }
+
+  SECTION("it passes through and leaves a flat mask") {
+    p.angle_deg = 90.0f;
+    const Core c = rollFrom(p, 0.5f, 0.86f, 1.5f);
+    for (int i = 1; i < kCells; ++i) REQUIRE_THAT(c.level[i], WithinAbs(c.level[0], 1e-4));
+  }
+
+  SECTION("Roll 0: the whole grid changes together") {
+    p.roll = 0.0f;
+    Core c;
+    park(c, p, 0.5f, 1.0f);
+    p.sweep = 0.86f;
+    for (int n = 0; n < 30; ++n) {
+      c.tick(p, kDt);
+      for (int i = 1; i < kCells; ++i) REQUIRE_THAT(c.level[i], WithinAbs(c.level[0], 1e-6));
+    }
   }
 }
 
-TEST_CASE("sweep_choke: Ping-Pong mirrors the other side, Forward does not", "[sweep_choke]") {
+TEST_CASE("sweep_choke: Ping-Pong mirrors the roll on the lower half, One-Way does not", "[sweep_choke]") {
   Params p = still();
-  p.tilt = 1.0f;
+  p.roll = 0.5f;
+  p.soften = 0.05f;
   p.angle_deg = 90.0f;
-
-  auto bottomMinusTop = [&](int mode, float x) {
-    Core c;
+  auto mid = [&](int mode, float x) {
     Params q = p;
     q.side_mode = mode;
-    park(c, q, x);
-    return rowMean(c, 0) - rowMean(c, kSegments - 1);
+    return bottomMinusTop(rollFrom(q, 0.5f, x, 0.25f));
   };
-
-  // Upper half: the floor goes out first in both modes.
-  REQUIRE(bottomMinusTop(SidePingPong, 0.85f) < -0.5f);
-  REQUIRE(bottomMinusTop(SideForward, 0.85f) < -0.5f);
-  // Lower half: Ping-Pong flips it, Forward keeps it.
-  REQUIRE(bottomMinusTop(SidePingPong, 0.15f) > 0.5f);
-  REQUIRE(bottomMinusTop(SideForward, 0.15f) < -0.5f);
+  REQUIRE(mid(SidePingPong, 0.86f) < -0.3f);
+  REQUIRE(mid(SideOneWay, 0.86f) < -0.3f);
+  REQUIRE(mid(SidePingPong, 0.14f) > 0.3f);
+  REQUIRE(mid(SideOneWay, 0.14f) < -0.3f);
 }
 
 TEST_CASE("sweep_choke: a hard pass into a choke throws a tail", "[sweep_choke]") {
   Params p;
-  p.flicker = 0.0f;
 
   SECTION("fast sweep throws") {
     Core c;
@@ -226,7 +259,6 @@ TEST_CASE("sweep_choke: a hard pass into a choke throws a tail", "[sweep_choke]"
 TEST_CASE("sweep_choke: the tail blinks at full, thins, and ends", "[sweep_choke]") {
   Core c;
   Params p;
-  p.flicker = 0.0f;
   p.bounce = 0.0f;
   p.glint_gain = 0.0f;   // the tail alone on the bars
   p.ring_time = 1.5f;
@@ -236,16 +268,24 @@ TEST_CASE("sweep_choke: the tail blinks at full, thins, and ends", "[sweep_choke
 
   // With the knob parked in the choke the bars are black, so anything lit is a
   // blink — and a blink on a dark segment is at FULL, never dimmed. The mask
-  // stays black throughout: the tail is not in it.
+  // never sees the tail: it matches, frame for frame, a twin that threw none.
+  Core twin;
+  Params tp = p;
+  tp.latch_drive = 0.0f;
+  park(twin, tp, 0.2f);
+  tp.sweep = 0.2f;
+  glide(twin, tp, 1.0f, 0.15f);
+  REQUIRE(twin.release == 0.0f);
   int early = 0, late = 0, after = 0;
   float t = 0.0f;
-  bool bright_only = true, mask_dark = true;
+  bool bright_only = true, mask_clean = true;
   while (t < 3.0f) {
     c.tick(p, kDt);
+    twin.tick(tp, kDt);
     t += kDt;
     int lit = 0;
     for (int i = 0; i < kCells; ++i) {
-      if (c.level[i] > 1e-6f) mask_dark = false;
+      if (c.level[i] != twin.level[i]) mask_clean = false;
       if (c.glow[i] > 1e-6f) {
         ++lit;
         if (c.glow[i] < 1.0f - 1e-5f) bright_only = false;
@@ -256,7 +296,8 @@ TEST_CASE("sweep_choke: the tail blinks at full, thins, and ends", "[sweep_choke
     else if (t > 1.6f) after += lit;
   }
   REQUIRE(bright_only);
-  REQUIRE(mask_dark);
+  REQUIRE(mask_clean);
+  for (int i = 0; i < kCells; ++i) REQUIRE(c.level[i] < 1e-4f);
   REQUIRE(early > 0);
   REQUIRE(late < early);   // same window length, fewer lit segment-frames
   REQUIRE(after == 0);
@@ -266,7 +307,6 @@ TEST_CASE("sweep_choke: the tail blinks at full, thins, and ends", "[sweep_choke
 TEST_CASE("sweep_choke: the tail gathers where the light went out last", "[sweep_choke]") {
   Core c;
   Params p;
-  p.flicker = 0.0f;
   p.bounce = 0.0f;
   p.angle_deg = 90.0f;   // the top goes out last
   p.tail_bias = 1.0f;
@@ -293,7 +333,6 @@ namespace {
 int ringTail(float chunk, std::vector<int>& runs) {
   Core c;
   Params p;
-  p.flicker = 0.0f;
   p.bounce = 0.0f;
   p.glint_gain = 0.0f;
   p.tail_bias = 0.0f;
@@ -346,49 +385,6 @@ TEST_CASE("sweep_choke: Chunk grows the tail's blinks up the bar", "[sweep_choke
   REQUIRE(lit1 < lit0 * 4);
 }
 
-TEST_CASE("sweep_choke: Fade grays the mask as well as moving its edge", "[sweep_choke]") {
-  auto litEnd = [](float fade) {
-    Core c;
-    Params p = still();
-    p.tilt = 1.0f;
-    p.angle_deg = 90.0f;
-    p.fade = fade;
-    park(c, p, 0.86f);
-    return std::pair<float, float>(rowMean(c, kSegments - 1), rowMean(c, 0));
-  };
-  const auto hard = litEnd(0.0f);
-  const auto soft = litEnd(1.0f);
-  REQUIRE(hard.first > 0.99f);         // the far side untouched without it
-  REQUIRE(soft.first < 0.7f);          // gray with it
-  REQUIRE(soft.first > 0.3f);
-  REQUIRE(soft.second < 0.05f);        // and the edge still took the near side
-}
-
-TEST_CASE("sweep_choke: motion in the fade stutters, stillness settles it", "[sweep_choke]") {
-  Core c;
-  Params p;
-  p.latch_drive = 0.0f;
-  p.bounce = 0.0f;
-  p.flicker = 1.0f;
-  p.settle = 0.5f;
-  p.tilt = 0.0f;   // every segment half out together: all of them can stutter
-  park(c, p, 0.5f);
-
-  // Wobble around the middle of the fade.
-  int stutters = 0;
-  for (int i = 0; i < 240; ++i) {
-    p.sweep = 0.86f + 0.01f * std::sin((float)i * 0.3f);
-    c.tick(p, kDt);
-    if (c.liveBlinks() > 0) ++stutters;
-  }
-  REQUIRE(stutters > 0);
-
-  // Park there and wait out the settle many times over.
-  park(c, p, 0.86f, 6.0f);
-  REQUIRE(c.liveBlinks() == 0);
-  for (int i = 1; i < kCells; ++i) REQUIRE_THAT(c.level[i], WithinAbs(c.level[0], 1e-6));
-}
-
 TEST_CASE("sweep_choke: a fast return flashes the bars past full", "[sweep_choke]") {
   Core c;
   Params p = still();
@@ -406,51 +402,6 @@ TEST_CASE("sweep_choke: a fast return flashes the bars past full", "[sweep_choke
   for (int i = 0; i < kCells; ++i) REQUIRE(c.level[i] <= 1.0f);
   park(c, p, 0.5f, 1.0f);
   REQUIRE_THAT(glowMax(c), WithinAbs(0.0f, 1e-6));
-}
-
-TEST_CASE("sweep_choke: One-Way keeps the front travelling one way", "[sweep_choke]") {
-  Params p = still();
-  p.tilt = 1.0f;
-  p.angle_deg = 90.0f;
-  p.side_mode = SideOneWay;
-  auto bottomMinusTop = [](const Core& c) { return rowMean(c, 0) - rowMean(c, kSegments - 1); };
-
-  SECTION("going out, either half: the floor goes first") {
-    for (float x : {0.86f, 0.14f}) {
-      Core c;
-      Params q = p;
-      park(c, q, 0.5f, 0.1f);
-      glide(c, q, x, 0.3f);
-      REQUIRE(bottomMinusTop(c) < -0.5f);
-    }
-  }
-
-  SECTION("coming back in: the floor comes back first") {
-    for (float end : {1.0f, 0.0f}) {
-      Core c;
-      Params q = p;
-      park(c, q, 0.5f, 0.1f);
-      glide(c, q, end, 0.3f);
-      glide(c, q, end > 0.5f ? 0.86f : 0.14f, 0.3f);
-      REQUIRE(bottomMinusTop(c) > 0.5f);
-      // Home again, and out once more: the floor goes first again.
-      glide(c, q, 0.5f, 0.3f);
-      glide(c, q, end > 0.5f ? 0.86f : 0.14f, 0.3f);
-      REQUIRE(bottomMinusTop(c) < -0.5f);
-    }
-  }
-
-  SECTION("reversing mid-fade retraces rather than jumping") {
-    Core c;
-    Params q = p;
-    park(c, q, 0.5f, 0.1f);
-    glide(c, q, 0.86f, 0.3f);
-    float before[kCells];
-    for (int i = 0; i < kCells; ++i) before[i] = c.level[i];
-    glide(c, q, 0.85f, 0.02f);
-    for (int i = 0; i < kCells; ++i) REQUIRE(std::fabs(c.level[i] - before[i]) < 0.2f);
-    REQUIRE(bottomMinusTop(c) < -0.5f);
-  }
 }
 
 TEST_CASE("sweep_choke: a pass throws one glint, always the same way", "[sweep_choke]") {
@@ -549,7 +500,6 @@ TEST_CASE("sweep_choke: glints follow the gradient's angle", "[sweep_choke]") {
 TEST_CASE("sweep_choke: Base shows the mask under the glints", "[sweep_choke]") {
   Core c;
   Params p = still();
-  p.tilt = 1.0f;
   p.base = 1.0f;
   park(c, p, 0.86f);
   for (int i = 0; i < kCells; ++i) REQUIRE_THAT(c.glow[i], WithinAbs(c.level[i], 1e-6));
@@ -603,7 +553,6 @@ TEST_CASE("sweep_choke: a zero-dt tick re-reads position and ages nothing", "[sw
   // ticking still sees where the knob is. That must never advance the tail.
   Core c;
   Params p;
-  p.flicker = 0.0f;
   park(c, p, 0.2f);
   glide(c, p, 1.0f, 0.15f);
   const float rel = c.release;
@@ -615,11 +564,14 @@ TEST_CASE("sweep_choke: a zero-dt tick re-reads position and ages nothing", "[sw
   REQUIRE(c.tail_clock == clock);
   REQUIRE(c.liveBlinks() == blinks);
 
-  // ...and a parked position change shows up without any time passing.
+  // A card first seen parked shows the mask already settled there, even with
+  // no time passing — and after that the mask moves only with time.
   Core d;
   Params q = still();
-  d.tick(q, 0.0f);
   q.sweep = 1.0f;
   d.tick(q, 0.0f);
+  for (int i = 0; i < kCells; ++i) REQUIRE(d.level[i] < 1e-6f);
+  q.sweep = 0.5f;
+  for (int i = 0; i < 10; ++i) d.tick(q, 0.0f);
   for (int i = 0; i < kCells; ++i) REQUIRE(d.level[i] < 1e-6f);
 }
