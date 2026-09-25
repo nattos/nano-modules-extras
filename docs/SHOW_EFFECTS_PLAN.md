@@ -1029,6 +1029,33 @@ adds one tap per up pass (0.252). Halo Gain at 0 skips the chain for ~45% off.
 
 ---
 
+## Four-bar show (no projection)
+
+### source.light.sweep_choke
+
+**One knob that sweeps and chokes the bars.** Three Planes Rig's sweep lifted off the tower and put
+straight onto the rig. The logic is `include/sketch/sweep_choke_core.h`, which is host-free and
+pinned by `tests/native/test_sweep_choke.cpp`. The output is the house 4×10 LED map, drawn by the
+shared `nano_led_bars.hlsl` pass onto `tex_out`.
+
+- **Home** (inside the deadzone): every segment is the solid colour at full.
+- **Out of it**: the fade is a *tilt*. A soft front travels across the grid at `angle` (the way the
+  dark travels, CCW from +x, so 90 rises from the floor), and one side is out while the other is
+  still lit. `tilt` 0 is the rig's even dimmer and 1 is a narrow edge. The Ping-Pong setting of
+  `side_mode` mirrors the direction for the lower half of the knob; Forward keeps it.
+- **Ends**: choke to black.
+- **Throw → tail**: a pass through the middle charges by its vigour, and the charge leaks away.
+  Reaching a choke throws it as `release`, which rings out over `ring_time`. While it rings,
+  segments *blink*, biased toward the side that went out last (`tail_bias`). Blinks toggle, so a
+  dark segment comes up to full and a lit one goes black. They arrive at a constant `tail_rate`,
+  and it is their *length* that the release shortens. The tail thins and sputters rather than
+  dimming, the same idea as three_planes' Strobe throw.
+- **Settle stutter**: motion inside the fade wakes blinks in the half-lit segments, and they die
+  away over `settle` once the knob stops.
+- **Bounce**: a fast return overshoots past full, pushing toward white by `whiten`, then springs back.
+- **Rails**: `speed_out`, `release_out`, `level_out`, `sweep_out`. `sweep_out` can still drive
+  three_planes' glints.
+
 ## Complicator FX (post-process)
 
 *"fx.wave_traveling_down" from the original list was a duplicate of motion-rain — already absorbed into `source.light.motion_blobs` (with `spawn_edge=top, traverse_speed > 0`).*

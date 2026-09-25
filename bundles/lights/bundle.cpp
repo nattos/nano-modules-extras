@@ -28,6 +28,7 @@ NANO_DECLARE_INSTANCE_EFFECT(flicker_grid)
 NANO_DECLARE_INSTANCE_EFFECT(three_planes)
 NANO_DECLARE_INSTANCE_EFFECT(three_walls)
 NANO_DECLARE_INSTANCE_EFFECT(vcr_halo)
+NANO_DECLARE_INSTANCE_EFFECT(sweep_choke)
 
 extern "C" {
 
@@ -215,6 +216,17 @@ void nano_module_main() {
         "glow,bloom,halo,neon,vcr,vhs,dehance,grade,scanline,grain,show",
         "la-lightbulb",
         NANO_INSTANCE_LIFECYCLE(vcr_halo),
+    });
+
+    nano::registerEffect({
+        2,
+        "source.light.sweep_choke",
+        "Sweep Choke",
+        "One knob that sweeps and chokes the four LED bars. Home is a solid colour at full; moving out past a wide deadzone tilts the fade across the 4x10 grid at a set angle — a soft front sliding off one edge first — until either end chokes to black. Ping-Pong mirrors the tilt for the other half of the knob, Forward keeps it. How you swept is what you hear after: a hard pass through the middle charges, and reaching a choke throws it as a flickering tail that rings out on its own clock, blinking segments where the light went out last. The tail thins rather than dims — blinks keep coming at a fixed rate and get shorter until they sputter out. A fast return overshoots past full and springs back, and any motion inside the fade wakes a stutter that settles once the knob stops. Three Planes Rig's sweep, lifted onto the rig; draws the house LED map straight onto its output.",
+        "source",
+        "sweep,choke,knob,gradient,tilt,tail,flicker,led,bar,show",
+        "la-sliders-h",
+        NANO_INSTANCE_LIFECYCLE(sweep_choke),
     });
 }
 

@@ -101,9 +101,9 @@ target_link_libraries(test_sdf_field PRIVATE Catch2::Catch2WithMain)
 catch_discover_tests(test_sdf_field)
 
 # The LED-bar show logic: three_planes' glints and Strobe throw, the house
-# rig's pixel map, three_walls' moves. Each is driven at an exact dt.
+# rig's pixel map, three_walls' moves, sweep_choke's knob. Each is driven at an exact dt.
 foreach(t test_three_planes_glints test_three_planes_strobe test_led_bars
-          test_three_walls_show)
+          test_three_walls_show test_sweep_choke)
   add_executable(${t} ${EXTRAS_TESTS}/${t}.cpp)
   # Ours first (<sketch/led_bars.h>), then nano-modules' src for the shared
   # utilities the SDK also ships (<sketch/knob_rate.h>).
