@@ -8,9 +8,12 @@
  * <sketch/sweep_choke_core.h>, host-free so the goldens can drive it at an exact
  * dt; this file is the schema, the patch plumbing and one small pass.
  *
- * The output IS the house rig's pixel map — four bars, ten segments, flat
- * blocks — drawn by the shared nano_led_bars.hlsl pass straight onto tex_out.
- * It is a control signal, so it is opaque and ignores the input.
+ * Two outputs, both the house rig's pixel map — four bars, ten segments, flat
+ * blocks — drawn by the shared nano_led_bars.hlsl pass. `tex_out` is what the
+ * bars show: the glints and the bounce's flash, over an optional base.
+ * `mask_out` is the tilt itself, gray, for choking and revealing other
+ * effects; it is only drawn while something is wired to it. Both are control
+ * signals, so they are opaque and ignore the input.
  */
 
 #include <gpu.h>
@@ -42,6 +45,9 @@ struct State {
 
   bool initialized = false;
   gpu::Buffer led_buf;
+  gpu::Buffer mask_buf;
+  gpu::Texture mask_tex;
+  int mask_w = 0, mask_h = 0;
 };
 
 static gpu::ComputePSO s_pso;
@@ -66,27 +72,30 @@ void module_init() {
         "## Sweep Choke\n"
         "One knob that sweeps and chokes the four LED bars. Map **Sweep** to a "
         "bipolar MIDI knob and perform it.\n\n"
-        "Parked in the middle, the bars are one **solid colour at full**. Move "
-        "out past the deadzone and the fade does not dim evenly: a soft front "
-        "travels across the grid at **Angle**, so one side goes out before the "
-        "other and the light tilts. Keep going and the tilt slides off into "
+        "**Two outputs.** The bars show the **gesture**: every pass through "
+        "the middle throws a **glint** across the grid at the speed you moved, "
+        "always the same way whichever way you went, gliding on for a moment "
+        "after you stop. Come back in fast and the whole grid **flashes** past "
+        "full and springs back. Past full, a segment blows out toward white.\n\n"
+        "**Mask** is the **position**, in gray, for choking and revealing "
+        "other effects. Parked in the middle it is white. Out past the "
+        "deadzone a soft front travels across the grid at **Angle**, so one "
+        "side goes out before the other; keep going and it slides off into "
         "black at either end — the **choke**.\n\n"
         "**How you swept is what you hear afterwards.** A hard pass through "
         "the middle charges; reaching a choke throws that charge as a "
-        "flickering tail that rings out on its own clock, gathered where the "
-        "light went out last. Sweep straight back and the grid relights over a "
-        "tail still running. Come back in fast and the light overshoots and "
-        "springs back.\n\n"
-        "**Try:** *Angle* 90 and Ping-Pong, then rock the knob to the beat — "
-        "the dark rises from the floor one way and falls from the top the "
-        "other. Crank *Tilt* for a hard edge, drop it to 0 for a plain dimmer.")
+        "flickering tail in the mask, gathered where the light went out last, "
+        "and slings the glints off with it.\n\n"
+        "**Try:** *Sides* One-Way and *Angle* 90, *Base* at 0.3, then rock the "
+        "knob to the beat — glints and the front both keep climbing, in and "
+        "out.")
 
       // ---------------- Sweep ----------------
       .group("sweep", "Sweep")
         .groupHelp(
           "**Sweep** is the knob; the rest shape what it does. **Deadzone** is "
           "how much of each half stays fully lit — ride inside it without "
-          "touching the look. **Depth** is how far the ends go; below full the "
+          "touching the mask. Entering it is what launches a glint. **Depth** is how far the ends go; below full the "
           "ends never choke, so nothing is thrown. **Sensitivity** and "
           "**Motion Decay** set how the knob's speed is read, which is what "
           "charges a throw.")
@@ -119,22 +128,27 @@ void module_init() {
       // ---------------- Gradient ----------------
       .group("gradient", "Gradient")
         .groupHelp(
-          "The shape of the fade. **Angle** is the way the dark travels across "
-          "the grid, counter-clockwise from left-to-right: 90 rises from the "
-          "floor, 0 sweeps left to right. **Sides** decides the other half of "
-          "the knob — **Ping-Pong** mirrors it, so which way you turned shows "
-          "in the light; **Forward** keeps one direction. **Tilt** is how much "
-          "of a front it is: 0 dims every segment together, 1 is a narrow "
-          "edge.")
+          "The shape of the fade, as the mask shows it. **Angle** is the way "
+          "the dark travels across the grid, counter-clockwise from "
+          "left-to-right: 90 rises from the floor, 0 sweeps left to right. "
+          "**Sides** decides the rest: **Ping-Pong** mirrors it for the other "
+          "half of the knob, so which way you turned shows in the light; "
+          "**Forward** keeps one direction; **One-Way** keeps the front "
+          "moving the same way coming back in too — the light returns from "
+          "the side that went out first, like a glint. It turns round only at "
+          "the ends, so reversing mid-fade retraces. **Tilt** is how much of a "
+          "front it is: 0 dims every segment together, 1 is a narrow edge.")
       .floatField("angle", 90.f, 0.f, 360.f, state::PrimaryInput,
                   nullptr, 0.f, nullptr,
                   "Direction the dark travels, degrees CCW from +x.")
         .label("Angle", "Ang")
       .selectField("side_mode", sweep_choke_core::SidePingPong, state::PrimaryInput,
                    {{"Ping-Pong", sweep_choke_core::SidePingPong},
-                    {"Forward", sweep_choke_core::SideForward}}, false,
+                    {"Forward", sweep_choke_core::SideForward},
+                    {"One-Way", sweep_choke_core::SideOneWay}}, false,
                    "Ping-Pong mirrors the angle for the lower half of the "
-                   "knob; Forward uses the same angle both ways.")
+                   "knob; Forward uses the same angle both ways; One-Way "
+                   "keeps the front travelling along the angle in and out.")
         .label("Sides", "Sides")
       .floatField("tilt", 0.6f, 0.f, 1.f, state::PrimaryInput,
                   nullptr, 0.f, nullptr,
@@ -143,20 +157,75 @@ void module_init() {
 
       // ---------------- Light ----------------
       .group("light", "Light")
+        .groupHelp(
+          "What the bars show. **Base** puts the mask under the glints, in "
+          "colour — 0 leaves the bars black between gestures, 1 is the full "
+          "tilt. **Bounce** is the flash coming back in fast; **Overdrive "
+          "White** is how far anything past full — a bright glint, a hard "
+          "bounce — blows out toward white.")
       .rgbField("color", 1.00f, 0.22f, 0.62f, state::PrimaryInput)
         .label("Colour", "Col")
       .floatField("intensity", 1.0f, 0.f, 2.f, state::PrimaryInput,
                   nullptr, 0.f, nullptr, "Overall output level.")
         .label("Intensity", "Int")
+      .floatField("base", 0.0f, 0.f, 1.f, state::PrimaryInput,
+                  nullptr, 0.f, nullptr,
+                  "How much of the mask the bars show under the glints.")
+        .label("Base", "Base")
       .floatField("bounce", 0.55f, 0.f, 1.f, state::PrimaryInput,
                   nullptr, 0.f, nullptr,
-                  "Coming back in fast, the light runs ahead of your hand, past "
-                  "full, and springs back. How far. Inward only.")
+                  "Coming back in fast, the grid flashes ahead of your hand, "
+                  "past full, and springs back. How hard. Inward only.")
         .label("Bounce", "Bnce")
       .floatField("whiten", 0.6f, 0.f, 1.f, state::SecondaryInput,
                   nullptr, 0.f, nullptr,
-                  "How far the bounce's overshoot pushes toward white.")
+                  "How far anything past full pushes toward white.")
         .label("Overdrive White", "White")
+
+      // ---------------- Glint ----------------
+      .group("glint", "Glint")
+        .groupHelp(
+          "Three Planes' glints, on the bars. **The glint is the gesture**: "
+          "each time the knob enters the deadzone one launches, and at *Ratio* "
+          "1 a steady sweep across the whole knob carries it across the whole "
+          "grid in the same time. Which way you moved is thrown away — they "
+          "always travel along **Angle** — and once launched only their speed "
+          "follows the knob. Stop and they glide on, shrinking and dimming.\n\n"
+          "Sweep hard and **Chaos** adds small ones underneath. A throw holds "
+          "them at full while its tail rings, and **Sling** is how hard it "
+          "hurries them off. **Shadow** is the dark wake behind each one, "
+          "which only shows on a *Base*.")
+      .floatField("glint_ratio", 1.0f, 0.f, 4.f, state::PrimaryInput,
+                  nullptr, 0.f, nullptr,
+                  "Crossings of the grid per full range of the knob.")
+        .label("Ratio", "Ratio")
+      .floatField("glint_chaos", 4.0f, 0.f, 16.f, state::PrimaryInput,
+                  nullptr, 0.f, "/s",
+                  "Small extra glints per second, once the sweep is brisk. 0 "
+                  "leaves one clean glint per pass.")
+        .label("Chaos", "Chaos")
+      .floatField("glint_gain", 1.6f, 0.f, 4.f, state::PrimaryInput,
+                  nullptr, 0.f, nullptr,
+                  "A glint's peak. Past 1 it blows out toward white.")
+        .label("Glint Gain", "Gain")
+      .floatField("glint_shadow", 0.55f, 0.f, 1.f, state::PrimaryInput,
+                  nullptr, 0.f, nullptr,
+                  "The dark wake trailing each glint, on the base.")
+        .label("Shadow", "Shadow")
+      .floatField("glint_angle", 90.f, 0.f, 360.f, state::PrimaryInput,
+                  nullptr, 0.f, "deg",
+                  "Which way glints travel, CCW from +x. 90 climbs the bars.")
+        .label("Glint Angle", "GlAng")
+      .floatField("glint_width", 0.1f, 0.02f, 0.5f, state::SecondaryInput,
+                  nullptr, 0.f, nullptr,
+                  "Half-width, as a fraction of the grid it crosses. Small is "
+                  "a hard slash, large a soft sheen.")
+        .label("Glint Width", "GlWid")
+      .floatField("glint_sling", 1.0f, 0.f, 1.f, state::SecondaryInput,
+                  nullptr, 0.f, nullptr,
+                  "How much a throw speeds the glints off. 0 holds them and "
+                  "lets them drift.")
+        .label("Sling", "Sling")
 
       // ---------------- Tail ----------------
       .group("tail", "Tail")
@@ -225,7 +294,7 @@ void module_init() {
                   "falling to 0 across the ring-out.")
         .label("Release", "Rel")
       .floatField("level_out", 1.f, 0.f, 1.f, state::PrimaryOutput, "unsigned",
-                  0.f, nullptr, "Mean segment level.")
+                  0.f, nullptr, "Mean level of the mask.")
         .label("Level", "Lvl")
       .floatField("sweep_out", 0.5f, 0.f, 1.f, state::PrimaryOutput, "unsigned",
                   0.f, nullptr, "The knob, passed through — wire it to Three "
@@ -233,6 +302,7 @@ void module_init() {
         .label("Sweep Out", "SwOut")
       .textureField("tex_in",  state::PrimaryInput)
       .textureField("tex_out", state::PrimaryOutput)
+      .textureField("mask_out", state::SecondaryOutput)
 
       .capability(state::Capability::Generator)
       .capability(state::Capability::ModulationSource)
@@ -253,6 +323,7 @@ void module_init() {
 void* create() {
   auto* s = new State();
   s->led_buf = gpu::Device::createBuffer(sizeof(LedUniforms), gpu::BufferUsage::Uniform);
+  s->mask_buf = gpu::Device::createBuffer(sizeof(LedUniforms), gpu::BufferUsage::Uniform);
   return s;
 }
 
@@ -260,6 +331,8 @@ void destroy(void* self) {
   auto* s = static_cast<State*>(self);
   if (!s) return;
   s->led_buf.release();
+  s->mask_buf.release();
+  s->mask_tex.release();
   delete s;
 }
 
@@ -268,7 +341,7 @@ void init(void* self) {
   if (!s) return;
   s->core.reset();
   s->initialized = false;
-  if (!s_pso.valid() || !s->led_buf.valid()) return;
+  if (!s_pso.valid() || !s->led_buf.valid() || !s->mask_buf.valid()) return;
   s->initialized = true;
 }
 
@@ -310,6 +383,14 @@ void on_state_patched(void* self, int n, const char* pb, const int* off,
     else if (state::pathIs(path, l, "tail_bias"))    p.tail_bias = state::patchFloat(i);
     else if (state::pathIs(path, l, "flicker"))      p.flicker = state::patchFloat(i);
     else if (state::pathIs(path, l, "settle"))       p.settle = state::patchFloat(i);
+    else if (state::pathIs(path, l, "base"))         p.base = state::patchFloat(i);
+    else if (state::pathIs(path, l, "glint_ratio"))  p.glint_ratio = state::patchFloat(i);
+    else if (state::pathIs(path, l, "glint_chaos"))  p.glint_chaos = state::patchFloat(i);
+    else if (state::pathIs(path, l, "glint_gain"))   p.glint_gain = state::patchFloat(i);
+    else if (state::pathIs(path, l, "glint_shadow")) p.glint_shadow = state::patchFloat(i);
+    else if (state::pathIs(path, l, "glint_angle"))  p.glint_angle = state::patchFloat(i);
+    else if (state::pathIs(path, l, "glint_width"))  p.glint_width = state::patchFloat(i);
+    else if (state::pathIs(path, l, "glint_sling"))  p.glint_sling = state::patchFloat(i);
     else if (state::pathIs(path, l, "color")) {
       auto v = state::patchVec3(i);
       s->color[0] = v.x; s->color[1] = v.y; s->color[2] = v.z;
@@ -333,24 +414,39 @@ void render(void* self, int vp_w, int vp_h) {
   s->core.tick(s->p, 0.0f);
   publishRails(*s);
 
-  const led_bars::Cells cells =
-      sweep_choke_core::toCells(s->core, s->color, s->intensity, s->whiten);
-  LedUniforms u = {};
-  for (int i = 0; i < led_bars::kCells; i++) {
-    u.cell[i][0] = cells.rgb[i][0];
-    u.cell[i][1] = cells.rgb[i][1];
-    u.cell[i][2] = cells.rgb[i][2];
-    u.cell[i][3] = 1.0f;
-  }
-  u.ctl[0] = s->quantize ? 1.0f : 0.0f;
-  s->led_buf.writeOne(u);
+  const float quant = s->quantize ? 1.0f : 0.0f;
+  auto draw = [&](gpu::Buffer& buf, const gpu::Texture& tex, const led_bars::Cells& cells) {
+    LedUniforms u = {};
+    for (int i = 0; i < led_bars::kCells; i++) {
+      u.cell[i][0] = cells.rgb[i][0];
+      u.cell[i][1] = cells.rgb[i][1];
+      u.cell[i][2] = cells.rgb[i][2];
+      u.cell[i][3] = 1.0f;
+    }
+    u.ctl[0] = quant;
+    buf.writeOne(u);
+    auto cp = gpu::ComputePass::begin();
+    cp.setPSO(s_pso);
+    cp.setTexture(tex, 0, 1);
+    cp.setBuffer(buf, 1);
+    cp.dispatch((vp_w + 7) / 8, (vp_h + 7) / 8);
+    cp.end();
+  };
 
-  auto cp = gpu::ComputePass::begin();
-  cp.setPSO(s_pso);
-  cp.setTexture(out, 0, 1);
-  cp.setBuffer(s->led_buf, 1);
-  cp.dispatch((vp_w + 7) / 8, (vp_h + 7) / 8);
-  cp.end();
+  draw(s->led_buf, out,
+       sweep_choke_core::toCells(s->core, s->color, s->intensity, s->whiten));
+
+  // The mask, only while something is listening to it.
+  if (state::isOutputConnected("mask_out")) {
+    if (!s->mask_tex.valid() || s->mask_w != vp_w || s->mask_h != vp_h) {
+      s->mask_tex.release();
+      s->mask_tex = gpu::Device::createTexture(vp_w, vp_h);
+      s->mask_w = vp_w;
+      s->mask_h = vp_h;
+      if (s->mask_tex.valid()) state::setGpuTexture("mask_out", s->mask_tex.id);
+    }
+    if (s->mask_tex.valid()) draw(s->mask_buf, s->mask_tex, sweep_choke_core::maskCells(s->core));
+  }
 
   gpu::Device::submit();
 }

@@ -23,7 +23,8 @@
  *
  * Which edge goes first when the knob goes the OTHER way is a choice
  * (`side_mode`): Ping-Pong mirrors it, so the knob's direction shows up in the
- * light; Forward keeps one direction, so only distance from centre matters.
+ * light; Forward keeps one direction, so only distance from centre matters;
+ * One-Way (below) keeps the front travelling one way in AND out.
  *
  * THE TAIL. Reaching the choke with a charge spends it as `release`, which
  * rings out linearly over `ring_time` — and while it rings, segments BLINK.
@@ -38,6 +39,29 @@
  * black. So a tail still ringing after you sweep straight back in shows as
  * holes punched in the relit grid, and is never lost under it.
  *
+ * TWO PICTURES. The tilt, the tail and the stutter are `level` — 0..1 per
+ * segment, and what the effect publishes as a GRAYSCALE MASK for other
+ * effects to be choked and revealed by. What the bars themselves show is
+ * `glow`: the GESTURE rather than the position —
+ *
+ *   GLINTS, three_planes_glints.h whole: one launched each time the knob enters
+ *   the middle band, travelling at the knob's own speed, always the same way
+ *   across the grid whichever way the knob went, gliding on after it stops and
+ *   puttering out; chaos ones under a brisk sweep; held and slung by a throw.
+ *   A glint is pure overdrive — past 1 a segment pushes toward white.
+ *
+ *   THE BOUNCE, as a flash: coming back in fast, the whole grid overshoots and
+ *   springs back.
+ *
+ *   A BASE, optional: the mask itself at `base`, which the glints' dark wake
+ *   shades as they pass. 0 leaves the bars black between gestures.
+ *
+ * ONE-WAY. The third `side_mode`, and the tilt's answer to a glint: the front
+ * always travels toward +axis. Going out the dark chases it; coming back in,
+ * the light does, re-entering from the side that went out FIRST. Which way it
+ * runs flips only at the ends — at the choke and back in the deadzone — where
+ * both ways agree, so it never jumps. Reverse mid-fade and it retraces.
+ *
  * Host-free, like three_planes_glints.h and three_planes_strobe.h: no effect
  * ABI, no GPU, so the Catch2 goldens drive the whole thing at an exact dt.
  */
@@ -46,6 +70,7 @@
 
 #include <sketch/knob_rate.h>
 #include <sketch/led_bars.h>
+#include <sketch/three_planes_glints.h>
 
 namespace sweep_choke_core {
 
@@ -69,9 +94,25 @@ constexpr float kBounceFreq = 60.0f;   ///< rad/s
 constexpr float kBounceDamp = 0.30f;   ///< zeta
 constexpr float kBounceStep = 0.008f;  ///< integrator sub-step, s
 
-/// How far a segment may be driven past full, for the bounce to overshoot
-/// into. The effect spends the headroom as a push toward white.
+/// How far past full a segment's glow is read: from 1 to here it pushes toward
+/// white, and beyond it is simply white. What the bounce and the glints
+/// overshoot into.
 constexpr float kLevelMax = 1.5f;
+
+/// The bounce as the bars show it. It is a lead over the knob in LEVEL units —
+/// a hard return is worth a few tenths — and on black that is a timid flash,
+/// so it is scaled up to where a hard return reaches full and a slammed one
+/// blows out.
+constexpr float kBounceFlash = 4.0f;
+
+/// A glint's reach either side of its centre, in half-widths — nano_glint.hlsl's
+/// super-Gaussian core has died by 1.5, the wake trailing it by 5.5. Sizes the
+/// margins it is born and retired in, as three_planes does.
+constexpr float kGlintSkirt = 1.5f;
+constexpr float kGlintWakeReach = 5.5f;
+/// nano_glint.hlsl's wake: offset behind the core and width, in half-widths.
+constexpr float kGlintWake = 1.5f;
+constexpr float kGlintWakeW = 1.8f;
 
 /// The stutter's wake, in knob ranges per second: any motion past this re-arms
 /// it outright. Well under one MIDI step per rate window. See the rig.
@@ -89,7 +130,7 @@ constexpr float kSpread = 2.0f;
 /// Blink slots. Enough for a dense tail and a stutter at once.
 constexpr int kMaxBlinks = 16;
 
-enum SideMode { SidePingPong = 0, SideForward = 1 };
+enum SideMode { SidePingPong = 0, SideForward = 1, SideOneWay = 2 };
 
 /// Read fresh each tick — a wire may be moving any of it.
 struct Params {
@@ -116,6 +157,16 @@ struct Params {
   float tail_duty = 2.0f;     ///< blink length at full release, in launch intervals
   float tail_density = 2.5f;  ///< segments per launch
   float tail_bias = 0.75f;    ///< 0 anywhere .. 1 only where the light went out last
+
+  // --- The glow: what the bars show ---------------------------------------
+  float base = 0.0f;          ///< the mask shown under the glints, 0..1
+  float glint_ratio = 1.0f;   ///< crossings of the grid per knob range
+  float glint_chaos = 4.0f;   ///< small extra glints per second, sweeping hard
+  float glint_gain = 1.6f;    ///< a glint's peak drive; past 1 is toward white
+  float glint_shadow = 0.55f; ///< the wake's depth, on the base
+  float glint_angle = 90.0f;  ///< which way glints travel, CCW from +x
+  float glint_width = 0.1f;   ///< half-width, as a fraction of one crossing
+  float glint_sling = 1.0f;   ///< how far a throw hurries them off
 };
 
 /// One segment mid-blink. It holds its segment at `to` (blended by
@@ -193,14 +244,23 @@ struct Core {
   float bounce = 0.0f;
   float bounce_v = 0.0f;
 
+  /// One-Way only: the knob is on its way back IN, so the front is the light
+  /// returning rather than the dark leaving. Latched at the ends.
+  bool inbound = false;
+
+  three_planes_glints::Core glints;
+
   float tail_clock = 0.0f;  ///< launches owed, fractional
   float settle_t = 0.0f;    ///< seconds to the next stutter blink
   Blink blinks[kMaxBlinks];
   unsigned rng = 0x9e3779b9u;
 
   // --- This frame ---------------------------------------------------------
-  /// Drive per segment, 0..kLevelMax. The effect turns it into colour.
+  /// The mask per segment, 0..1: tilt, tail and stutter.
   float level[kCells] = {};
+  /// What the bars show per segment, 0.. (past 1 pushes toward white).
+  float glow[kCells] = {};
+  float glint_axis[kCells] = {};  ///< each segment on the glints' travel axis
   float axis[kCells] = {};  ///< this frame's axis, already mirrored for the side
   float mean_level = 1.0f;
   float sweep_out = kSweepCenter;
@@ -242,10 +302,16 @@ struct Core {
     // --- 2. The axis for this side of the knob, and the positional gains.
     float base_axis[kCells];
     axisCoords(p.angle_deg, base_axis);
-    const bool flip = p.side_mode == SidePingPong && sw < kSweepCenter;
+    const float prog = fadeProgress(p, sw);
+    // One-Way turns round only where both directions agree: fully out, or
+    // fully home. So it can never jump mid-fade.
+    if (prog >= 1.0f - 1e-4f) inbound = true;
+    else if (prog <= 0.0f) inbound = false;
+    const bool flip = p.side_mode == SideOneWay
+                          ? inbound
+                          : (p.side_mode == SidePingPong && sw < kSweepCenter);
     for (int i = 0; i < kCells; ++i) axis[i] = flip ? 1.0f - base_axis[i] : base_axis[i];
 
-    const float prog = fadeProgress(p, sw);
     float gain[kCells];
     float brightest = 0.0f, sum = 0.0f;
     for (int i = 0; i < kCells; ++i) {
@@ -256,8 +322,9 @@ struct Core {
     const float mean = sum / (float)kCells;
 
     // --- 2a. THE BOUNCE, as in the rig: the secant of the (mean) dimmer across
-    //         the rate window drives a stiff spring, inward only. It lifts the
-    //         whole grid, ahead of the hand, past full, and springs back.
+    //         the rate window drives a stiff spring, inward only. The bars
+    //         show it as a flash over the whole grid that springs back (step
+    //         7); the mask never sees it — a mask has nothing past full.
     float target = 0.0f;
     if (rate.last_span > 1e-6f) {
       const float from = meanGain(p, clamp01(rate.last_from), base_axis);
@@ -308,6 +375,25 @@ struct Core {
     if (release > 0.0f && !fresh_throw) {
       release -= dt / (p.ring_time > 1e-3f ? p.ring_time : 1e-3f);
       if (release < 0.0f) release = 0.0f;
+    }
+
+    // --- 2c. THE GLINTS, three_planes' own particles: launched entering the
+    //         middle band (the deadzone, so a glint leaves as the grid comes
+    //         back to full), at the knob's speed, always toward +axis. A throw
+    //         holds them and, by `glint_sling`, hurries them off.
+    {
+      three_planes_glints::Params gp;
+      gp.sweep = sw;
+      gp.band = clamp01(p.deadzone);
+      gp.ratio = p.glint_ratio;
+      gp.chaos = p.glint_chaos;
+      gp.fling = release;
+      gp.sling = p.glint_sling;
+      const float w = (p.glint_width > 1e-3f ? p.glint_width : 1e-3f) *
+                      three_planes_glints::kMaxWidthFactor;
+      gp.lead = kGlintSkirt * w;
+      gp.trail = kGlintWakeReach * w;
+      glints.tick(gp, dt);
     }
 
     // --- 3. Age the blinks. One that runs out mid-frame is simply gone.
@@ -371,10 +457,10 @@ struct Core {
       }
     }
 
-    // --- 6. The frame. Position and bounce first, then the blinks toggle
-    //        against it: a dark segment comes up to full, a lit one goes out.
+    // --- 6. The mask. Position first, then the blinks toggle against it: a
+    //        dark segment comes up to full, a lit one goes out.
     float lsum = 0.0f;
-    for (int i = 0; i < kCells; ++i) level[i] = clampf(gain[i] + bounce, 0.0f, kLevelMax);
+    for (int i = 0; i < kCells; ++i) level[i] = gain[i];
     for (int i = 0; i < kMaxBlinks; ++i) {
       const Blink& b = blinks[i];
       if (!b.live) continue;
@@ -384,6 +470,29 @@ struct Core {
     }
     for (int i = 0; i < kCells; ++i) lsum += level[i];
     mean_level = lsum / (float)kCells;
+
+    // --- 7. The glow. The base (the mask, shaded by the glints' wakes), the
+    //        bounce's flash, and the glint cores on top — additive, so they
+    //        land on black as well as on a lit grid.
+    axisCoords(p.glint_angle, glint_axis);
+    const float bw = p.glint_width > 1e-3f ? p.glint_width : 1e-3f;
+    const float flash = bounce > 0.0f ? bounce * kBounceFlash : 0.0f;
+    const float bl = clamp01(p.base);
+    const float gg = p.glint_gain > 0.0f ? p.glint_gain : 0.0f;
+    const float gs = clamp01(p.glint_shadow);
+    for (int i = 0; i < kCells; ++i) {
+      float core = 0.0f, wake = 0.0f;
+      for (int g = 0; g < three_planes_glints::kMaxLive; ++g) {
+        const three_planes_glints::Glint& gl = glints.glints[g];
+        if (!gl.live) continue;
+        const float d = (glint_axis[i] - gl.pos) / (bw * gl.drawWidth());
+        const float k = (d + kGlintWake) / kGlintWakeW;
+        core += gg * gl.drawGain() * std::exp(-d * d * d * d);
+        wake += gs * gl.drawShade() * std::exp(-k * k);
+      }
+      const float shade = wake < 1.0f ? 1.0f - wake : 0.0f;
+      glow[i] = bl * level[i] * shade + flash + core;
+    }
   }
 
  private:
@@ -451,23 +560,31 @@ struct Core {
   }
 };
 
-/// Colour a frame for the LED map. Up to 1 a segment is `rgb * level`; the
-/// bounce's headroom above that pushes toward white by `whiten`, which is what
-/// an overdriven LED looks like.
+/// Colour a frame for the LED map. Up to 1 a segment is `rgb * glow`; above
+/// it the overdrive pushes toward white by `whiten`, which is what an
+/// overdriven LED looks like.
 inline led_bars::Cells toCells(const Core& c, const float rgb[3], float intensity,
                                float whiten) {
   led_bars::Cells out;
   const float in = intensity > 0.0f ? intensity : 0.0f;
   const float w = clamp01(whiten);
   for (int i = 0; i < kCells; ++i) {
-    const float l = c.level[i];
+    const float l = c.glow[i];
     const float base = l < 1.0f ? l : 1.0f;
-    const float over = l > 1.0f ? (l - 1.0f) / (kLevelMax - 1.0f) : 0.0f;
+    const float over = clamp01((l - 1.0f) / (kLevelMax - 1.0f));
     for (int k = 0; k < 3; ++k) {
       const float v = rgb[k] * base;
       out.rgb[i][k] = (v + (1.0f - v) * over * w) * in;
     }
   }
+  return out;
+}
+
+/// The mask, gray: each segment's level on every channel.
+inline led_bars::Cells maskCells(const Core& c) {
+  led_bars::Cells out;
+  for (int i = 0; i < kCells; ++i)
+    for (int k = 0; k < 3; ++k) out.rgb[i][k] = clamp01(c.level[i]);
   return out;
 }
 

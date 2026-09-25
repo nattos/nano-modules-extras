@@ -12,7 +12,10 @@
 //   * Ping-Pong mirrors the tilt for the other half of the knob, Forward not;
 //   * a hard pass into a choke throws a tail; a crawl does not;
 //   * the tail thins rather than dims, and ends;
-//   * motion in the fade stutters, and stillness settles it.
+//   * motion in the fade stutters, and stillness settles it;
+//   * One-Way keeps the front travelling the same way in and out;
+//   * the bars show glints — one per pass, always the same way, gliding on
+//     after the knob stops — and the bounce as a flash; past full is white.
 
 #include "sketch/sweep_choke_core.h"
 
@@ -57,6 +60,27 @@ void glide(Core& c, Params& p, float to, float seconds) {
 
 float cell(const Core& c, int bar, int seg) { return c.level[led_bars::cellIndex(bar, seg)]; }
 
+float glowRow(const Core& c, int seg) {
+  float s = 0.0f;
+  for (int b = 0; b < kBars; ++b) s += c.glow[led_bars::cellIndex(b, seg)];
+  return s / kBars;
+}
+
+float glowMax(const Core& c) {
+  float m = 0.0f;
+  for (int i = 0; i < kCells; ++i) m = c.glow[i] > m ? c.glow[i] : m;
+  return m;
+}
+
+/// The segment row the glow is brightest on, or -1 if the bars are dark.
+int glowPeakRow(const Core& c) {
+  int best = -1;
+  float m = 1e-3f;
+  for (int k = 0; k < kSegments; ++k)
+    if (glowRow(c, k) > m) { m = glowRow(c, k); best = k; }
+  return best;
+}
+
 float barMean(const Core& c, int bar) {
   float s = 0.0f;
   for (int k = 0; k < kSegments; ++k) s += cell(c, bar, k);
@@ -76,7 +100,12 @@ TEST_CASE("sweep_choke: home is every segment at full", "[sweep_choke]") {
   Params p = still();
   park(c, p, 0.5f);
   for (int i = 0; i < kCells; ++i) REQUIRE_THAT(c.level[i], WithinAbs(1.0f, 1e-6));
+  // The bars are dark between gestures by default...
+  for (int i = 0; i < kCells; ++i) REQUIRE_THAT(c.glow[i], WithinAbs(0.0f, 1e-6));
 
+  // ...and at full Base they are the solid colour.
+  p.base = 1.0f;
+  c.tick(p, 0.0f);
   const float rgb[3] = {1.0f, 0.2f, 0.6f};
   const auto cells = toCells(c, rgb, 1.0f, 0.6f);
   for (int i = 0; i < kCells; ++i) {
@@ -273,20 +302,146 @@ TEST_CASE("sweep_choke: motion in the fade stutters, stillness settles it", "[sw
   for (int i = 1; i < kCells; ++i) REQUIRE_THAT(c.level[i], WithinAbs(c.level[0], 1e-6));
 }
 
-TEST_CASE("sweep_choke: a fast return overshoots past full", "[sweep_choke]") {
+TEST_CASE("sweep_choke: a fast return flashes the bars past full", "[sweep_choke]") {
   Core c;
   Params p = still();
   p.bounce = 1.0f;
+  p.glint_gain = 0.0f;   // the flash alone, not the glint the return launches
   park(c, p, 1.0f);
   float peak = 0.0f;
   glide(c, p, 0.5f, 0.06f);
   for (int i = 0; i < 60; ++i) {
     c.tick(p, kDt);
-    if (c.mean_level > peak) peak = c.mean_level;
+    if (glowMax(c) > peak) peak = glowMax(c);
   }
   REQUIRE(peak > 1.0f);
+  // And the mask never sees it: nothing past full there.
+  for (int i = 0; i < kCells; ++i) REQUIRE(c.level[i] <= 1.0f);
   park(c, p, 0.5f, 1.0f);
-  REQUIRE_THAT(c.mean_level, WithinAbs(1.0f, 1e-6));
+  REQUIRE_THAT(glowMax(c), WithinAbs(0.0f, 1e-6));
+}
+
+TEST_CASE("sweep_choke: One-Way keeps the front travelling one way", "[sweep_choke]") {
+  Params p = still();
+  p.tilt = 1.0f;
+  p.angle_deg = 90.0f;
+  p.side_mode = SideOneWay;
+  auto bottomMinusTop = [](const Core& c) { return rowMean(c, 0) - rowMean(c, kSegments - 1); };
+
+  SECTION("going out, either half: the floor goes first") {
+    for (float x : {0.86f, 0.14f}) {
+      Core c;
+      Params q = p;
+      park(c, q, 0.5f, 0.1f);
+      glide(c, q, x, 0.3f);
+      REQUIRE(bottomMinusTop(c) < -0.5f);
+    }
+  }
+
+  SECTION("coming back in: the floor comes back first") {
+    for (float end : {1.0f, 0.0f}) {
+      Core c;
+      Params q = p;
+      park(c, q, 0.5f, 0.1f);
+      glide(c, q, end, 0.3f);
+      glide(c, q, end > 0.5f ? 0.86f : 0.14f, 0.3f);
+      REQUIRE(bottomMinusTop(c) > 0.5f);
+      // Home again, and out once more: the floor goes first again.
+      glide(c, q, 0.5f, 0.3f);
+      glide(c, q, end > 0.5f ? 0.86f : 0.14f, 0.3f);
+      REQUIRE(bottomMinusTop(c) < -0.5f);
+    }
+  }
+
+  SECTION("reversing mid-fade retraces rather than jumping") {
+    Core c;
+    Params q = p;
+    park(c, q, 0.5f, 0.1f);
+    glide(c, q, 0.86f, 0.3f);
+    float before[kCells];
+    for (int i = 0; i < kCells; ++i) before[i] = c.level[i];
+    glide(c, q, 0.85f, 0.02f);
+    for (int i = 0; i < kCells; ++i) REQUIRE(std::fabs(c.level[i] - before[i]) < 0.2f);
+    REQUIRE(bottomMinusTop(c) < -0.5f);
+  }
+}
+
+TEST_CASE("sweep_choke: a pass throws one glint, always the same way", "[sweep_choke]") {
+  for (float from : {1.0f, 0.0f}) {
+    Core c;
+    Params p = still();
+    p.glint_chaos = 0.0f;
+    p.glint_angle = 90.0f;
+    park(c, p, from);
+    REQUIRE(glowMax(c) < 1e-6f);
+    // One steady traverse from the end to the far side of the middle.
+    glide(c, p, 1.0f - from, 1.0f);
+    REQUIRE(c.glints.launches == 1u);
+    // Wherever it has got to, it climbed: follow the peak row frame by frame.
+    Core d;
+    Params q = still();
+    q.glint_chaos = 0.0f;
+    q.glint_angle = 90.0f;
+    park(d, q, from);
+    q.sweep = from;
+    int last = -1, climbs = 0, falls = 0;
+    const int n = (int)std::ceil(1.0f / kDt);
+    for (int i = 1; i <= n; ++i) {
+      q.sweep = from + ((1.0f - from) - from) * (float)i / (float)n;
+      d.tick(q, kDt);
+      const int r = glowPeakRow(d);
+      if (r >= 0 && last >= 0) {
+        if (r > last) ++climbs;
+        if (r < last) ++falls;
+      }
+      if (r >= 0) last = r;
+    }
+    REQUIRE(climbs >= 5);
+    REQUIRE(falls == 0);
+  }
+}
+
+TEST_CASE("sweep_choke: a glint glides on after the knob stops, then goes out", "[sweep_choke]") {
+  Core c;
+  Params p = still();
+  p.glint_chaos = 0.0f;
+  park(c, p, 1.0f);
+  glide(c, p, 0.5f, 0.3f);   // stop dead in the middle, just after the launch
+  REQUIRE(c.glints.liveCount() == 1);
+  park(c, p, 0.5f, 0.1f);
+  REQUIRE(c.glints.liveCount() == 1);
+  REQUIRE(glowMax(c) > 0.1f);
+  park(c, p, 0.5f, 3.0f);
+  REQUIRE(c.glints.liveCount() == 0);
+  REQUIRE(glowMax(c) < 1e-6f);
+}
+
+TEST_CASE("sweep_choke: Base shows the mask under the glints", "[sweep_choke]") {
+  Core c;
+  Params p = still();
+  p.tilt = 1.0f;
+  p.base = 1.0f;
+  park(c, p, 0.86f);
+  for (int i = 0; i < kCells; ++i) REQUIRE_THAT(c.glow[i], WithinAbs(c.level[i], 1e-6));
+  p.base = 0.25f;
+  c.tick(p, 0.0f);
+  for (int i = 0; i < kCells; ++i) REQUIRE_THAT(c.glow[i], WithinAbs(0.25f * c.level[i], 1e-6));
+}
+
+TEST_CASE("sweep_choke: past full blows out toward white; the mask is gray", "[sweep_choke]") {
+  Core c;
+  for (int i = 0; i < kCells; ++i) { c.glow[i] = 0.0f; c.level[i] = 0.25f; }
+  c.glow[0] = 0.5f;
+  c.glow[1] = 1.0f;
+  c.glow[2] = kLevelMax;
+  const float rgb[3] = {1.0f, 0.0f, 0.5f};
+  const auto out = toCells(c, rgb, 1.0f, 1.0f);
+  REQUIRE_THAT(out.rgb[0][1], WithinAbs(0.0f, 1e-6));
+  REQUIRE_THAT(out.rgb[0][2], WithinAbs(0.25f, 1e-6));
+  REQUIRE_THAT(out.rgb[1][2], WithinAbs(0.5f, 1e-6));
+  for (int k = 0; k < 3; ++k) REQUIRE_THAT(out.rgb[2][k], WithinAbs(1.0f, 1e-6));
+  const auto m = maskCells(c);
+  for (int k = 0; k < 3; ++k) REQUIRE_THAT(m.rgb[5][k], WithinAbs(0.25f, 1e-6));
 }
 
 TEST_CASE("sweep_choke: a NaN knob holds the middle", "[sweep_choke]") {

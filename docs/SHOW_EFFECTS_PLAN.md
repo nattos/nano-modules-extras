@@ -1034,15 +1034,23 @@ adds one tap per up pass (0.252). Halo Gain at 0 skips the chain for ~45% off.
 ### source.light.sweep_choke
 
 **One knob that sweeps and chokes the bars.** Three Planes Rig's sweep lifted off the tower and put
-straight onto the rig. The logic is `include/sketch/sweep_choke_core.h`, which is host-free and
-pinned by `tests/native/test_sweep_choke.cpp`. The output is the house 4×10 LED map, drawn by the
-shared `nano_led_bars.hlsl` pass onto `tex_out`.
+straight onto the rig, with Three Planes' glints. The logic is `include/sketch/sweep_choke_core.h`, which is host-free and
+pinned by `tests/native/test_sweep_choke.cpp`. It has two outputs, both the house 4×10 LED map, drawn by the
+shared `nano_led_bars.hlsl` pass:
+- `tex_out` is what the bars show: the gesture.
+- `mask_out` is the position, in gray, for choking and revealing other effects. It is drawn only while wired.
 
-- **Home** (inside the deadzone): every segment is the solid colour at full.
+**The mask** (`level`, 0..1):
+- **Home** (inside the deadzone): every segment is white.
 - **Out of it**: the fade is a *tilt*. A soft front travels across the grid at `angle` (the way the
   dark travels, CCW from +x, so 90 rises from the floor), and one side is out while the other is
-  still lit. `tilt` 0 is the rig's even dimmer and 1 is a narrow edge. The Ping-Pong setting of
-  `side_mode` mirrors the direction for the lower half of the knob; Forward keeps it.
+  still lit. `tilt` 0 is the rig's even dimmer and 1 is a narrow edge.
+- **`side_mode`**:
+  - Ping-Pong mirrors the direction for the lower half of the knob.
+  - Forward keeps it.
+  - One-Way keeps the front travelling along `angle` coming back in as well: the light returns from the side that went out first.
+    - The direction flips only at the ends (full choke, and back in the deadzone), where both directions agree, so it never jumps.
+    - Reversing mid-fade retraces.
 - **Ends**: choke to black.
 - **Throw → tail**: a pass through the middle charges by its vigour, and the charge leaks away.
   Reaching a choke throws it as `release`, which rings out over `ring_time`. While it rings,
@@ -1052,9 +1060,18 @@ shared `nano_led_bars.hlsl` pass onto `tex_out`.
   dimming, the same idea as three_planes' Strobe throw.
 - **Settle stutter**: motion inside the fade wakes blinks in the half-lit segments, and they die
   away over `settle` once the knob stops.
-- **Bounce**: a fast return overshoots past full, pushing toward white by `whiten`, then springs back.
-- **Rails**: `speed_out`, `release_out`, `level_out`, `sweep_out`. `sweep_out` can still drive
-  three_planes' glints.
+
+**The bars** (`glow`, 0 and up; past 1 pushes toward white by `whiten`):
+- **Glints**: `three_planes_glints.h`, whole.
+  - One launches each time the knob enters the deadzone, travelling at the knob's speed × `glint_ratio` crossings per second.
+  - It always runs along `glint_angle`, whichever way the knob moved.
+  - It glides on after the knob stops, then putters out.
+  - Chaos glints come in under a brisk sweep.
+  - A throw holds them, and `glint_sling` hurries them off.
+  - The core is additive at `glint_gain`, a super-Gaussian as in `nano_glint.hlsl`, so the default 1.6 blows out.
+- **Bounce**: a fast return flashes the whole grid (the rig's spring × `kBounceFlash`) and springs back.
+- **Base**: the mask in colour at `base` (default 0), shaded by the glints' wakes (`glint_shadow`).
+- **Rails**: `speed_out`, `release_out`, `level_out` (the mask's mean), `sweep_out`.
 
 ### filter.light.bounce_resonator
 

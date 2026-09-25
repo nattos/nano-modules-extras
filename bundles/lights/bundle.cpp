@@ -235,9 +235,9 @@ void nano_module_main() {
         2,
         "source.light.sweep_choke",
         "Sweep Choke",
-        "One knob that sweeps and chokes the four LED bars. Home is a solid colour at full; moving out past a wide deadzone tilts the fade across the 4x10 grid at a set angle — a soft front sliding off one edge first — until either end chokes to black. Ping-Pong mirrors the tilt for the other half of the knob, Forward keeps it. How you swept is what you hear after: a hard pass through the middle charges, and reaching a choke throws it as a flickering tail that rings out on its own clock, blinking segments where the light went out last. The tail thins rather than dims — blinks keep coming at a fixed rate and get shorter until they sputter out. A fast return overshoots past full and springs back, and any motion inside the fade wakes a stutter that settles once the knob stops. Three Planes Rig's sweep, lifted onto the rig; draws the house LED map straight onto its output.",
+        "One knob that sweeps and chokes the four LED bars, with two outputs. The bars show the GESTURE: every pass through the middle throws a glint across the grid at the speed you moved, always the same way whichever way you went, gliding on after you stop and puttering out; a hard sweep adds small chaos glints, and a fast return flashes the whole grid past full. Past full blows out toward white. The Mask output is the POSITION in gray, for choking and revealing other effects: white at home, a tilted fade across the 4x10 grid past a wide deadzone, black at either end. Ping-Pong mirrors the tilt for the other half of the knob, Forward keeps it, One-Way keeps the front travelling the same way in and out. A hard pass through the middle charges, and reaching a choke throws it: a flickering tail in the mask that thins rather than dims, and the glints slung off with it. Three Planes Rig's sweep and Three Planes' glints, lifted onto the rig.",
         "source",
-        "sweep,choke,knob,gradient,tilt,tail,flicker,led,bar,show",
+        "sweep,choke,knob,gradient,tilt,tail,flicker,glint,mask,led,bar,show",
         "la-sliders-h",
         NANO_INSTANCE_LIFECYCLE(sweep_choke),
     });

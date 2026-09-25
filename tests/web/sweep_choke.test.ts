@@ -1,4 +1,6 @@
 import { runGpuTest, runGpuEffectTest, forEachBackend } from '@nano/web/test/gpu-test-helpers';
+import { runEngineTest } from '@nano/web/test/engine-test-helpers';
+import type { Sketch } from '@nano/web/src/sketch-types';
 
 /**
  * `source.light.sweep_choke` — one knob that sweeps and chokes the LED bars.
@@ -7,7 +9,10 @@ import { runGpuTest, runGpuEffectTest, forEachBackend } from '@nano/web/test/gpu
  * pinned host-free in native/tests/test_sweep_choke.cpp, on the same header
  * the effect calls. What only a real render can show is here: that the map
  * lands on the texture the right way up and round, as flat blocks, at the
- * colour asked for.
+ * colour asked for — and that the gray mask reaches `mask_out`.
+ *
+ * The bars show the gesture (glints, the bounce's flash), which a parked knob
+ * never makes, so the position tests put the mask on the bars with Base 1.
  *
  * The knob is PARKED from the first frame in every case. knob_rate seeds at
  * wherever the knob already is, so a stored value is never read as motion —
@@ -32,7 +37,7 @@ describe(`Sweep Choke (${backend})`, () => {
       bundle: 'lights',
       width: W, height: H,
       inputColor: [0.3, 0.3, 0.3, 1.0],
-      params: [['color', [1.0, 0.0, 0.5]], ...params],
+      params: [['color', [1.0, 0.0, 0.5]], ['base', 1.0], ...params],
       dumpName,
     });
 
@@ -44,6 +49,14 @@ describe(`Sweep Choke (${backend})`, () => {
     });
     expect(frame.success).toBe(true);
     expect(frame.metadata?.id).toBe('source.light.sweep_choke');
+  });
+
+  it('parked, the bars are dark by default: they show the gesture, not the position', async () => {
+    const frame = await render('sweep_choke_dark_home', [['sweep', 0.5], ['base', 0.0]]);
+    expect(frame.success).toBe(true);
+    for (let bar = 0; bar < 4; bar++)
+      for (const seg of [0, 5, 9])
+        frame.expectPixelAt(colOfBar(bar), rowOfSegment(seg), { r: 0, g: 0, b: 0, a: 255 }, 2);
   });
 
   it('home is the solid colour on every segment, over any input', async () => {
@@ -111,4 +124,57 @@ describe(`Sweep Choke (${backend})`, () => {
     }
   });
 });
+});
+
+// mask_out, through a sidechannel: wiring it into the send's `send_in` makes
+// the bus carry the mask, and the receive REPLACES the stage output with it.
+describe('Sweep Choke mask_out (engine path)', () => {
+  jest.setTimeout(60000);
+
+  const run = (id: string, params: Record<string, unknown>) => runEngineTest({
+    width: W, height: H,
+    modules: ['com.nano.lights', 'com.nano.core'],
+    commands: [
+      { type: 'createSketch', sketchId: id, sketch: {
+        anchor: null,
+        wires: [{ id: 'mw', src: { instanceKey: 'sc@0', field: 'mask_out' },
+                  dest: { instanceKey: 'send@0', field: 'send_in' } }],
+        chain: [
+          { type: 'module', module_type: 'source.light.sweep_choke', instance_key: 'sc@0',
+            params: { color: [1.0, 0.0, 0.5], ...params } },
+          { type: 'module', module_type: 'util.sidechannel_out', instance_key: 'send@0',
+            params: { channel: 5 } },
+          { type: 'module', module_type: 'util.sidechannel_in', instance_key: 'recv@0',
+            params: { channel: 5 } },
+        ],
+      } as Sketch },
+      { type: 'setTracePoints', tracePoints: [
+        { id: 'out', target: { type: 'sketch_output', sketchId: id } },
+      ]},
+    ],
+    waitFrames: 20,
+    captureTraceIds: ['out'],
+    dumpName: `sweep_choke_${id}`,
+  });
+
+  it('home is a white mask, whatever the bars are doing', async () => {
+    const r = await run('mask_home', { sweep: 0.5 });
+    expect(r.success).toBe(true);
+    for (let bar = 0; bar < 4; bar++)
+      for (const seg of [0, 5, 9])
+        r.trace('out').expectPixelAt(colOfBar(bar), rowOfSegment(seg), { r: 255, g: 255, b: 255 }, 3);
+  });
+
+  it('in the fade the mask is the tilt, in gray', async () => {
+    const r = await run('mask_tilt', { sweep: 0.86, angle: 90, tilt: 1.0 });
+    expect(r.success).toBe(true);
+    const bottom = r.trace('out').pixelAt(colOfBar(1), rowOfSegment(0));
+    const top = r.trace('out').pixelAt(colOfBar(1), rowOfSegment(9));
+    expect(bottom.r).toBeLessThan(40);
+    expect(top.r).toBeGreaterThan(200);
+    for (const px of [bottom, top, r.trace('out').pixelAt(colOfBar(2), rowOfSegment(5))]) {
+      expect(Math.abs(px.r - px.g)).toBeLessThanOrEqual(1);
+      expect(Math.abs(px.r - px.b)).toBeLessThanOrEqual(1);
+    }
+  });
 });
