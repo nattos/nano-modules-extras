@@ -67,6 +67,13 @@ compile_shaders_compute_var_spv ember_tone render
 _emit_spv_header_var ember_tone hist analyze render
 echo "  ember_tone shaders compiled (SPV: hist + analyze + render)"
 
+# bar_scatter: per-cell reduce + history ring -> co-trigger sim -> composite.
+compile_shaders_compute_var_spv bar_scatter reduce
+compile_shaders_compute_var_spv bar_scatter sim
+compile_shaders_compute_var_spv bar_scatter render
+_emit_spv_header_var bar_scatter reduce sim render
+echo "  bar_scatter shaders compiled (SPV: reduce + sim + render)"
+
 # soft_glow has two compute shaders — color (rgba8) and motion
 # (rgba16f). Separate variants because naga substitutes one storage-
 # texture format per shader module.
@@ -162,6 +169,7 @@ wasm_build \
   $NANO_EFFECTS_ROOT/three_walls/main.cpp \
   $NANO_EFFECTS_ROOT/vcr_halo/main.cpp \
   $NANO_EFFECTS_ROOT/sweep_choke/main.cpp \
-  $NANO_EFFECTS_ROOT/ember_tone/main.cpp
+  $NANO_EFFECTS_ROOT/ember_tone/main.cpp \
+  $NANO_EFFECTS_ROOT/bar_scatter/main.cpp
 
 echo "Built: $OUT_DIR/$MODULE_NAME.wasm ($(wc -c < "$OUT_DIR/$MODULE_NAME.wasm")B)"

@@ -31,6 +31,7 @@ NANO_DECLARE_INSTANCE_EFFECT(three_walls)
 NANO_DECLARE_INSTANCE_EFFECT(vcr_halo)
 NANO_DECLARE_INSTANCE_EFFECT(sweep_choke)
 NANO_DECLARE_INSTANCE_EFFECT(ember_tone)
+NANO_DECLARE_INSTANCE_EFFECT(bar_scatter)
 
 extern "C" {
 
@@ -252,6 +253,17 @@ void nano_module_main() {
         "color,grade,lut,duotone,colorize,warm,saturation",
         "la-fire",
         NANO_INSTANCE_LIFECYCLE(ember_tone),
+    });
+
+    nano::registerEffect({
+        2,
+        "filter.light.bar_scatter",
+        "Bar Scatter",
+        "Contrast between the four LED bars. When several bars flash at once, each is at random let through, choked (only its new light held back, then released) or delayed (shown from a moment ago, the delayed bars staggered a step apart), so one big flash lands as a spread of separate hits; one bar always gets through. Strength sets the odds, Tilt leans them toward the outer pair or the centre pair, and Delay Share splits the hits between choke and delay. Zones cuts each bar into bands that decide separately, from one decision per bar to one per segment.",
+        "filter",
+        "led,bar,choke,delay,stagger,contrast,flash",
+        "la-random",
+        NANO_INSTANCE_LIFECYCLE(bar_scatter),
     });
 }
 

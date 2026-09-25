@@ -1096,6 +1096,32 @@ The dedicated "fx" version of `source.light.bounce_resonator`: a passive reverb 
 - **Hop cap.** There is at most one hop per rendered frame, and `cycle_rate` runs to 120. At or past the frame rate, a low spread flips the energy cell to cell every frame, giving a solid strobe.
 - **GPU passes.** State is GPU-resident across three passes: reduce (one thread per cell), sim (a single thread: hop, excite, A/C) and a full-resolution composite.
 
+### filter.light.bar_scatter — "Bar Scatter" *(built)*
+
+**Contrast between the bars.** When several bars flash together (a whole-screen hit), they read as one blob. Bar Scatter breaks the blob into separate hits. Each co-triggering bar is, at random, passed, **choked** or **delayed**. It lives in `effects/bar_scatter/`, and uses the same reduce → single-thread sim → full-res composite as `filter.light.bounce_resonator`. The state stays on the GPU, because a readback's frame or two of latency would let each flash leak through before its choke landed.
+
+- **Bands, not whole bars.** The bars have ~10 cells.
+  - `zones` cuts each bar into bands, and each band across the four bars is its own co-trigger group. 1, the default, means one decision per bar; at `rows`, every segment decides.
+  - A cell's onset is its luma above a floor follower, which drops at once and climbs back over 0.15 s. A sudden jump reads at full size and a fade-in reads ~0.
+  - A band's onset is the **mean** over its cells. It fires above `sensitivity` and re-arms below half of it.
+  - A reset zeroes the reference, so an image arriving is itself a flash.
+- **Co-trigger.**
+  - A band row rolls when at least `min_bars` of its bars fired within `window` s.
+  - Bars firing on the same frame roll together.
+  - For a near-miss, the first bar has already shown. Only the later bars roll.
+- **The roll.**
+  - **Probability:** `p = strength · (1 − tilt · c)`, where `c` is +1 for the centre pair and −1 for the outer pair. So Tilt +1 always passes the centre, and −1 always passes the outer pair.
+  - **Choke or delay:** a hit is a delay with probability `delay_share`, and otherwise a choke.
+  - **The survivor:** if every bar in the event would be hit, the one least likely to be hit passes, so the flash always lands somewhere.
+  - **Busy bars:** a bar already mid-effect keeps its fate. A choke restarts its hold.
+  - **Randomness:** seeded by `seed`, the frame and the band.
+- **Choke.** It removes only light that is new since the flash: `live − depth · g · max(live − pre-flash, 0)`. It is held for `choke_length`, then released over `choke_release`. Cells that didn't flash are untouched.
+- **Delay.**
+  - **The ring:** a 64-slot colour history per cell, about 1 s at 60 fps. Slots are timestamped on the CPU, and reads interpolate between slots. A slot never written reads as black.
+  - **The stagger:** the delayed bars of one event are staggered 1, 2, 3 × `delay_step`, in shuffled order, each nudged by `delay_jitter`.
+  - **The return:** once the flash has played, the bar rejoins live as soon as the delayed and live pictures agree (within 0.02). Otherwise, after `delay_hold`, the lag decays over `return_time`, and the read head fast-forwards.
+- **Composite.** `out = in + (proc − live)` per cell, so an untouched cell passes exactly and the detail inside a cell survives.
+
 ## Complicator FX (post-process)
 
 *"fx.wave_traveling_down" from the original list was a duplicate of motion-rain — already absorbed into `source.light.motion_blobs` (with `spawn_edge=top, traverse_speed > 0`).*
