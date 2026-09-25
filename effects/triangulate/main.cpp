@@ -384,8 +384,8 @@ static void seed_pool(State* s) {
 
 // Mode-dependent parameter visibility (style guide §0). Every field is always in
 // the schema; we just hide the ones the active mode/view can't use.
-static void apply_visibility(const State* s) {
-  const bool mesh = (s->debug_view == 0);   // the mesh is only drawn when debug is off
+static void apply_visibility(int debug_view, int scoring_mode) {
+  const bool mesh = (debug_view == 0);   // the mesh is only drawn when debug is off
   state::setFieldHidden("line_width",     !mesh);
   state::setFieldHidden("line_color",     !mesh);
   state::setFieldHidden("feature_color",  !mesh);
@@ -394,8 +394,9 @@ static void apply_visibility(const State* s) {
   state::setFieldHidden("bg_mode",        !mesh);
   // `confidence` is the takeover deadband for the relaxation modes; Ridge Protect
   // (mode 0) relaxes to a fixed-gate centroid and never reads it.
-  state::setFieldHidden("confidence",     s->scoring_mode == 0);
+  state::setFieldHidden("confidence",     scoring_mode == 0);
 }
+static void apply_visibility(const State* s) { apply_visibility(s->debug_view, s->scoring_mode); }
 
 static void on_state_ready(void* self) {
   auto* s = static_cast<State*>(self);
@@ -746,6 +747,24 @@ void render(void* self, int vp_w, int vp_h) {
 
   gpu::Device::submit();
   s->frame++;
+}
+
+// Static visibility (EffectDesc_v2.eval_visibility): the same rule, from the
+// saved state alone, for an editor with no live instance to ask (Remote Control
+// connected to Resolume, an arrangement clip off the playhead). A field the
+// state doesn't carry takes its schema default.
+void eval_visibility(int n, const char* pb, const int* off, const int* len,
+                     const int* ops) {
+  int debug_view = 0;
+  int scoring_mode = 0;
+  for (int i = 0; i < n; i++) {
+    if (ops[i] != state::PatchReplace) continue;
+    const char* p = pb + off[i];
+    const int l = len[i];
+    if      (state::pathIs(p, l, "debug_view"))   debug_view = state::patchInt(i);
+    else if (state::pathIs(p, l, "scoring_mode")) scoring_mode = state::patchInt(i);
+  }
+  apply_visibility(debug_view, scoring_mode);
 }
 
 } // namespace triangulate

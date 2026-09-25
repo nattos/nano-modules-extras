@@ -274,11 +274,12 @@ struct State {
   double water_t = 0.0;     // free-running caustic clock (ignores Sync)
 };
 
-static void apply_visibility(State* s) {
-  state::setFieldHidden("speed", s->sync != SYNC_FREE);
-  state::setFieldHidden("bars", s->sync != SYNC_BARS);
-  state::setFieldHidden("arc", s->motion != MOTION_ARC);
+static void apply_visibility(int sync, int motion) {
+  state::setFieldHidden("speed", sync != SYNC_FREE);
+  state::setFieldHidden("bars", sync != SYNC_BARS);
+  state::setFieldHidden("arc", motion != MOTION_ARC);
 }
+static void apply_visibility(const State* s) { apply_visibility(s->sync, s->motion); }
 
 static void on_state_ready(void* self) {
   auto* s = static_cast<State*>(self);
@@ -1033,6 +1034,24 @@ void render(void* self, int vp_w, int vp_h) {
 
 void on_resolume_param(void* self, long long param_id, double value) {
   (void)self; (void)param_id; (void)value;
+}
+
+// Static visibility (EffectDesc_v2.eval_visibility): the same rule, from the
+// saved state alone, for an editor with no live instance to ask (Remote Control
+// connected to Resolume, an arrangement clip off the playhead). A field the
+// state doesn't carry takes its schema default.
+void eval_visibility(int n, const char* pb, const int* off, const int* len,
+                     const int* ops) {
+  int sync = SYNC_FREE;
+  int motion = MOTION_ARC;
+  for (int i = 0; i < n; i++) {
+    if (ops[i] != state::PatchReplace) continue;
+    const char* p = pb + off[i];
+    const int l = len[i];
+    if      (state::pathIs(p, l, "sync"))   sync = state::patchInt(i);
+    else if (state::pathIs(p, l, "motion")) motion = state::patchInt(i);
+  }
+  apply_visibility(sync, motion);
 }
 
 } // namespace monolith

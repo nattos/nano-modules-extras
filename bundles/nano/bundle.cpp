@@ -226,6 +226,7 @@ void nano_module_main() {
         "triangulation,delaunay,voronoi,mesh,topology,ridges,stippling,jfa,gpu,stylize",
         "la-draw-polygon",
         NANO_INSTANCE_LIFECYCLE(triangulate),
+        nullptr, nullptr, nullptr, &triangulate::eval_visibility,
     });
 
     nano::registerEffect({
@@ -318,6 +319,7 @@ void nano_module_main() {
         "simulant,feedback,difference,blur,diffusion,reaction,lines,edge,sobel,flicker,contour,growth,resolume,wire",
         "la-water",
         NANO_INSTANCE_LIFECYCLE(simulant),
+        nullptr, nullptr, nullptr, &simulant::eval_visibility,
     });
 
     nano::registerEffect({
@@ -388,6 +390,7 @@ void nano_module_main() {
         "generator,3d,mesh,monolith,pyramid,tetrahedron,glass,reflection,env,fresnel,fog,godrays,rotate,tumble,concentric,2001,massive",
         "la-cube",
         NANO_INSTANCE_LIFECYCLE(monolith),
+        nullptr, nullptr, nullptr, &monolith::eval_visibility,
     });
 
     nano::registerEffect({

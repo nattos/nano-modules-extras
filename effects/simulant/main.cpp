@@ -147,13 +147,16 @@ static gpu::ComputePSO s_pso_lines;
 
 // Context-dependent fields: Dilate Decay only in Dilate mode; the flicker-mask
 // shape controls only when the mask is engaged.
-static void apply_visibility(const State* s) {
-  state::setFieldHidden("spread_decay", s->spread_mode != 1);
-  bool mask_off = s->mask_amount <= 0.0f;
+static void apply_visibility(int spread_mode, float mask_amount) {
+  state::setFieldHidden("spread_decay", spread_mode != 1);
+  bool mask_off = mask_amount <= 0.0f;
   state::setFieldHidden("mask_shape",    mask_off);
   state::setFieldHidden("mask_radius",   mask_off);
   state::setFieldHidden("mask_softness", mask_off);
   state::setFieldHidden("mask_position", mask_off);
+}
+static void apply_visibility(const State* s) {
+  apply_visibility(s->spread_mode, s->mask_amount);
 }
 
 // Fires once after init + the initial state replay: set visibility from the
@@ -644,6 +647,24 @@ void render(void* self, int vp_w, int vp_h) {
 
   s->cur = wr;
   gpu::Device::submit();
+}
+
+// Static visibility (EffectDesc_v2.eval_visibility): the same rule, from the
+// saved state alone, for an editor with no live instance to ask (Remote Control
+// connected to Resolume, an arrangement clip off the playhead). A field the
+// state doesn't carry takes its schema default.
+void eval_visibility(int n, const char* pb, const int* off, const int* len,
+                     const int* ops) {
+  int spread_mode = 0;
+  float mask_amount = 0.0f;
+  for (int i = 0; i < n; i++) {
+    if (ops[i] != state::PatchReplace) continue;
+    const char* p = pb + off[i];
+    const int l = len[i];
+    if      (state::pathIs(p, l, "spread_mode")) spread_mode = state::patchInt(i);
+    else if (state::pathIs(p, l, "mask_amount")) mask_amount = state::patchFloat(i);
+  }
+  apply_visibility(spread_mode, mask_amount);
 }
 
 } // namespace simulant

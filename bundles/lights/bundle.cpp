@@ -204,6 +204,7 @@ void nano_module_main() {
         "isometric,neon,vcr,glow,stack,layer,sdf,show,meter,glimmer,glint",
         "la-layer-group",
         NANO_INSTANCE_LIFECYCLE(three_planes),
+        nullptr, nullptr, nullptr, &three_planes::eval_visibility,
     });
 
     // The frontal companion to three_planes: the same neon-quad motif pointed

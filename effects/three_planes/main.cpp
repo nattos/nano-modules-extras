@@ -347,8 +347,8 @@ static void projectPlanes(State& s) {
 
 // The two throw modes have disjoint controls and nothing to say about each
 // other's, so a card only ever shows the one it is in.
-static void applyModeVisibility(const State* s) {
-  const bool strobe = s->release_mode == kModeStrobe;
+static void applyModeVisibility(int release_mode) {
+  const bool strobe = release_mode == kModeStrobe;
   state::setFieldHidden("release_expand", strobe);
   state::setFieldHidden("release_gain",   strobe);
   state::setFieldHidden("release_blur",   strobe);
@@ -360,6 +360,7 @@ static void applyModeVisibility(const State* s) {
   // `release_contrast` belongs to both: it is the rule about two bright things
   // in one place, and Strobe puts them there by construction.
 }
+static void applyModeVisibility(const State* s) { applyModeVisibility(s->release_mode); }
 
 // Fires once after init and the initial state replay, so a restored card never
 // flashes the other mode's fields.
@@ -1739,6 +1740,20 @@ void render(void* self, int vp_w, int vp_h) {
   renderWalls(s, vp_w, vp_h, u, grow, opened);
 
   gpu::Device::submit();
+}
+
+// Static visibility (EffectDesc_v2.eval_visibility): the same rule, from the
+// saved state alone, for an editor with no live instance to ask (Remote Control
+// connected to Resolume, an arrangement clip off the playhead). A field the
+// state doesn't carry takes its schema default.
+void eval_visibility(int n, const char* pb, const int* off, const int* len,
+                     const int* ops) {
+  int release_mode = kModeGrow;
+  for (int i = 0; i < n; i++) {
+    if (ops[i] != state::PatchReplace) continue;
+    if (state::pathIs(pb + off[i], len[i], "release_mode")) release_mode = state::patchInt(i);
+  }
+  applyModeVisibility(release_mode);
 }
 
 } // namespace three_planes
