@@ -228,3 +228,66 @@ TEST_CASE("sweep_gradient: deterministic, and a NaN knob holds the middle", "[sw
   CHECK_THAT(c.sweep_out, WithinAbs(0.5f, 1e-6f));
   CHECK(minLevel(c) > 0.99f);
 }
+
+TEST_CASE("sweep_gradient: the knob's level never shapes the wave", "[sweep_gradient]") {
+  // The same gesture fired over a knob at home, dimmed, and at either end:
+  // frame for frame, the whole envelope, the grid is identical.
+  Params p;
+  p.trig_side = TrigUpper;
+  const float knobs[] = {0.5f, 0.8f, 0.0f, 1.0f};
+  Core ref;
+  Core c[3];
+  p.sweep = knobs[0];
+  run(ref, p, 1.0f);
+  for (int k = 0; k < 3; ++k) { Params q = p; q.sweep = knobs[k + 1]; run(c[k], q, 1.0f); }
+  ref.fire();
+  for (Core& x : c) x.fire();
+  int frames = 0;
+  while (true) {
+    p.sweep = knobs[0];
+    ref.tick(p, kDt);
+    for (int k = 0; k < 3; ++k) { Params q = p; q.sweep = knobs[k + 1]; c[k].tick(q, kDt); }
+    if (!ref.active()) break;
+    ++frames;
+    for (int k = 0; k < 3; ++k)
+      for (int i = 0; i < kCells; ++i) REQUIRE_THAT(c[k].level[i], WithinAbs(ref.level[i], 1e-6f));
+  }
+  CHECK(frames > 60);
+}
+
+TEST_CASE("sweep_gradient: a trigger shows its whole wave from either end", "[sweep_gradient]") {
+  for (const float knob : {0.0f, 1.0f}) {
+    Params p;
+    p.trig_side = TrigUpper;
+    p.sweep = knob;
+    Core c;
+    run(c, p, 1.0f);
+    REQUIRE(c.mean_level < 1e-3f);
+
+    c.fire();
+    c.tick(p, kDt);
+    // It takes the grid over: lit, from the first frame.
+    CHECK(minLevel(c) > 0.99f);
+    // The choke rolls up the bars...
+    run(c, p, 0.2f);
+    CHECK(rowMean(c, 0) < 0.5f);
+    CHECK(rowMean(c, 9) > rowMean(c, 0) + 0.3f);
+    // ...and back: full again before the knob takes over.
+    // The top goes out behind the bottom, then both come back up — the top
+    // too, before the knob's black is let back in.
+    float bottom = 0.0f, top = 0.0f;
+    bool top_dark = false;
+    while (c.active()) {
+      c.tick(p, kDt);
+      bottom = rowMean(c, 0) > bottom ? rowMean(c, 0) : bottom;
+      if (rowMean(c, 9) < 0.3f) top_dark = true;
+      if (top_dark) top = rowMean(c, 9) > top ? rowMean(c, 9) : top;
+    }
+    CHECK(top_dark);
+    CHECK(bottom > 0.95f);
+    CHECK(top > 0.8f);
+    // Then the knob's black rolls back in.
+    run(c, p, 2.0f);
+    CHECK(c.mean_level < 1e-3f);
+  }
+}

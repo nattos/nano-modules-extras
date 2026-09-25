@@ -13,14 +13,17 @@
  *
  * THE TRIGGER plays a sweep gesture: a virtual knob, out from home toward one
  * end (`reach` of the way) over `attack`, held for `hold`, and back home over
- * `release`. It goes through the same deadzone, depth and Ping-Pong rules as
+ * `release`, then kept at home while that return rolls across the grid. It
+ * goes through the same deadzone, depth and Ping-Pong rules as
  * the real knob, so a trigger is a sweep you did not have to perform.
  *
- * MONOPHONIC. While the envelope runs it owns the sweep and the knob is
- * ignored; when it ends the knob takes back over. Either handover is only a
- * change of level, so it rolls and softens like any other — nothing cuts. A
- * retrigger restarts the attack from wherever the envelope already is, so a
- * fast run of triggers never jumps.
+ * MONOPHONIC. A fire takes the grid over outright: it cuts straight to the
+ * gesture's own starting picture (home, full), so the wave that follows is
+ * the same wherever the knob sits — the knob's level neither rolls through it
+ * nor dims it. While the envelope runs the knob is ignored; when it ends the
+ * knob takes back over, and that handover is only a change of level, so it
+ * rolls and softens like any other. A retrigger mid-gesture restarts the
+ * attack from wherever the envelope already is, so a fast run never jumps.
  *
  * Host-free: no effect ABI, no GPU, so the Catch2 goldens drive it at an exact
  * dt.
@@ -110,7 +113,7 @@ inline float positionLevel(const Params& p, float sweep) {
 
 struct Core {
   // --- The envelope --------------------------------------------------------
-  enum Stage { Idle = 0, Attack, Hold, Release };
+  enum Stage { Idle = 0, Attack, Hold, Release, Settle };
   int stage = Idle;
   float env = 0.0f;         ///< 0..1, how far out the gesture is
   float stage_t = 0.0f;     ///< s into the current stage
@@ -151,6 +154,17 @@ struct Core {
     //        current value, so a retrigger mid-gesture never jumps.
     if (pending && dt > 0.0f) {
       pending = false;
+      // From rest, the gesture takes the grid over outright: history and
+      // every segment start from its own picture, home, so the wave is all
+      // gesture — nothing of the knob's level rolls through it or is eased
+      // from. (Mid-gesture it is already the gesture's; carry on.)
+      if (!active() && seeded) {
+        const float home = positionLevel(p, kSweepCenter);
+        hist_count = 1;
+        hist_t[hist_head] = clock;
+        hist_v[hist_head] = home;
+        for (int i = 0; i < kCells; ++i) level[i] = home;
+      }
       side = pickSide(p.trig_side);
       ++fires;
       stage = Attack;
@@ -218,13 +232,25 @@ struct Core {
         const float need = h - stage_t;
         if (t < need) { stage_t += t; t = 0.0f; }
         else { t -= need > 0.0f ? need : 0.0f; stage = Release; stage_t = 0.0f; }
-      } else {   // Release
+      } else if (stage == Release) {
         const float r = p.release > 1e-4f ? p.release : 1e-4f;
         const float need = env * r;
         if (t < need) { env -= t / r; t = 0.0f; }
-        else { t -= need; env = 0.0f; stage = Idle; stage_t = 0.0f; }
+        else { t -= need; env = 0.0f; stage = Settle; stage_t = 0.0f; }
+      } else {   // Settle: home, until the light has rolled back across
+        const float need = settleTime(p) - stage_t;
+        if (t < need) { stage_t += t; t = 0.0f; }
+        else { t -= need > 0.0f ? need : 0.0f; stage = Idle; stage_t = 0.0f; }
       }
     }
+  }
+
+  /// Back home, the far side is still `roll` behind and each segment still
+  /// easing: the gesture keeps the grid that long, so its wave plays out whole
+  /// before the knob's level rolls back in.
+  static float settleTime(const Params& p) {
+    const float s = p.soften > 0.0f ? p.soften : 0.0f;
+    return clampf(p.roll, 0.0f, kMaxRoll) + 2.0f * s;
   }
 
   float pickSide(int mode) {

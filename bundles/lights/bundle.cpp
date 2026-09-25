@@ -249,7 +249,7 @@ void nano_module_main() {
         2,
         "source.light.sweep_gradient",
         "Sweep Gradient",
-        "Sweep Choke's rolling gradient on its own: the four LED bars in one colour, dimmed by a knob or by a trigger. The knob is full in the middle and dims past a wide deadzone to black at either end, always settling solid at its level; only a change is a gradient, rolling across the 4x10 grid at a set angle over Roll seconds, softened. A Gate, Trigger or Auto fire plays the same thing as a gesture - out toward an end (Upper, Lower, Alternate or Random) over Attack, held, and back over Release. Monophonic: the gesture owns the bars while it runs, a new fire picks up from where it is, and the knob takes back over when it ends.",
+        "Sweep Choke's rolling gradient on its own: the four LED bars in one colour, dimmed by a knob or by a trigger. The knob is full in the middle and dims past a wide deadzone to black at either end, always settling solid at its level; only a change is a gradient, rolling across the 4x10 grid at a set angle over Roll seconds, softened. A Gate, Trigger or Auto fire plays the same thing as a gesture - out toward an end (Upper, Lower, Alternate or Random) over Attack, held, and back over Release. Monophonic: a fire takes the bars over outright, so the wave plays the same whatever the knob is doing; a new fire picks up from where it is, and the knob's level rolls back in once the gesture's return has crossed the grid.",
         "source",
         "sweep,gradient,roll,mask,choke,trigger,envelope,led,bar,show",
         "la-sliders-h",

@@ -1080,10 +1080,12 @@ Sweep Choke's rolling gradient on its own, as a coloured LED map.
   - **Side** picks the end: Upper, Lower, Alternate or Random.
   - **Fired by:** Gate or Trigger on a rising edge, or the shared `fx::AutoTrigger` block.
 - **Monophonic:**
-  - while the envelope runs, it owns the sweep and the knob is ignored;
-  - a retrigger climbs again from the current envelope value, so it never jumps;
-  - when the envelope ends, the knob takes back over;
-  - every handover is only a change of level, so it rolls like any other.
+  - a fire from rest takes the grid over outright: the history and every segment reset to the gesture's starting picture (home, full);
+  - the wave is therefore identical wherever the knob sits, including parked at black;
+  - after Release, the gesture holds home for Roll + 2 × Soften, so its return reaches the far side;
+  - then the knob's level goes back into the history and rolls in;
+  - a retrigger mid-gesture climbs from the current envelope value, so it never jumps.
+- **Why the takeover:** at first the gesture only replaced the sweep. The roll still read the knob's history, and each segment eased from the knob's level, so a dimmed knob grayed the wave. A knob at an end hid it almost entirely: the gesture's dark phase landed on black, and its return was cut short by the handover.
 - **Where it lives:**
   - the logic is copied (not shared) into `include/sketch/sweep_gradient_core.h`, which is host-free and pinned by `tests/native/test_sweep_gradient.cpp`;
   - the render is the shared `nano_led_bars.hlsl` pass.
