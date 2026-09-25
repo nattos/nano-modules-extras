@@ -21,7 +21,7 @@ struct CellStat {
 
 // Per-cell resonator state (PERSISTS across frames).
 struct CellState {
-  float v;           // energy in the waveguide (>= 0)
+  float v;           // signed amplitude in the waveguide
   float h;           // hue, turns
   float s;           // saturation
   float mean;        // running mean of v (the A/C reference)
@@ -30,9 +30,11 @@ struct CellState {
   float pad0; float pad1;
 };
 
-// Whole-network state (PERSISTS): the decay-phase envelope follower.
+// Whole-network state (PERSISTS).
 struct NetState {
-  float env; float pad0; float pad1; float pad2;
+  float env;    // decay-phase envelope follower (Σ|v|)
+  float rms2;   // running mean-square swing over the grid (Contrast's level)
+  float pad0; float pad1;
 };
 
 // Cell (bar, row) → uv of its bottom-left corner, and its uv extent.

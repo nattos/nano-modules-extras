@@ -3,25 +3,33 @@
  * source.light.bounce_resonator, for the LED bars.
  *
  * The grid is 4 bars × `rows` cells (default 10 — one per segment). Every
- * row is its own copy of the 4-bar diffusion network, and all rows step
- * through the SAME cycling matrix (fx::DiffusionNetwork4) at the same hop, so
- * the impulse-response pattern travels across the whole grid at once while
- * each cell keeps its own energy — the image survives into the tail.
+ * row is its own copy of the 4-bar network, and all rows step through the
+ * SAME cycling matrix at the same hop, so the impulse-response pattern
+ * travels across the whole grid at once while each cell keeps its own
+ * energy — the image survives into the tail.
+ *
+ * The waveguide is SIGNED and its mixing ORTHOGONAL, as in an audio
+ * feedback-delay-network reverb: fx::DiffusionNetwork4 supplies the seeded
+ * shuffles and per-edge hue shifts, and orthogonalize() folds Spread in as
+ * rotations. Energy is spread around rather than averaged into a flat level,
+ * so a long, wide tail doesn't wash out; its negative half is the overshoot.
+ * Decay is separate and per second (Tail).
  *
  * No triggers: the input excites it continuously.
  *   grains — brightness sets a per-cell Poisson rate of fixed-size kicks, so
  *            a bright picture fizzes rather than floods;
  *   edges  — a rise in a cell's luma kicks it by the rise.
  *
- * A/C output: each cell subtracts its own running mean of energy, so steady
- * energy cancels and the swing is what shows — above the mean lights, below
- * it chokes the image toward black. Hops cap at one per frame, so a Cycle
+ * A/C output: each cell subtracts its own running mean, so steady energy
+ * cancels and the swing is what shows — positive lights, negative chokes the
+ * image toward black. Contrast then rides one gain for the whole grid (swing
+ * ÷ its running RMS, floored) so a fading tail keeps swinging at full scale. Hops cap at one per frame, so a Cycle
  * Rate at or past the frame rate flips energy cell to cell every frame:
  * solid strobing.
  *
  * Three passes, state GPU-resident (no readback):
  *   reduce — one thread per cell: box-sample the input → mean colour + luma
- *   sim    — single thread: hop, excite, A/C
+ *   sim    — single thread: decay, hop, excite, A/C, contrast
  *   render — full-res composite over the input
  */
 
@@ -50,7 +58,7 @@ static_assert(sizeof(CellStat) == 16, "CellStat layout mismatch");
 struct CellState { float v, h, s, mean, luma_prev, swing, pad0, pad1; };
 static_assert(sizeof(CellState) == 32, "CellState layout mismatch");
 
-struct NetState  { float env, pad0, pad1, pad2; };
+struct NetState  { float env, rms2, pad0, pad1; };
 static_assert(sizeof(NetState) == 16, "NetState layout mismatch");
 
 struct ReduceUniforms { int32_t rows, tex_w, tex_h, pad; };
@@ -62,8 +70,9 @@ struct SimUniforms {
   float    grain_rate, grain_size, edge_excite, input_color;
   float    band_hue, band_sat, ac_amount, ac_time;
   float    dt; uint32_t frame, seed; int32_t do_reset;
+  float    contrast, contrast_floor, pad0, pad1;
 };
-static_assert(sizeof(SimUniforms) == 80, "SimUniforms layout mismatch");
+static_assert(sizeof(SimUniforms) == 96, "SimUniforms layout mismatch");
 
 struct RenderUniforms {
   float   band_val, intensity, input_opacity, chroma_hold;
@@ -92,7 +101,6 @@ struct State {
   float input_color     = 1.0f;
   float tail            = 0.55f;   // 0..1 → 0.05 s .. 60 s, exponential; 1 = hold
   float spread          = 0.30f;
-  float spread_contrast = 0.0f;
   float decay_shaping   = 0.0f;
   float hue_spread      = 0.0f;
   float hue_converge    = 0.0f;
@@ -102,6 +110,8 @@ struct State {
   float ac_amount       = 1.0f;
   float ac_time         = 0.5f;
   float black_depth     = 1.5f;
+  float contrast        = 0.0f;
+  float contrast_floor  = 0.05f;
   float color_r = 1.0f, color_g = 0.92f, color_b = 0.78f;
   float band_hue = 0.0f, band_sat = 0.0f, band_val = 1.0f;
   float intensity       = 1.0f;
@@ -157,6 +167,49 @@ static float decay_rate(float knob) {
   return 4.60517f / seconds;
 }
 
+static uint32_t hash_u32(uint32_t a, uint32_t b, uint32_t c) {
+  uint32_t h = a ^ (b * 0x9E3779B1u) ^ (c * 0x85EBCA77u);
+  h ^= h >> 16; h *= 0x7FEB352Du; h ^= h >> 15; h *= 0x846CA68Bu; h ^= h >> 16;
+  return h;
+}
+
+// Turn each exported pattern's shuffle P (the spread-0 derangement) into an
+// ORTHOGONAL mixing matrix M = P · B, where B is a two-stage butterfly of
+// Givens rotations — pairs (0,1),(2,3), then (0,2),(1,3). Each rotation's
+// angle is spread · π/4 · a seeded ±(0.6..1): spread 0 is the bare shuffle,
+// spread 1 is close to a signed 4×4 Hadamard (every bar feeds every bar, with
+// mixed signs). Orthogonal means Σv² survives each hop: energy is spread
+// around, never averaged into a flat level, and the signs make contributions
+// interfere — the fix for a long, well-spread tail washing out to grey.
+static void orthogonalize(float* mats, int pattern_count, float spread, uint32_t seed) {
+  static const int kPairs[4][2] = {{0, 1}, {2, 3}, {0, 2}, {1, 3}};
+  for (int k = 0; k < pattern_count; k++) {
+    float B[4][4] = {{1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}, {0, 0, 0, 1}};
+    for (int g = 0; g < 4; g++) {
+      uint32_t h = hash_u32(seed, (uint32_t)k + 7u, (uint32_t)g + 131u);
+      float mag = 0.6f + 0.4f * (float)(h >> 9) * (1.0f / 8388608.0f);
+      float ang = spread * 0.78539816f * mag * ((h & 1u) ? 1.0f : -1.0f);
+      float c = std::cos(ang), sn = std::sin(ang);
+      int a = kPairs[g][0], b = kPairs[g][1];
+      // B ← R · B, R the rotation in the (a, b) plane.
+      for (int col = 0; col < 4; col++) {
+        float xa = B[a][col], xb = B[b][col];
+        B[a][col] = c * xa - sn * xb;
+        B[b][col] = sn * xa + c * xb;
+      }
+    }
+    float* M = mats + k * 48;   // M[i*4+j], row-major; P is one-hot
+    float P[16];
+    for (int i = 0; i < 16; i++) P[i] = M[i];
+    for (int i = 0; i < 4; i++)
+      for (int j = 0; j < 4; j++) {
+        float acc = 0.0f;
+        for (int m = 0; m < 4; m++) acc += P[i * 4 + m] * B[m][j];
+        M[i * 4 + j] = acc;
+      }
+  }
+}
+
 void module_init() {
   state::init("filter.light.bounce_resonator", {1, 0, 0},
     state::Schema()
@@ -194,8 +247,11 @@ void module_init() {
         .groupHelp(
           "The bouncing engine, shared by every row. **Tail** is how long "
           "energy rings, in real time whatever the hop rate — the knob is "
-          "exponential, and the very top holds forever; **Spread** and "
-          "**Contrast** set how widely each hop fans out. **Cycle Rate** is "
+          "exponential, and the very top holds forever. **Spread** is how "
+          "widely each hop fans out: 0 shuffles each bar's energy whole onto "
+          "another bar, 1 scrambles every bar into every other with mixed "
+          "signs. The mix keeps its energy and signs rather than averaging, so "
+          "even a long, wide tail stays punchy. **Cycle Rate** is "
           "hops per second, capped at one hop per frame — at or past your "
           "frame rate it hops every frame, and with a low Spread the energy "
           "flips bar to bar each frame. **Pattern Count** and **Seed** vary "
@@ -208,7 +264,6 @@ void module_init() {
                   "~17 s (0.83) to 60 s; the very top holds forever.")
         .label("Tail", "Tail")
       .floatField("spread",          0.30f, 0.0f, 1.0f,  state::PrimaryInput).label("Spread", "Sprd")
-      .floatField("spread_contrast", 0.0f, 0.0f, 1.0f,   state::PrimaryInput).label("Spread Contrast", "SprCon")
       .floatField("decay_shaping",   0.0f, -1.0f, 1.0f,  state::PrimaryInput).label("Decay Shaping", "Decay")
       .floatField("hue_spread",      0.0f, 0.0f, 1.0f,   state::PrimaryInput).label("Hue Spread", "HueSp")
       .floatField("hue_converge",    0.0f, 0.0f, 1.0f,   state::PrimaryInput).label("Hue Converge", "HueCv")
@@ -223,10 +278,18 @@ void module_init() {
           "swing (1); **A/C Time** is how long the average takes to catch up "
           "— short keeps only fast flicker, long lets a kick glow before it "
           "cancels. **Black Depth** is how hard a swing below the average "
-          "chokes the picture toward black.")
+          "chokes the picture toward black. **Contrast** rides the gain: it "
+          "divides the swing by the grid's recent level, so a fading tail keeps "
+          "swinging at full scale instead of dimming out — one gain for the "
+          "whole grid, so the picture's shape survives. It lets go once the "
+          "level falls under **Contrast Floor**; lower floors stretch deeper "
+          "into the tail (and into the noise). A/C Time also sets how quickly "
+          "Contrast re-adapts after a loud moment.")
       .floatField("ac_amount",       1.0f, 0.0f, 1.0f,   state::PrimaryInput).label("A/C Amount", "AC")
       .floatField("ac_time",         0.5f, 0.02f, 4.0f,  state::PrimaryInput).label("A/C Time", "ACTime")
       .floatField("black_depth",     1.5f, 0.0f, 4.0f,   state::PrimaryInput).label("Black Depth", "Black")
+      .floatField("contrast",        0.0f, 0.0f, 1.0f,   state::PrimaryInput).label("Contrast", "Contr")
+      .floatField("contrast_floor",  0.05f, 0.001f, 1.0f, state::PrimaryInput).label("Contrast Floor", "Floor")
       // --- Look ---
       .group("look", "Look")
         .groupHelp(
@@ -347,7 +410,8 @@ void on_state_patched(void* self, int n, const char* pb, const int* off,
     else if (state::pathIs(path, plen, "input_color"))     s->input_color     = state::patchFloat(i);
     else if (state::pathIs(path, plen, "tail"))            s->tail            = state::patchFloat(i);
     else if (state::pathIs(path, plen, "spread"))          s->spread          = state::patchFloat(i);
-    else if (state::pathIs(path, plen, "spread_contrast")) s->spread_contrast = state::patchFloat(i);
+    else if (state::pathIs(path, plen, "contrast"))        s->contrast        = state::patchFloat(i);
+    else if (state::pathIs(path, plen, "contrast_floor"))  s->contrast_floor  = state::patchFloat(i);
     else if (state::pathIs(path, plen, "decay_shaping"))   s->decay_shaping   = state::patchFloat(i);
     else if (state::pathIs(path, plen, "hue_spread"))      s->hue_spread      = state::patchFloat(i);
     else if (state::pathIs(path, plen, "hue_converge"))    s->hue_converge    = state::patchFloat(i);
@@ -383,8 +447,10 @@ void render(void* self, int vp_w, int vp_h) {
   // Build + upload the cycling matrices (rebuilt only when routing changes).
   fx::DiffusionNetwork4::Params p;
   p.feedback        = 1.0f;   // unused: the decay is per second, in the sim
-  p.spread          = clampf(s->spread, 0.0f, 1.0f);
-  p.spread_contrast = clampf(s->spread_contrast, 0.0f, 1.0f);
+  // Spread 0 makes the network export its bare seeded derangement (plus the
+  // per-edge hue shifts); the spread itself is applied as rotations below.
+  p.spread          = 0.0f;
+  p.spread_contrast = 0.0f;
   p.decay_shaping   = clampf(s->decay_shaping, -1.0f, 1.0f);
   p.hue_spread      = clampf(s->hue_spread, 0.0f, 1.0f);
   p.hue_converge    = clampf(s->hue_converge, 0.0f, 1.0f);
@@ -395,6 +461,7 @@ void render(void* self, int vp_w, int vp_h) {
   s->net.setParams(p);
   MatsBuf mats = {};
   s->net.exportMatrices(mats.data);
+  orthogonalize(mats.data, nc, clampf(s->spread, 0.0f, 1.0f), (uint32_t)s->seed);
   s->mats_buf.writeOne(mats);
 
   // At most ONE hop per rendered frame: a rate at or past the frame rate
@@ -434,6 +501,8 @@ void render(void* self, int vp_w, int vp_h) {
   su.frame         = s->frame;
   su.seed          = (uint32_t)s->seed;
   su.do_reset      = s->needs_reset ? 1 : 0;
+  su.contrast       = clampf(s->contrast, 0.0f, 1.0f);
+  su.contrast_floor = clampf(s->contrast_floor, 0.001f, 1.0f);
   s->sim_uniform_buf.writeOne(su);
 
   RenderUniforms cu = {};

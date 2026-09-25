@@ -10,8 +10,13 @@
 //      the tail is the time to fall to 1%; 0 holds forever). Decay Shaping
 //      bends it by where the grid is in its decay, as the source effect's
 //      per-hop feedback does.
-//   1. HOP (at most one — the rate caps at the frame rate). Pure
-//      redistribution: the matrix columns sum to 1. Every row is
+//   1. HOP (at most one — the rate caps at the frame rate). The waveguide
+//      is SIGNED and the matrix is ORTHOGONAL (a seeded shuffle times
+//      rotations, built in main.cpp), the way an audio feedback-delay-network
+//      reverb mixes: energy (Σv²) is preserved and spread around rather than
+//      averaged away, and positive and negative parts interfere instead of
+//      piling up into grey. So a long, well-spread tail stays contrasty, and
+//      its negative half is the overshoot into black. Every row is
 //      its own copy of the 4-bar network, and every row steps through the
 //      SAME cycling matrix at the same hop, so the impulse-response pattern
 //      travels across the whole grid at once while each cell keeps its own
@@ -23,8 +28,13 @@
 //      edges  — a cell's luma RISE since last frame kicks edge_excite·rise.
 //      The kick carries the cell's colour, blended toward the band colour.
 //   3. A/C — each cell's running mean of v is subtracted (ac_amount), so
-//      steady energy cancels and what shows is the swing: above the mean
-//      lights, below it chokes the image toward black.
+//      steady energy (the grains' positive bias) cancels and what shows is
+//      the swing: positive lights, negative chokes the image toward black.
+//   4. CONTRAST — the swing is divided by the grid's running RMS swing
+//      (instant attack, ac_time release), blended in by `contrast`, so a
+//      fading tail keeps swinging at full scale until it falls under
+//      `contrast_floor`. One gain for the whole grid, so the cells keep
+//      their relative levels (the image).
 // dt = 0 (a re-render with no tick) steps nothing and re-derives `swing`.
 
 #include "nano_color.hlsl"
@@ -43,6 +53,7 @@ cbuffer SimU : register(b4) {
   float grain_rate; float grain_size; float edge_excite; float input_color;
   float band_hue; float band_sat; float ac_amount; float ac_time;
   float dt; uint frame; uint seed; int do_reset;
+  float contrast; float contrast_floor; float spad0; float spad1;
 };
 
 static float wrapT(float h) { return frac(h + 1.0); }   // → [0,1)
@@ -53,18 +64,20 @@ static float hash01(uint a, uint b, uint c) {
   return float(h >> 8) * (1.0 / 16777216.0);
 }
 
-// Colour mixing treats a cell as a hue vector of length value·saturation:
-// agreeing hues keep saturation, opposing hues cancel toward grey.
+// Colour mixing treats a cell as a hue vector of length |value|·saturation
+// (the sign is the swing, not the colour): agreeing hues keep saturation,
+// opposing hues cancel toward grey.
 void injectCell(inout CellState c, float amt, float hue, float sat) {
   if (amt <= 0.0) return;
   float a0 = TAU * c.h, a1 = TAU * hue;
-  float w0 = c.v * c.s, w1 = amt * sat;
+  float w0 = abs(c.v) * c.s, w1 = amt * sat;
   float cx = w0 * cos(a0) + w1 * cos(a1);
   float cy = w0 * sin(a0) + w1 * sin(a1);
+  float mag = abs(c.v) + amt;
   c.v += amt;
   float rl = sqrt(cx * cx + cy * cy);
   if (rl > 1e-6) c.h = wrapT(atan2(cy, cx) / TAU);
-  c.s = (c.v > 1e-6) ? saturate(rl / c.v) : sat;
+  c.s = (mag > 1e-6) ? saturate(rl / mag) : sat;
 }
 
 [numthreads(64, 1, 1)]
@@ -76,7 +89,7 @@ void main(uint3 gid : SV_DispatchThreadID) {
   NetState ns = net[0];
 
   if (do_reset != 0) {
-    ns.env = 0.0;
+    ns.env = 0.0; ns.rms2 = 0.0;
     [loop] for (int i = 0; i < BR_MAX_CELLS; i++) {
       CellState z;
       z.v = 0.0; z.h = band_hue; z.s = band_sat; z.mean = 0.0;
@@ -91,7 +104,7 @@ void main(uint3 gid : SV_DispatchThreadID) {
   // peak-follower on its total energy (effect_diffusion_network.h's proxy,
   // its per-hop 0.98 release restated per second at 60 Hz).
   float total = 0.0;
-  [loop] for (int i = 0; i < ncells; i++) total += cells[i].v;
+  [loop] for (int i = 0; i < ncells; i++) total += abs(cells[i].v);
   if (dt > 0.0) ns.env = (total > ns.env) ? total : ns.env * exp(-1.2 * dt);
   float phase = (ns.env > 1e-6) ? min(total / ns.env, 1.0) : 0.0;
   // +shaping: slow while bright, fast at the tail (sustain then snap);
@@ -114,20 +127,21 @@ void main(uint3 gid : SV_DispatchThreadID) {
         cj[j] = c[j].s * cos(a); sj[j] = c[j].s * sin(a);
       }
       [unroll] for (int i2 = 0; i2 < 4; i2++) {
-        float a = 0.0, hx = 0.0, hy = 0.0;
+        float a = 0.0, mag = 0.0, hx = 0.0, hy = 0.0;
         [unroll] for (int jj = 0; jj < 4; jj++) {
-          float w  = mats[base + i2 * 4 + jj] * c[jj].v;
-          a += w;
+          float sv = mats[base + i2 * 4 + jj] * c[jj].v;   // signed flow j→i
+          float w  = abs(sv);                                // its colour weight
+          a += sv; mag += w;
           float cd = mats[base + 16 + i2 * 4 + jj];
           float sd = mats[base + 32 + i2 * 4 + jj];
           hx += w * (cj[jj] * cd - sj[jj] * sd);
           hy += w * (sj[jj] * cd + cj[jj] * sd);
         }
         CellState o = cells[r * BR_BARS + i2];
-        o.v = clamp(a, 0.0, 1e6);
+        o.v = clamp(a, -1e6, 1e6);
         float rl = sqrt(hx * hx + hy * hy);
         if (rl > 1e-6) o.h = wrapT(atan2(hy, hx) / TAU);
-        if (a > 1e-6) o.s = saturate(rl / a);
+        if (mag > 1e-6) o.s = saturate(rl / mag);
         if (conv > 0.0) {
           float delta = frac(home_hue - o.h + 1.5) - 0.5;
           o.h = wrapT(o.h + delta * conv);
@@ -165,6 +179,24 @@ void main(uint3 gid : SV_DispatchThreadID) {
     }
     c.swing = c.v - saturate(ac_amount) * c.mean;
     cells[k] = c;
+  }
+
+  // --- 4. Contrast ---
+  // The grid's mean-square swing: instant attack (a kick is never blown past
+  // full scale), release at the A/C rate.
+  float ms = 0.0;
+  [loop] for (int m = 0; m < ncells; m++) { float sw = cells[m].swing; ms += sw * sw; }
+  ms /= float(ncells);
+  if (dt > 0.0) ns.rms2 = (ms > ns.rms2) ? ms : ns.rms2 + (ms - ns.rms2) * follow;
+  float cn = saturate(contrast);
+  if (cn > 0.0) {
+    float fl = max(contrast_floor, 1e-5);
+    float gain = lerp(1.0, 1.0 / sqrt(ns.rms2 + fl * fl), cn);
+    [loop] for (int q = 0; q < ncells; q++) {
+      CellState c = cells[q];
+      c.swing *= gain;
+      cells[q] = c;
+    }
   }
 
   net[0] = ns;

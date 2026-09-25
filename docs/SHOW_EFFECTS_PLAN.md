@@ -1060,7 +1060,7 @@ shared `nano_led_bars.hlsl` pass onto `tex_out`.
 
 The dedicated "fx" version of `source.light.bounce_resonator`: a passive reverb for light rather than a triggered generator. It's a new effect (`effects/bounce_resonator_fx/`), and the source effect is unchanged.
 
-- **Grid.** The state is 4 bars × `rows` cells (default 10, one per segment). Each row is its own copy of the 4-bar diffusion network, and every row steps through the **same** cycling matrix (`fx::DiffusionNetwork4`) at the same hop. So the impulse-response pattern crosses the whole grid at once, while each cell keeps its own energy and the picture's shape survives into the tail.
+- **Grid.** The state is 4 bars × `rows` cells (default 10, one per segment). Each row is its own copy of the 4-bar network, and every row steps through the **same** cycling matrix at the same hop. So the impulse-response pattern crosses the whole grid at once, while each cell keeps its own energy and the picture's shape survives into the tail.
 - **Excitation.** It is continuous and needs no triggers:
   - **Grains:** each cell fires kicks of `grain_size` at a Poisson rate of `grain_rate × luma`.
   - **Edges:** a rise in a cell's luma kicks it by `edge_excite × rise`. Reset zeroes the remembered luma, so an image arriving is itself an edge.
@@ -1069,6 +1069,15 @@ The dedicated "fx" version of `source.light.bounce_resonator`: a passive reverb 
   - Above the mean, the cell's colour is added, with the same bloom and chroma-hold limiter as the source effect.
   - Below the mean, the dry image is choked by `exp(−black_depth·|d|)`, which is the overshoot into black.
   - Steady energy cancels out, so bright footage fizzes instead of flooding.
+- **Signed, orthogonal mixing.** Cells carry signed amplitude, and each pattern's matrix is `P · B`:
+  - `P` is `fx::DiffusionNetwork4`'s seeded derangement, exported at spread 0 along with its per-edge hue shifts.
+  - `B` is a butterfly of Givens rotations with angles of `spread·π/4·±(0.6..1)`. At spread 1 it approaches a signed Hadamard.
+  - As in an audio feedback-delay-network reverb, Σv² is preserved and the signs interfere. The earlier averaging (column-stochastic) mix converged to a flat level, so a long, wide tail washed out to grey; this mix keeps it swinging.
+  - The negative half is the overshoot into black. `spread_contrast` is gone.
+- **Tail.** Decay is per second and independent of the hop rate. It is the time to fall to 1%, set by an exponential knob from 0.05 s to 60 s; the top of the knob holds forever.
+- **Contrast.** The swing is divided by the grid's running RMS swing, with instant attack and release at `ac_time`, floored at `contrast_floor` and blended in by `contrast`.
+  - A fading tail keeps swinging at full scale until it drops under the floor.
+  - There is one gain for the whole grid, so the cells keep their relative levels.
 - **Hop cap.** There is at most one hop per rendered frame, and `cycle_rate` runs to 120. At or past the frame rate, a low spread flips the energy cell to cell every frame, giving a solid strobe.
 - **GPU passes.** State is GPU-resident across three passes: reduce (one thread per cell), sim (a single thread: hop, excite, A/C) and a full-resolution composite.
 

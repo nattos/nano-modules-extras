@@ -47,6 +47,11 @@ describe(`Bounce Resonator FX (${backend})`, () => {
       dumpName,
     });
 
+  const spreadOf = (cells: number[]) => {
+    const mean = cells.reduce((s, r) => s + r, 0) / cells.length;
+    return Math.sqrt(cells.reduce((s, r) => s + (r - mean) ** 2, 0) / cells.length);
+  };
+
   it('declares metadata', async () => {
     const frame = await runGpuTest({
       module: 'filter.light.bounce_resonator',
@@ -104,15 +109,42 @@ describe(`Bounce Resonator FX (${backend})`, () => {
     ]);
     expect(frame.success).toBe(true);
     const cells = allCells(frame);
-    const mean = cells.reduce((s, r) => s + r, 0) / cells.length;
-    const sd = Math.sqrt(cells.reduce((s, r) => s + (r - mean) ** 2, 0) / cells.length);
-    expect(sd).toBeGreaterThan(20);
+    expect(spreadOf(cells)).toBeGreaterThan(20);
     expect(cells.filter(r => r >= 250).length).toBeLessThan(cells.length / 2);
     // Cells ring on their own: the rows of one bar don't collapse to one value.
     for (let bar = 0; bar < 4; bar++) {
       const col = [...Array(ROWS).keys()].map(row => cellR(frame, bar, row));
       expect(Math.max(...col) - Math.min(...col)).toBeGreaterThan(20);
     }
+  });
+
+  // One kick (the grey image arriving lights every cell equally), then a
+  // wide, fast mix with no A/C: the old averaging network flattened this to
+  // one even level; the signed, orthogonal mix keeps it swinging both ways.
+  const kick: [string, unknown][] = [
+    ['edge_excite', 2.0], ['spread', 1.0], ['cycle_rate', 60], ['ac_amount', 0],
+  ];
+
+  it('a long, wide tail stays contrasty instead of washing out', async () => {
+    const frame = await run('bounce_resonator_fx_wide_tail', 0.3, 60, [...kick, ['tail', 0.9]]);
+    expect(frame.success).toBe(true);
+    const cells = allCells(frame);
+    expect(Math.max(...cells)).toBeGreaterThan(77 + 60);   // lit above the dry grey
+    expect(Math.min(...cells)).toBeLessThan(77 - 30);      // choked below it
+    expect(spreadOf(cells)).toBeGreaterThan(30);
+  });
+
+  it('Contrast keeps a faded tail swinging at full scale', async () => {
+    // Tail 0.3 ≈ 0.4 s to 1%: after ~0.5 s the swing is a few thousandths.
+    const faded: [string, unknown][] = [...kick, ['tail', 0.3], ['ac_time', 0.02]];
+    const off = await run('bounce_resonator_fx_contrast_off', 0.3, 30, faded);
+    const on  = await run('bounce_resonator_fx_contrast_on',  0.3, 30, [
+      ...faded, ['contrast', 1.0], ['contrast_floor', 0.001],
+    ]);
+    expect(off.success).toBe(true);
+    expect(on.success).toBe(true);
+    for (const r of allCells(off)) expect(Math.abs(r - 77)).toBeLessThanOrEqual(4);
+    expect(spreadOf(allCells(on))).toBeGreaterThan(25);
   });
 
   it('black input excites nothing', async () => {
