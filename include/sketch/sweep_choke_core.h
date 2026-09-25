@@ -35,20 +35,27 @@
  * frame and start missing outright. A thinning tail reads as a thing running
  * down; a dimming one reads as a light going out.
  *
- * A blink TOGGLES its segment — a dark one comes up to full, a lit one goes to
- * black. So a tail still ringing after you sweep straight back in shows as
- * holes punched in the relit grid, and is never lost under it.
+ * A blink TOGGLES what it lands on — dark comes up to full, lit goes to
+ * black — so a tail over a lit Base shows as holes punched in it, and is never
+ * lost under it. `tail_chunk` sizes them: 0 single segments, 1 whole bars, and
+ * in between runs up the bar of a random length, fewer of them, so the same
+ * number of segments is lit on average.
  *
- * TWO PICTURES. The tilt, the tail and the stutter are `level` — 0..1 per
- * segment, and what the effect publishes as a GRAYSCALE MASK for other
- * effects to be choked and revealed by. What the bars themselves show is
- * `glow`: the GESTURE rather than the position —
+ * TWO PICTURES. The tilt and the stutter are `level` — 0..1 per segment, and
+ * what the effect publishes as a GRAYSCALE MASK for other effects to be
+ * choked and revealed by. Past the front the whole mask also dims with the
+ * fade (`fade`), so a sweep leaves gray behind the edge as well as moving it.
+ * What the bars themselves show is `glow`: the GESTURE rather than the
+ * position —
  *
  *   GLINTS, three_planes_glints.h whole: one launched each time the knob enters
- *   the middle band, travelling at the knob's own speed, always the same way
- *   across the grid whichever way the knob went, gliding on after it stops and
- *   puttering out; chaos ones under a brisk sweep; held and slung by a throw.
- *   A glint is pure overdrive — past 1 a segment pushes toward white.
+ *   the middle band, travelling at the knob's own speed along the gradient's
+ *   `angle_deg`, always the same way whichever way the knob went, gliding on
+ *   after it stops for `glint_linger` and puttering out; chaos ones under a
+ *   brisk sweep; held and slung by a throw. A glint is pure overdrive — past 1
+ *   a segment pushes toward white.
+ *
+ *   THE TAIL, above.
  *
  *   THE BOUNCE, as a flash: coming back in fast, the whole grid overshoots and
  *   springs back.
@@ -144,6 +151,7 @@ struct Params {
   float angle_deg = 90.0f;  ///< which way the dark travels, CCW from +x; 90 = upward
   int side_mode = SidePingPong;
   float tilt = 0.6f;        ///< 0 even dimmer .. 1 narrow travelling front
+  float fade = 0.5f;        ///< how far the whole mask dims under the front, 0..1
 
   float bounce = 0.55f;     ///< how far a fast return overshoots
   float flicker = 0.6f;     ///< how hard segments stutter inside the fade
@@ -157,6 +165,7 @@ struct Params {
   float tail_duty = 2.0f;     ///< blink length at full release, in launch intervals
   float tail_density = 2.5f;  ///< segments per launch
   float tail_bias = 0.75f;    ///< 0 anywhere .. 1 only where the light went out last
+  float tail_chunk = 0.0f;    ///< 0 single segments .. 1 whole bars per blink
 
   // --- The glow: what the bars show ---------------------------------------
   float base = 0.0f;          ///< the mask shown under the glints, 0..1
@@ -164,19 +173,34 @@ struct Params {
   float glint_chaos = 4.0f;   ///< small extra glints per second, sweeping hard
   float glint_gain = 1.6f;    ///< a glint's peak drive; past 1 is toward white
   float glint_shadow = 0.55f; ///< the wake's depth, on the base
-  float glint_angle = 90.0f;  ///< which way glints travel, CCW from +x
+  float glint_linger = three_planes_glints::kSpeedRelease;  ///< s a glint glides on
   float glint_width = 0.1f;   ///< half-width, as a fraction of one crossing
   float glint_sling = 1.0f;   ///< how far a throw hurries them off
 };
 
-/// One segment mid-blink. It holds its segment at `to` (blended by
-/// `strength`) until `t_left` runs out.
+/// A run of segments mid-blink: `len` of them up one bar from `cell`. It
+/// toggles them (blended by `strength`) until `t_left` runs out. A TAIL blink
+/// lands on the bars; a stutter blink lands on the mask.
 struct Blink {
   int cell = -1;
+  int len = 1;
   float t_left = 0.0f;
   float strength = 0.0f;
+  bool tail = false;
   bool live = false;
+
+  bool covers(int i) const {
+    return live && i >= cell && i < cell + len;
+  }
 };
+
+/// The range of run lengths a tail blink draws from at `chunk`, in segments:
+/// one at 0, a whole bar at 1, and in between a spread that widens and climbs.
+inline void chunkRange(float chunk, float& lo, float& hi) {
+  const float c = chunk < 0.0f ? 0.0f : (chunk > 1.0f ? 1.0f : chunk);
+  lo = 1.0f + (float)(kSegments - 1) * c * c;
+  hi = 1.0f + (float)(kSegments - 1) * std::pow(c, 0.6f);
+}
 
 inline float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
 inline float clamp01(float v) { return clampf(v, 0.0f, 1.0f); }
@@ -214,11 +238,14 @@ inline float fadeProgress(const Params& p, float sweep) {
 /// The position law for ONE segment at axis coordinate `a`. The front: every
 /// segment is lit at progress 0 and out at progress 1, and between them the
 /// edge at a = 0 leads by `tilt * kSpread` of the fade. Smoothstep, so the
-/// shoulder has no corner in it to see as you ride past.
+/// shoulder has no corner in it to see as you ride past. Under the front the
+/// whole grid also dims with progress by `fade`, so what the front has not
+/// reached yet is gray rather than white.
 inline float cellGain(const Params& p, float progress, float a) {
   const float k = clamp01(p.tilt) * kSpread;
   const float t = progress * (1.0f + k) - k * a;
-  return clamp01(1.0f - smooth01(t) * clamp01(p.depth));
+  const float lit = (1.0f - smooth01(t)) * (1.0f - clamp01(p.fade) * smooth01(progress));
+  return clamp01(1.0f - (1.0f - lit) * clamp01(p.depth));
 }
 
 /// Mean positional gain over the grid. Independent of direction — mirroring
@@ -260,7 +287,7 @@ struct Core {
   float level[kCells] = {};
   /// What the bars show per segment, 0.. (past 1 pushes toward white).
   float glow[kCells] = {};
-  float glint_axis[kCells] = {};  ///< each segment on the glints' travel axis
+  float glint_axis[kCells] = {};  ///< each segment on the travel axis, unmirrored
   float axis[kCells] = {};  ///< this frame's axis, already mirrored for the side
   float mean_level = 1.0f;
   float sweep_out = kSweepCenter;
@@ -389,6 +416,7 @@ struct Core {
       gp.chaos = p.glint_chaos;
       gp.fling = release;
       gp.sling = p.glint_sling;
+      gp.linger = p.glint_linger;
       const float w = (p.glint_width > 1e-3f ? p.glint_width : 1e-3f) *
                       three_planes_glints::kMaxWidthFactor;
       gp.lead = kGlintSkirt * w;
@@ -417,12 +445,25 @@ struct Core {
       for (int guard = 0; tail_clock >= 1.0f && guard < 64; ++guard) {
         tail_clock -= 1.0f;
         const float age = tail_clock * interval;   // how long ago it landed
-        float want = p.tail_density > 0.0f ? p.tail_density : 0.0f;
+        // CHUNK trades count for size: runs grow up the bar, stochastically,
+        // and fewer launch, so as many segments are lit on average.
+        float lo, hi;
+        chunkRange(p.tail_chunk, lo, hi);
+        float want = (p.tail_density > 0.0f ? p.tail_density : 0.0f) / (0.5f * (lo + hi));
         int count = (int)want;
         if (rand01() < want - (float)count) ++count;
         for (int c = 0; c < count; ++c) {
           const int cell = pickTrailing(p.tail_bias);
-          if (cell >= 0) spawn(cell, len - age, 1.0f);
+          if (cell < 0) continue;
+          const float x = lo + (hi - lo) * rand01();
+          int run = (int)x;
+          if (rand01() < x - (float)run) ++run;
+          run = run < 1 ? 1 : (run > kSegments ? kSegments : run);
+          // Somewhere over the picked segment, inside its bar.
+          const int bar = cell / kSegments, seg = cell % kSegments;
+          int s0 = seg - (int)(rand01() * (float)run);
+          s0 = s0 < 0 ? 0 : (s0 > kSegments - run ? kSegments - run : s0);
+          spawn(led_bars::cellIndex(bar, s0), len - age, 1.0f, run, true);
         }
       }
     } else if (release <= 0.0f) {
@@ -451,35 +492,38 @@ struct Core {
       settle_t -= dt;
       if (settle_t <= 0.0f) {
         const int cell = pickWeighted(drive, drive_sum);
-        if (cell >= 0) spawn(cell, 0.02f + 0.07f * rand01(), drive[cell]);
+        if (cell >= 0 && !blinking(cell)) spawn(cell, 0.02f + 0.07f * rand01(), drive[cell]);
         const float gap = 0.55f + (0.05f - 0.55f) * drive_max;
         settle_t = gap * (0.4f + 1.2f * rand01()) / (1.0f + 0.25f * (float)band);
       }
     }
 
-    // --- 6. The mask. Position first, then the blinks toggle against it: a
-    //        dark segment comes up to full, a lit one goes out.
+    // --- 6. The mask. Position first, then the stutter toggles against it: a
+    //        dark segment comes up to full, a lit one goes out. The TAIL is
+    //        not here — it is on the bars (step 7).
     float lsum = 0.0f;
     for (int i = 0; i < kCells; ++i) level[i] = gain[i];
     for (int i = 0; i < kMaxBlinks; ++i) {
       const Blink& b = blinks[i];
-      if (!b.live) continue;
-      const float lit = level[b.cell];
-      const float to = lit >= 0.5f ? 0.0f : 1.0f;
-      level[b.cell] = lit + (to - lit) * b.strength;
+      if (!b.live || b.tail) continue;
+      toggle(level, b);
     }
     for (int i = 0; i < kCells; ++i) lsum += level[i];
     mean_level = lsum / (float)kCells;
 
     // --- 7. The glow. The base (the mask, shaded by the glints' wakes), the
-    //        bounce's flash, and the glint cores on top — additive, so they
-    //        land on black as well as on a lit grid.
-    axisCoords(p.glint_angle, glint_axis);
+    //        tail's runs toggling against it, then the bounce's flash and the
+    //        glint cores on top — additive, so they land on black as well as
+    //        on a lit grid. Glints run along the gradient's own angle, toward
+    //        +axis: the way the dark leaves, and the way One-Way brings the
+    //        light back.
+    for (int i = 0; i < kCells; ++i) glint_axis[i] = base_axis[i];
     const float bw = p.glint_width > 1e-3f ? p.glint_width : 1e-3f;
     const float flash = bounce > 0.0f ? bounce * kBounceFlash : 0.0f;
     const float bl = clamp01(p.base);
     const float gg = p.glint_gain > 0.0f ? p.glint_gain : 0.0f;
     const float gs = clamp01(p.glint_shadow);
+    float cores[kCells];
     for (int i = 0; i < kCells; ++i) {
       float core = 0.0f, wake = 0.0f;
       for (int g = 0; g < three_planes_glints::kMaxLive; ++g) {
@@ -491,8 +535,15 @@ struct Core {
         wake += gs * gl.drawShade() * std::exp(-k * k);
       }
       const float shade = wake < 1.0f ? 1.0f - wake : 0.0f;
-      glow[i] = bl * level[i] * shade + flash + core;
+      glow[i] = bl * level[i] * shade;
+      cores[i] = flash + core;
     }
+    for (int i = 0; i < kMaxBlinks; ++i) {
+      const Blink& b = blinks[i];
+      if (!b.live || !b.tail) continue;
+      toggle(glow, b);
+    }
+    for (int i = 0; i < kCells; ++i) glow[i] += cores[i];
   }
 
  private:
@@ -505,8 +556,20 @@ struct Core {
 
   bool blinking(int cell) const {
     for (int i = 0; i < kMaxBlinks; ++i)
-      if (blinks[i].live && blinks[i].cell == cell) return true;
+      if (blinks[i].covers(cell)) return true;
     return false;
+  }
+
+  /// A blink toggles every segment it covers: a dark one comes up to full, a
+  /// lit one goes out.
+  static void toggle(float* v, const Blink& b) {
+    for (int k = 0; k < b.len; ++k) {
+      const int i = b.cell + k;
+      if (i < 0 || i >= kCells) continue;
+      const float lit = v[i];
+      const float to = lit >= 0.5f ? 0.0f : 1.0f;
+      v[i] = lit + (to - lit) * b.strength;
+    }
   }
 
   /// A segment weighted toward where the light went out LAST (axis 1), and
@@ -537,11 +600,11 @@ struct Core {
 
   /// A blink with no time left was over before the frame was sampled: it is
   /// not placed at all, which is how a closing window starts missing frames.
-  void spawn(int cell, float t_left, float strength) {
+  void spawn(int cell, float t_left, float strength, int len = 1, bool tail = false) {
     if (!(t_left > 0.0f) || strength <= 0.0f) return;
     for (int i = 0; i < kMaxBlinks; ++i) {
       Blink& b = blinks[i];
-      if (b.live && b.cell == cell) {   // extend rather than double up
+      if (b.live && b.cell == cell && b.len == len && b.tail == tail) {   // extend rather than double up
         if (t_left > b.t_left) b.t_left = t_left;
         if (strength > b.strength) b.strength = strength;
         return;
@@ -552,6 +615,8 @@ struct Core {
       if (b.live) continue;
       b.live = true;
       b.cell = cell;
+      b.len = len;
+      b.tail = tail;
       b.t_left = t_left;
       b.strength = strength;
       return;

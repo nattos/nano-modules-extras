@@ -10,9 +10,9 @@
  *
  * Two outputs, both the house rig's pixel map — four bars, ten segments, flat
  * blocks — drawn by the shared nano_led_bars.hlsl pass. `tex_out` is what the
- * bars show: the glints and the bounce's flash, over an optional base.
- * `mask_out` is the tilt itself, gray, for choking and revealing other
- * effects; it is only drawn while something is wired to it. Both are control
+ * bars show: the glints, the thrown tail and the bounce's flash, over an
+ * optional base. `mask_out` is the tilt itself, gray, for choking and
+ * revealing other effects; it is only drawn while something is wired to it. Both are control
  * signals, so they are opaque and ignore the input.
  */
 
@@ -73,19 +73,20 @@ void module_init() {
         "One knob that sweeps and chokes the four LED bars. Map **Sweep** to a "
         "bipolar MIDI knob and perform it.\n\n"
         "**Two outputs.** The bars show the **gesture**: every pass through "
-        "the middle throws a **glint** across the grid at the speed you moved, "
-        "always the same way whichever way you went, gliding on for a moment "
-        "after you stop. Come back in fast and the whole grid **flashes** past "
-        "full and springs back. Past full, a segment blows out toward white.\n\n"
+        "the middle throws a **glint** across the grid along **Angle**, at "
+        "the speed you moved, always the same way whichever way you went, "
+        "gliding on after you stop. Come back in fast and the whole grid "
+        "**flashes** past full and springs back. Past full, a segment blows "
+        "out toward white.\n\n"
         "**Mask** is the **position**, in gray, for choking and revealing "
         "other effects. Parked in the middle it is white. Out past the "
-        "deadzone a soft front travels across the grid at **Angle**, so one "
-        "side goes out before the other; keep going and it slides off into "
-        "black at either end — the **choke**.\n\n"
+        "deadzone a soft front travels across the grid at **Angle** while "
+        "the rest dims toward gray; keep going and it slides off into black "
+        "at either end — the **choke**.\n\n"
         "**How you swept is what you hear afterwards.** A hard pass through "
         "the middle charges; reaching a choke throws that charge as a "
-        "flickering tail in the mask, gathered where the light went out last, "
-        "and slings the glints off with it.\n\n"
+        "flickering tail on the bars, gathered where the light went out "
+        "last, and slings the glints off with it.\n\n"
         "**Try:** *Sides* One-Way and *Angle* 90, *Base* at 0.3, then rock the "
         "knob to the beat — glints and the front both keep climbing, in and "
         "out.")
@@ -137,7 +138,9 @@ void module_init() {
           "moving the same way coming back in too — the light returns from "
           "the side that went out first, like a glint. It turns round only at "
           "the ends, so reversing mid-fade retraces. **Tilt** is how much of a "
-          "front it is: 0 dims every segment together, 1 is a narrow edge.")
+          "front it is: 0 dims every segment together, 1 is a narrow edge. "
+          "**Fade** dims the whole mask as well while the front moves, so a "
+          "sweep leaves gray behind as well as an edge.")
       .floatField("angle", 90.f, 0.f, 360.f, state::PrimaryInput,
                   nullptr, 0.f, nullptr,
                   "Direction the dark travels, degrees CCW from +x.")
@@ -154,6 +157,11 @@ void module_init() {
                   nullptr, 0.f, nullptr,
                   "0 an even dimmer, 1 a narrow travelling edge.")
         .label("Tilt", "Tilt")
+      .floatField("fade", 0.5f, 0.f, 1.f, state::PrimaryInput,
+                  nullptr, 0.f, nullptr,
+                  "How far the whole mask dims under the front as the knob "
+                  "goes out. 0 is just the edge moving.")
+        .label("Fade", "Fade")
 
       // ---------------- Light ----------------
       .group("light", "Light")
@@ -189,8 +197,9 @@ void module_init() {
           "each time the knob enters the deadzone one launches, and at *Ratio* "
           "1 a steady sweep across the whole knob carries it across the whole "
           "grid in the same time. Which way you moved is thrown away — they "
-          "always travel along **Angle** — and once launched only their speed "
-          "follows the knob. Stop and they glide on, shrinking and dimming.\n\n"
+          "always travel along the Gradient's **Angle**, the way the dark "
+          "leaves — and once launched only their speed follows the knob. Stop "
+          "and they glide on for **Linger**, shrinking and dimming.\n\n"
           "Sweep hard and **Chaos** adds small ones underneath. A throw holds "
           "them at full while its tail rings, and **Sling** is how hard it "
           "hurries them off. **Shadow** is the dark wake behind each one, "
@@ -212,10 +221,11 @@ void module_init() {
                   nullptr, 0.f, nullptr,
                   "The dark wake trailing each glint, on the base.")
         .label("Shadow", "Shadow")
-      .floatField("glint_angle", 90.f, 0.f, 360.f, state::PrimaryInput,
-                  nullptr, 0.f, "deg",
-                  "Which way glints travel, CCW from +x. 90 climbs the bars.")
-        .label("Glint Angle", "GlAng")
+      .floatField("glint_linger", 0.22f, 0.05f, 3.f, state::PrimaryInput,
+                  nullptr, 0.f, "s",
+                  "How long a glint glides on after the knob stops, s. Long "
+                  "ones coast across the grid; short ones stop and go out.")
+        .label("Linger", "Linger")
       .floatField("glint_width", 0.1f, 0.02f, 0.5f, state::SecondaryInput,
                   nullptr, 0.f, nullptr,
                   "Half-width, as a fraction of the grid it crosses. Small is "
@@ -230,7 +240,7 @@ void module_init() {
       // ---------------- Tail ----------------
       .group("tail", "Tail")
         .groupHelp(
-          "The reverberant tail. A pass through the middle charges by how HARD "
+          "The reverberant tail, on the bars. A pass through the middle charges by how HARD "
           "it was (**Charge Drive**), and the charge leaks away over **Charge "
           "Hold** — so a flick then a dawdle throws a soft one. Reaching a "
           "choke throws it, and it rings out over **Ring Time** as segments "
@@ -238,10 +248,11 @@ void module_init() {
           "The tail never dims. Blinks keep arriving at **Blink Rate**; what "
           "runs down is how LONG each one is (**Blink Length**), until they "
           "start missing frames and it sputters out. **Density** is segments "
-          "per blink.\n\n"
+          "per blink. **Chunk** makes them bigger and fewer: runs up the bar, "
+          "to whole bars at 1.\n\n"
           "Separately, any motion inside the fade wakes a **Stutter** in the "
-          "half-lit segments that **Settle** lets die away once the knob "
-          "stops.")
+          "mask's half-lit segments that **Settle** lets die away once the "
+          "knob stops.")
       .floatField("latch_drive", 2.0f, 0.f, 6.f, state::PrimaryInput,
                   nullptr, 0.f, nullptr,
                   "How readily a pass through the middle charges a throw.")
@@ -271,6 +282,11 @@ void module_init() {
                   nullptr, 0.f, nullptr,
                   "0 blinks anywhere; 1 only where the light went out last.")
         .label("Bias", "Bias")
+      .floatField("tail_chunk", 0.0f, 0.f, 1.f, state::PrimaryInput,
+                  nullptr, 0.f, nullptr,
+                  "Blink size. 0 single segments; up from there runs of random "
+                  "length up the bar, fewer of them; 1 whole bars.")
+        .label("Chunk", "Chunk")
       .floatField("flicker", 0.6f, 0.f, 1.f, state::PrimaryInput,
                   nullptr, 0.f, nullptr,
                   "How hard half-lit segments stutter while the knob moves.")
@@ -388,7 +404,9 @@ void on_state_patched(void* self, int n, const char* pb, const int* off,
     else if (state::pathIs(path, l, "glint_chaos"))  p.glint_chaos = state::patchFloat(i);
     else if (state::pathIs(path, l, "glint_gain"))   p.glint_gain = state::patchFloat(i);
     else if (state::pathIs(path, l, "glint_shadow")) p.glint_shadow = state::patchFloat(i);
-    else if (state::pathIs(path, l, "glint_angle"))  p.glint_angle = state::patchFloat(i);
+    else if (state::pathIs(path, l, "glint_linger")) p.glint_linger = state::patchFloat(i);
+    else if (state::pathIs(path, l, "tail_chunk"))   p.tail_chunk = state::patchFloat(i);
+    else if (state::pathIs(path, l, "fade"))         p.fade = state::patchFloat(i);
     else if (state::pathIs(path, l, "glint_width"))  p.glint_width = state::patchFloat(i);
     else if (state::pathIs(path, l, "glint_sling"))  p.glint_sling = state::patchFloat(i);
     else if (state::pathIs(path, l, "color")) {

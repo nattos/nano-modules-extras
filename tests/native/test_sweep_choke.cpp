@@ -11,7 +11,9 @@
 //   * out of it the fade is a TILT along the angle, and the far end is black;
 //   * Ping-Pong mirrors the tilt for the other half of the knob, Forward not;
 //   * a hard pass into a choke throws a tail; a crawl does not;
-//   * the tail thins rather than dims, and ends;
+//   * the tail thins rather than dims, and ends — on the bars, not the mask;
+//   * Chunk grows the tail's blinks up the bar, to whole bars at 1;
+//   * Fade grays the mask as well as moving its edge;
 //   * motion in the fade stutters, and stillness settles it;
 //   * One-Way keeps the front travelling the same way in and out;
 //   * the bars show glints — one per pass, always the same way, gliding on
@@ -24,6 +26,8 @@
 
 #include <cmath>
 #include <limits>
+#include <utility>
+#include <vector>
 
 using Catch::Matchers::WithinAbs;
 using namespace sweep_choke_core;
@@ -224,24 +228,27 @@ TEST_CASE("sweep_choke: the tail blinks at full, thins, and ends", "[sweep_choke
   Params p;
   p.flicker = 0.0f;
   p.bounce = 0.0f;
+  p.glint_gain = 0.0f;   // the tail alone on the bars
   p.ring_time = 1.5f;
   park(c, p, 0.2f);
   glide(c, p, 1.0f, 0.15f);
   REQUIRE(c.release > 0.5f);
 
-  // With the knob parked in the choke every base segment is black, so anything
-  // lit is a blink — and a blink on a dark segment is at FULL, never dimmed.
+  // With the knob parked in the choke the bars are black, so anything lit is a
+  // blink — and a blink on a dark segment is at FULL, never dimmed. The mask
+  // stays black throughout: the tail is not in it.
   int early = 0, late = 0, after = 0;
   float t = 0.0f;
-  bool bright_only = true;
+  bool bright_only = true, mask_dark = true;
   while (t < 3.0f) {
     c.tick(p, kDt);
     t += kDt;
     int lit = 0;
     for (int i = 0; i < kCells; ++i) {
-      if (c.level[i] > 1e-6f) {
+      if (c.level[i] > 1e-6f) mask_dark = false;
+      if (c.glow[i] > 1e-6f) {
         ++lit;
-        if (c.level[i] < 1.0f - 1e-5f) bright_only = false;
+        if (c.glow[i] < 1.0f - 1e-5f) bright_only = false;
       }
     }
     if (t < 0.4f) early += lit;
@@ -249,6 +256,7 @@ TEST_CASE("sweep_choke: the tail blinks at full, thins, and ends", "[sweep_choke
     else if (t > 1.6f) after += lit;
   }
   REQUIRE(bright_only);
+  REQUIRE(mask_dark);
   REQUIRE(early > 0);
   REQUIRE(late < early);   // same window length, fewer lit segment-frames
   REQUIRE(after == 0);
@@ -263,6 +271,7 @@ TEST_CASE("sweep_choke: the tail gathers where the light went out last", "[sweep
   p.angle_deg = 90.0f;   // the top goes out last
   p.tail_bias = 1.0f;
   p.ring_time = 3.0f;
+  p.glint_gain = 0.0f;
   park(c, p, 0.2f);
   glide(c, p, 1.0f, 0.15f);
 
@@ -270,11 +279,89 @@ TEST_CASE("sweep_choke: the tail gathers where the light went out last", "[sweep
   for (float t = 0.0f; t < 2.0f; t += kDt) {
     c.tick(p, kDt);
     for (int b = 0; b < kBars; ++b) {
-      for (int k = 0; k < 3; ++k) if (cell(c, b, k) > 0.5f) ++bottom;
-      for (int k = kSegments - 3; k < kSegments; ++k) if (cell(c, b, k) > 0.5f) ++top;
+      for (int k = 0; k < 3; ++k) if (c.glow[led_bars::cellIndex(b, k)] > 0.5f) ++bottom;
+      for (int k = kSegments - 3; k < kSegments; ++k)
+        if (c.glow[led_bars::cellIndex(b, k)] > 0.5f) ++top;
     }
   }
   REQUIRE(top > 4 * bottom);
+}
+
+namespace {
+/// Throw a full tail at `chunk` and watch the bars ring for a second. Returns
+/// lit segment-frames; `runs` collects every lit run's length up each bar.
+int ringTail(float chunk, std::vector<int>& runs) {
+  Core c;
+  Params p;
+  p.flicker = 0.0f;
+  p.bounce = 0.0f;
+  p.glint_gain = 0.0f;
+  p.tail_bias = 0.0f;
+  p.ring_time = 2.0f;
+  p.tail_chunk = chunk;
+  park(c, p, 0.2f);
+  glide(c, p, 1.0f, 0.15f);
+  int lit = 0;
+  for (float t = 0.0f; t < 1.0f; t += kDt) {
+    c.tick(p, kDt);
+    for (int b = 0; b < kBars; ++b) {
+      int run = 0;
+      for (int k = 0; k <= kSegments; ++k) {
+        const bool on = k < kSegments && c.glow[led_bars::cellIndex(b, k)] > 0.5f;
+        if (on) { ++run; ++lit; }
+        else if (run > 0) { runs.push_back(run); run = 0; }
+      }
+    }
+  }
+  return lit;
+}
+}  // namespace
+
+TEST_CASE("sweep_choke: Chunk grows the tail's blinks up the bar", "[sweep_choke]") {
+  std::vector<int> r0, r5, r1;
+  const int lit0 = ringTail(0.0f, r0);
+  const int lit5 = ringTail(0.5f, r5);
+  const int lit1 = ringTail(1.0f, r1);
+  REQUIRE(!r0.empty());
+  REQUIRE(!r5.empty());
+  REQUIRE(!r1.empty());
+
+  auto mean = [](const std::vector<int>& v) {
+    float s = 0.0f;
+    for (int x : v) s += (float)x;
+    return s / (float)v.size();
+  };
+  // 0: mostly lone segments. 1: every lit run is a whole bar.
+  REQUIRE(mean(r0) < 1.6f);
+  for (int x : r1) REQUIRE(x == kSegments);
+  // Between: bigger runs, and not all the same size.
+  REQUIRE(mean(r5) > 2.0f);
+  int lo = kSegments, hi = 0;
+  for (int x : r5) { lo = x < lo ? x : lo; hi = x > hi ? x : hi; }
+  REQUIRE(hi > lo);
+  // Fewer, bigger: about as many segments lit overall.
+  REQUIRE(lit5 > lit0 / 3);
+  REQUIRE(lit5 < lit0 * 3);
+  REQUIRE(lit1 > lit0 / 4);
+  REQUIRE(lit1 < lit0 * 4);
+}
+
+TEST_CASE("sweep_choke: Fade grays the mask as well as moving its edge", "[sweep_choke]") {
+  auto litEnd = [](float fade) {
+    Core c;
+    Params p = still();
+    p.tilt = 1.0f;
+    p.angle_deg = 90.0f;
+    p.fade = fade;
+    park(c, p, 0.86f);
+    return std::pair<float, float>(rowMean(c, kSegments - 1), rowMean(c, 0));
+  };
+  const auto hard = litEnd(0.0f);
+  const auto soft = litEnd(1.0f);
+  REQUIRE(hard.first > 0.99f);         // the far side untouched without it
+  REQUIRE(soft.first < 0.7f);          // gray with it
+  REQUIRE(soft.first > 0.3f);
+  REQUIRE(soft.second < 0.05f);        // and the edge still took the near side
 }
 
 TEST_CASE("sweep_choke: motion in the fade stutters, stillness settles it", "[sweep_choke]") {
@@ -371,7 +458,7 @@ TEST_CASE("sweep_choke: a pass throws one glint, always the same way", "[sweep_c
     Core c;
     Params p = still();
     p.glint_chaos = 0.0f;
-    p.glint_angle = 90.0f;
+    p.angle_deg = 90.0f;
     park(c, p, from);
     REQUIRE(glowMax(c) < 1e-6f);
     // One steady traverse from the end to the far side of the middle.
@@ -381,7 +468,7 @@ TEST_CASE("sweep_choke: a pass throws one glint, always the same way", "[sweep_c
     Core d;
     Params q = still();
     q.glint_chaos = 0.0f;
-    q.glint_angle = 90.0f;
+    q.angle_deg = 90.0f;
     park(d, q, from);
     q.sweep = from;
     int last = -1, climbs = 0, falls = 0;
@@ -414,6 +501,49 @@ TEST_CASE("sweep_choke: a glint glides on after the knob stops, then goes out", 
   park(c, p, 0.5f, 3.0f);
   REQUIRE(c.glints.liveCount() == 0);
   REQUIRE(glowMax(c) < 1e-6f);
+}
+
+TEST_CASE("sweep_choke: Linger is how long a glint glides on", "[sweep_choke]") {
+  auto lifetime = [](float linger) {
+    Core c;
+    Params p = still();
+    p.glint_chaos = 0.0f;
+    p.glint_ratio = 0.25f;   // slow enough that it runs down before it crosses
+    p.glint_linger = linger;
+    park(c, p, 1.0f);
+    glide(c, p, 0.5f, 0.3f);   // launch, then stop dead
+    float t = 0.0f;
+    while (c.glints.liveCount() > 0 && t < 30.0f) { c.tick(p, kDt); t += kDt; }
+    return t;
+  };
+  const float brief = lifetime(0.1f), dflt = lifetime(0.22f), long_ = lifetime(1.5f);
+  REQUIRE(brief < dflt);
+  REQUIRE(long_ > 2.0f * dflt);
+}
+
+TEST_CASE("sweep_choke: glints follow the gradient's angle", "[sweep_choke]") {
+  Core c;
+  Params p = still();
+  p.glint_chaos = 0.0f;
+  p.angle_deg = 0.0f;   // left to right
+  p.glint_ratio = 2.0f;  // so it makes it all the way over before running down
+  park(c, p, 1.0f);
+  int first = -1, lastBar = -1;
+  const int n = (int)std::ceil(1.0f / kDt);
+  for (int i = 1; i <= 2 * n; ++i) {   // the sweep, then a second to finish crossing
+    p.sweep = i < n ? 1.0f - (float)i / (float)n : 0.0f;
+    c.tick(p, kDt);
+    int best = -1;
+    float m = 1e-3f;
+    for (int b = 0; b < kBars; ++b) {
+      float s = 0.0f;
+      for (int k = 0; k < kSegments; ++k) s += c.glow[led_bars::cellIndex(b, k)];
+      if (s > m) { m = s; best = b; }
+    }
+    if (best >= 0) { if (first < 0) first = best; lastBar = best; }
+  }
+  REQUIRE(first == 0);
+  REQUIRE(lastBar == kBars - 1);
 }
 
 TEST_CASE("sweep_choke: Base shows the mask under the glints", "[sweep_choke]") {

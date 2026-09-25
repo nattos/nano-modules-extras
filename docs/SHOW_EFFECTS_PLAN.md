@@ -1044,7 +1044,8 @@ shared `nano_led_bars.hlsl` pass:
 - **Home** (inside the deadzone): every segment is white.
 - **Out of it**: the fade is a *tilt*. A soft front travels across the grid at `angle` (the way the
   dark travels, CCW from +x, so 90 rises from the floor), and one side is out while the other is
-  still lit. `tilt` 0 is the rig's even dimmer and 1 is a narrow edge.
+  still lit. `tilt` 0 is the rig's even dimmer and 1 is a narrow edge. `fade` (default 0.5) also dims the
+  whole mask with progress, so a sweep leaves gray ahead of the edge as well as moving it.
 - **`side_mode`**:
   - Ping-Pong mirrors the direction for the lower half of the knob.
   - Forward keeps it.
@@ -1052,23 +1053,25 @@ shared `nano_led_bars.hlsl` pass:
     - The direction flips only at the ends (full choke, and back in the deadzone), where both directions agree, so it never jumps.
     - Reversing mid-fade retraces.
 - **Ends**: choke to black.
-- **Throw → tail**: a pass through the middle charges by its vigour, and the charge leaks away.
-  Reaching a choke throws it as `release`, which rings out over `ring_time`. While it rings,
-  segments *blink*, biased toward the side that went out last (`tail_bias`). Blinks toggle, so a
-  dark segment comes up to full and a lit one goes black. They arrive at a constant `tail_rate`,
-  and it is their *length* that the release shortens. The tail thins and sputters rather than
-  dimming, the same idea as three_planes' Strobe throw.
 - **Settle stutter**: motion inside the fade wakes blinks in the half-lit segments, and they die
   away over `settle` once the knob stops.
 
 **The bars** (`glow`, 0 and up; past 1 pushes toward white by `whiten`):
 - **Glints**: `three_planes_glints.h`, whole.
   - One launches each time the knob enters the deadzone, travelling at the knob's speed × `glint_ratio` crossings per second.
-  - It always runs along `glint_angle`, whichever way the knob moved.
-  - It glides on after the knob stops, then putters out.
+  - It always runs along the gradient's `angle`, toward the side that goes out last, whichever way the knob moved.
+  - It glides on after the knob stops for `glint_linger` (the speed's release, default 0.22 s), then putters out.
   - Chaos glints come in under a brisk sweep.
   - A throw holds them, and `glint_sling` hurries them off.
   - The core is additive at `glint_gain`, a super-Gaussian as in `nano_glint.hlsl`, so the default 1.6 blows out.
+- **Throw → tail**: a pass through the middle charges by its vigour, and the charge leaks away.
+  - Reaching a choke throws it as `release`, which rings out over `ring_time`.
+  - While it rings, the bars *blink*, biased toward the side that went out last (`tail_bias`).
+  - Blinks toggle, so a dark segment comes up to full and a lit one goes black.
+  - They arrive at a constant `tail_rate`, and it is their *length* that the release shortens.
+  - The tail thins and sputters rather than dimming, the same idea as three_planes' Strobe throw.
+  - `tail_chunk` sizes them. At 0 they are single segments. At 1 they are whole bars. In between they are runs up the bar, of random length between `1+9c²` and `1+9c^0.6`, launched `density / mean length` at a time, so the lit count holds.
+  - The tail is on the bars only, never the mask.
 - **Bounce**: a fast return flashes the whole grid (the rig's spring × `kBounceFlash`) and springs back.
 - **Base**: the mask in colour at `base` (default 0), shaded by the glints' wakes (`glint_shadow`).
 - **Rails**: `speed_out`, `release_out`, `level_out` (the mask's mean), `sweep_out`.

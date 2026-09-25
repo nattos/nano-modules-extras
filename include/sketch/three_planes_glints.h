@@ -161,6 +161,11 @@ struct Params {
   /// golden can run without one.
   float lead = 0.05f;
   float trail = 0.15f;
+
+  /// How long the speed takes to fall away once the knob stops, s — and so
+  /// how long a glint glides on and lingers before it has puttered out.
+  /// kSpeedRelease unless an effect exposes it.
+  float linger = kSpeedRelease;
 };
 
 /// One glint in flight. The three look values are drawn at birth and never
@@ -238,7 +243,8 @@ struct Core {
     // Instant attack so a launch takes the speed of the gesture that threw it
     // exactly; a timed release so letting go coasts instead of stopping dead.
     if (dt > 0.0f) {
-      const float held = speed * std::exp(-dt / kSpeedRelease);
+      const float rel = p.linger > 1e-3f ? p.linger : 1e-3f;
+      const float held = speed * std::exp(-dt / rel);
       speed = v > held ? v : held;
       if (speed < 1e-4f) speed = 0.0f;
     }

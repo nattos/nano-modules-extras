@@ -37,7 +37,7 @@ describe(`Sweep Choke (${backend})`, () => {
       bundle: 'lights',
       width: W, height: H,
       inputColor: [0.3, 0.3, 0.3, 1.0],
-      params: [['color', [1.0, 0.0, 0.5]], ['base', 1.0], ...params],
+      params: [['color', [1.0, 0.0, 0.5]], ['base', 1.0], ['fade', 0.0], ...params],
       dumpName,
     });
 
@@ -166,7 +166,7 @@ describe('Sweep Choke mask_out (engine path)', () => {
   });
 
   it('in the fade the mask is the tilt, in gray', async () => {
-    const r = await run('mask_tilt', { sweep: 0.86, angle: 90, tilt: 1.0 });
+    const r = await run('mask_tilt', { sweep: 0.86, angle: 90, tilt: 1.0, fade: 0.0 });
     expect(r.success).toBe(true);
     const bottom = r.trace('out').pixelAt(colOfBar(1), rowOfSegment(0));
     const top = r.trace('out').pixelAt(colOfBar(1), rowOfSegment(9));
@@ -176,5 +176,14 @@ describe('Sweep Choke mask_out (engine path)', () => {
       expect(Math.abs(px.r - px.g)).toBeLessThanOrEqual(1);
       expect(Math.abs(px.r - px.b)).toBeLessThanOrEqual(1);
     }
+  });
+
+  it('Fade grays what the front has not reached', async () => {
+    const r = await run('mask_fade', { sweep: 0.86, angle: 90, tilt: 1.0, fade: 1.0 });
+    expect(r.success).toBe(true);
+    const top = r.trace('out').pixelAt(colOfBar(1), rowOfSegment(9));
+    expect(top.r).toBeGreaterThan(60);
+    expect(top.r).toBeLessThan(180);
+    expect(r.trace('out').pixelAt(colOfBar(1), rowOfSegment(0)).r).toBeLessThan(20);
   });
 });
