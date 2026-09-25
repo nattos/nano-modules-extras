@@ -103,7 +103,8 @@ catch_discover_tests(test_sdf_field)
 # The LED-bar show logic: three_planes' glints and Strobe throw, the house
 # rig's pixel map, three_walls' moves, sweep_choke's knob, sweep_gradient's roll. Each is driven at an exact dt.
 foreach(t test_three_planes_glints test_three_planes_strobe test_led_bars
-          test_three_walls_show test_sweep_choke test_sweep_gradient)
+          test_three_walls_show test_sweep_choke test_sweep_gradient
+          test_drum_bars)
   add_executable(${t} ${EXTRAS_TESTS}/${t}.cpp)
   # Ours first (<sketch/led_bars.h>), then nano-modules' src for the shared
   # utilities the SDK also ships (<sketch/knob_rate.h>).
@@ -122,7 +123,8 @@ if(TARGET effect_runtime AND TARGET gpu_backend)
     LIGHTS_WASM_PATH="${NANO_WASM_DIR}/lights.wasm"
     LEGACY_WASM_PATH="${NANO_WASM_DIR}/legacy.wasm")
   foreach(t test_plane_shear test_tri_shear test_recompose test_envelope_warp
-            test_extras_render test_bar_scatter test_sweep_gradient_render)
+            test_extras_render test_bar_scatter test_sweep_gradient_render
+            test_drum_bars_render)
     add_executable(${t} ${EXTRAS_TESTS}/${t}.cpp)
     target_include_directories(${t} PRIVATE ${NANO_NATIVE_DIR}/src ${NANO_NATIVE_DIR}/tests)
     target_link_libraries(${t} PRIVATE

@@ -1144,6 +1144,29 @@ The dedicated "fx" version of `source.light.bounce_resonator`: a passive reverb 
   - **The return:** after `lag + delay_hold`, the lag decays over `return_time`, and the read head fast-forwards to live.
 - **Composite.** `out = in + (proc − live)` per cell, so an untouched cell passes exactly and the detail inside a cell survives.
 
+### source.light.drum_bars — "Drum Bars" *(built)*
+
+**Three drum roles on the four bars.** Each bar is one solid level of the colour, on all ten segments. It lives in `effects/drum_bars/`, and all the behaviour is in the host-free `include/sketch/drum_bars_core.h`.
+
+- **Ch1, the kick.** It lights a mirror pair at full: the outer pair (0+3), the inner pair (1+2), or all four. It decays over `kick_decay` as `a·(1 − t/decay)²`.
+- **Ch2, the backbeat.** It lights the **converse** of what the kick would light at the same Cycle position: inner for outer, outer for inner, and all four again at `under` × `back_level`.
+  - **Flams:** 0–3 weaker repeats, `flam_gap` apart, each `flam_fade` of the last. The count comes from noise, scaled by `flam`.
+  - **The ripple:** each repeat is shifted one ring **outward**. With two rings, the repeats land on the outer pair.
+- **Ch3, decoration.** It picks one random bar, never the same one twice running. The bar plays 2–6 hard pulses, each lit for `staccato` of its period. Each pulse has its own level in [`deco_min`, 1].
+- **Combine.** The default is fuzzy XOR, `a + b − 2ab`, folded over the three channels, so two full hits on a bar cancel to dark. Max and Add are the alternatives.
+- **The cycle.**
+  - **The noise:** every decision reads periodic value noise at `c = frac(cycle + drift phase)`. Each decision has its own stream, with `variety` lattice points round the loop, eased between them.
+  - **Crisp picks:** the choice is a cut of that noise, so the same position always gives the same picks and 0 meets 1.
+  - **Stratified lattice:** the lattice levels are a shuffle of evenly spaced slots, so every loop spans the whole range. The kick meets all three patterns as soon as `variety` ≥ 3, rather than when the dice happen to allow it.
+- **Auto: Groove.** `fx::BeatTick` runs at 16 ticks a bar.
+  - The kick fires on steps 0 and 8, plus a noise-chosen pickup on step 10 or 14.
+  - The backbeat fires on steps 4 and 12.
+  - Decoration fires on each 16th with probability `auto_deco`.
+  - The effect owns the step clock, and the core only answers what fires on a given step.
+- **Tests:**
+  - `tests/native/test_drum_bars.cpp` covers symmetry, the converse, the flam ripple, the strobe, XOR/Max, drift, the groove grid, determinism and NaN, all host-free.
+  - `test_drum_bars_render.cpp` presses Ch1 through the real executor.
+
 ## Complicator FX (post-process)
 
 *"fx.wave_traveling_down" from the original list was a duplicate of motion-rain — already absorbed into `source.light.motion_blobs` (with `spawn_edge=top, traverse_speed > 0`).*

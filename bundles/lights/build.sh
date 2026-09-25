@@ -57,6 +57,11 @@ compile_shaders_compute_var_spv sweep_gradient led
 _emit_spv_header_var sweep_gradient led
 echo "  sweep_gradient shaders compiled (SPV: led)"
 
+# drum_bars: the LED map alone, one level per bar.
+compile_shaders_compute_var_spv drum_bars led
+_emit_spv_header_var drum_bars led
+echo "  drum_bars shaders compiled (SPV: led)"
+
 # vcr_halo: prefilter -> down chain -> progressive up chain -> composite.
 compile_shaders_compute_var_spv vcr_halo prefilter
 compile_shaders_compute_var_spv vcr_halo down
@@ -175,6 +180,7 @@ wasm_build \
   $NANO_EFFECTS_ROOT/vcr_halo/main.cpp \
   $NANO_EFFECTS_ROOT/sweep_choke/main.cpp \
   $NANO_EFFECTS_ROOT/sweep_gradient/main.cpp \
+  $NANO_EFFECTS_ROOT/drum_bars/main.cpp \
   $NANO_EFFECTS_ROOT/ember_tone/main.cpp \
   $NANO_EFFECTS_ROOT/bar_scatter/main.cpp
 

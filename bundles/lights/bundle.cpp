@@ -31,6 +31,7 @@ NANO_DECLARE_INSTANCE_EFFECT(three_walls)
 NANO_DECLARE_INSTANCE_EFFECT(vcr_halo)
 NANO_DECLARE_INSTANCE_EFFECT(sweep_choke)
 NANO_DECLARE_INSTANCE_EFFECT(sweep_gradient)
+NANO_DECLARE_INSTANCE_EFFECT(drum_bars)
 NANO_DECLARE_INSTANCE_EFFECT(ember_tone)
 NANO_DECLARE_INSTANCE_EFFECT(bar_scatter)
 
@@ -255,6 +256,17 @@ void nano_module_main() {
         "la-sliders-h",
         NANO_INSTANCE_LIFECYCLE(sweep_gradient),
         nullptr, nullptr, nullptr, &sweep_gradient::eval_visibility,
+    });
+
+    nano::registerEffect({
+        2,
+        "source.light.drum_bars",
+        "Drum Bars",
+        "Three drum roles on the four LED bars, each bar one solid level of the colour. Ch1, the kick, lights a mirror pair - outer, inner - or all four at full. Ch2, the backbeat, lights the converse of what the kick would (inner for outer, outer for inner, all four again but dimmer), then flams: weaker repeats rippling out to the outer bars. Ch3, decoration, strobes one random bar in a short staccato burst of varying pulses. Overlaps cancel XOR-style. Which patterns fire cycles with a Cycle knob - smooth looping noise cut crisp, so each position always gives the same picks and 0 meets 1 - and Drift walks it on its own. Auto Groove plays kick, backbeat and decoration on the transport's 16ths.",
+        "source",
+        "drum,kick,snare,trigger,pattern,groove,strobe,led,bar,show",
+        "la-drum",
+        NANO_INSTANCE_LIFECYCLE(drum_bars),
     });
 
     nano::registerEffect({
