@@ -16,10 +16,6 @@
 #define BS_MAX_GROUPS (BS_BARS * BS_MAX_ZONES)
 #define BS_HIST      64   // history slots (~1 s at 60 fps)
 
-#define BS_PASS  0
-#define BS_CHOKE 1
-#define BS_DELAY 2
-
 // Per-cell input reduction (rewritten every frame by reduce.hlsl).
 struct CellStat {
   float r; float g; float b;
@@ -34,15 +30,21 @@ struct CellState {
   float pad;
 };
 
-// Per bar-and-zone state (PERSISTS).
+// Per bar-and-zone state (PERSISTS). Nothing here is a held decision: an
+// event only stores its DICE, and the fate is re-derived from them against
+// the live params every frame, so a knob move lands at once and a new flash
+// simply replaces the last event.
 struct GroupState {
-  int   mode;      // BS_PASS / BS_CHOKE / BS_DELAY
-  int   armed;     // 1 = may fire; re-arms below half the sensitivity
-  float t_fire;    // when it last fired (s, the sim clock)
-  float t_event;   // when its current choke/delay began
-  float lag;       // delay, s
-  float gain;      // choke gain shown this frame (for inspection)
-  float pad0; float pad1;
+  float det;       // excitation peak-hold (DET_TIME): a new flash must beat it
+  float hot;       // excitation peak-hold over `window`: what the others see
+  float t_event;   // when the current event began (s, the sim clock)
+  float co;        // co-excitation at the event: how many others flashed with it
+  float amp;       // its own excitation at the event: the choke's degree
+  float u_hit;     // the event's dice
+  float u_mode;
+  float u_order;
+  float u_jit;
+  float pad0; float pad1; float pad2;
 };
 
 // Cell (bar, row) → uv of its bottom-left corner, and its uv extent.

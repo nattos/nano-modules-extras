@@ -9,6 +9,12 @@
  * toward the outer pair (+1, the centre passes) or the centre pair (−1). One
  * bar always survives, so the flash is never lost outright.
  *
+ * Nothing latches. The input excites every band continuously, to whatever
+ * degree; each flash that beats the band's recent peak rolls fresh dice, and
+ * each frame the fate is re-derived from those dice against the live knobs.
+ * So a fast, chaotic strobe gets a new scatter on every hit, and turning
+ * Strength down releases a choked bar on the next frame.
+ *
  * Bars have ~10 cells, so a "bar" here is a BAND of cells: Zones cuts each
  * bar into bands, and each band across the four bars is its own co-trigger
  * group (1 = the whole bar decides together). A band's onset is the mean
@@ -49,8 +55,10 @@ static_assert(sizeof(CellStat) == 16, "CellStat layout mismatch");
 struct CellState  { float ref, prev_r, prev_g, prev_b, snap_r, snap_g, snap_b, pad; };
 static_assert(sizeof(CellState) == 32, "CellState layout mismatch");
 
-struct GroupState { int32_t mode, armed; float t_fire, t_event, lag, gain, pad0, pad1; };
-static_assert(sizeof(GroupState) == 32, "GroupState layout mismatch");
+struct GroupState {
+  float det, hot, t_event, co, amp, u_hit, u_mode, u_order, u_jit, pad0, pad1, pad2;
+};
+static_assert(sizeof(GroupState) == 48, "GroupState layout mismatch");
 
 struct ReduceUniforms { int32_t rows, tex_w, tex_h, head; };
 static_assert(sizeof(ReduceUniforms) == 16, "ReduceUniforms layout mismatch");
@@ -142,7 +150,8 @@ void module_init() {
       // --- Scatter ---
       .group("scatter", "Scatter")
         .groupHelp(
-          "**Strength** is the chance each co-triggering bar is hit. **Tilt** "
+          "**Strength** is the chance each co-triggering bar is hit, re-read "
+          "every frame, so a turn of the knob lands at once. **Tilt** "
           "leans it: +1 always lets the centre pair through and hits the outer "
           "pair twice as often, −1 the reverse. **Delay Share** splits the "
           "hits between choking (0) and delaying (1). **Seed** picks a "
@@ -164,11 +173,14 @@ void module_init() {
       // --- Detect ---
       .group("detect", "Detect")
         .groupHelp(
-          "What counts as a flash. A bar (or a band of it — see *Zones*) "
-          "fires when its cells jump up, on average, by more than "
-          "**Sensitivity** — a slow fade-in never fires. The dice only roll "
-          "when at least **Min Bars** fire within **Window** seconds of each "
-          "other; a bar flashing on its own always passes.")
+          "What counts as a flash. A bar (or a band of it — see *Zones*) is "
+          "excited by how far its cells jump up at once, on average: fully at "
+          "**Sensitivity**, not at all under half of it, and a slow fade-in "
+          "barely at all. Every jump that beats the bar's own recent peak is "
+          "a fresh flash with fresh dice, so a fast strobe re-scatters on "
+          "every hit. The odds scale with how hard the OTHER bars flash within "
+          "**Window** seconds — fully once **Min Bars** are flashing together; "
+          "a bar flashing on its own always passes.")
       .floatField("sensitivity",  0.25f, 0.02f, 1.0f, state::PrimaryInput).label("Sensitivity", "Sens")
       .intField  ("min_bars",     2, 2, 4,            state::PrimaryInput).label("Min Bars", "MinB")
       .floatField("window",       0.06f, 0.0f, 0.25f, state::PrimaryInput,
@@ -189,9 +201,8 @@ void module_init() {
         .groupHelp(
           "Delayed bars show the picture from a moment ago, staggered: the "
           "first by one **Step**, the next by two, and so on, each nudged by "
-          "**Jitter**. Once the flash has played the bar rejoins live as soon "
-          "as the two pictures match; if they never do, after **Hold** it "
-          "fast-forwards back over **Return**.")
+          "**Jitter**. **Hold** after its flash has played, it fast-forwards "
+          "back to live over **Return**. A new flash re-rolls it.")
       .floatField("delay_step",    0.08f, 0.02f, 0.4f, state::PrimaryInput,
                   nullptr, 0.f, "s").label("Step", "Step")
       .floatField("delay_jitter",  0.3f,  0.0f,  1.0f, state::PrimaryInput).label("Jitter", "Jit")

@@ -3,31 +3,40 @@
 // Single-threaded (gid 0 only), like bounce_resonator_fx's sim: the native
 // Metal backend hardcodes 8×8 threadgroups, and the work is tiny.
 //
+// Continuous, not latched: the input excites every band all the time, to
+// whatever degree, and nothing is ever held as a decision. An event stores
+// only its dice; every frame each bar's fate is re-derived from those dice
+// against the LIVE params, and every effect is a pure function of the time
+// since its event — so a knob move lands on the next frame, a fresh flash
+// replaces whatever the last one did, and there is no state to get stuck in.
+//
 // Per frame:
 //   1. CELL ONSET. Each cell's `ref` is a floor follower of its luma — it
-//      drops to the luma at once and climbs back over RISE_TIME — so the rise
-//      above it is the size of a sudden jump and ~0 for a slow fade-in. Reset
-//      zeroes it, so an image arriving is itself an onset.
-//   2. GROUP ONSET. Each bar is cut into `zones` bands; a band's onset is the
-//      MEAN rise over its cells, so a whole band flashing reads fully and one
-//      cell of ten reads a tenth. It fires above `sensitivity` and re-arms
-//      below half of it.
-//   3. CO-TRIGGER. A bar firing counts the bars in its zone row that fired
-//      within `window` seconds, itself included. At `min_bars` or more, the
-//      bars firing THIS frame roll; alone, it passes.
-//   4. THE ROLL. Each is hit with p = strength·(1 − tilt·c), c = +1 for the
-//      centre pair and −1 for the outer pair; a hit is a delay with
-//      probability `delay_share`, else a choke. If every bar in the event
-//      would end up hit, the one least likely to be hit passes instead: the
-//      flash always lands somewhere. A bar already mid-effect keeps its fate
-//      (a choke restarts its hold).
+//      drops to the luma at once and climbs back over `rise_time` — so the
+//      rise above it is the size of a sudden jump and ~0 for a slow fade-in.
+//      Reset zeroes it, so an image arriving is itself an onset.
+//   2. EXCITATION. A band's onset is the MEAN rise over its cells (a whole
+//      band flashing reads fully, one cell of ten a tenth), eased through a
+//      soft knee: x = smoothstep(sensitivity/2, sensitivity, onset).
+//   3. EVENTS. A band starts a new event whenever x beats its own recent
+//      peak (`det`, released over DET_TIME) by a margin — each flash of a
+//      fast strobe is its own event, while one flash's tail never is. The
+//      event rolls fresh dice and records `co`, how strongly the OTHER bars
+//      in its zone row are flashing with it (their x held over `window`,
+//      summed, less `min_bars` − 2).
+//   4. FATE, live. p = strength·(1 − tilt·c)·co, c = +1 for the centre pair
+//      and −1 for the outer pair; the bar is hit when its dice fall under p,
+//      and a hit is a delay when its second die falls under `delay_share`,
+//      else a choke. If every bar whose event began within `window` of this
+//      one is hit, the one closest to missing passes: a flash always lands
+//      somewhere. A bar flashing alone has co 0 and passes.
 //   5. CHOKE removes only the NEW light — live minus its pre-flash colour —
-//      held for `choke_length`, then released over `choke_release`.
+//      scaled by the event's excitation, held for `choke_length`, then
+//      released over `choke_release`.
 //   6. DELAY reads the band from history `lag` seconds back. The delayed bars
-//      of one event are staggered 1, 2, 3 steps (shuffled, jittered). Once
-//      the delayed flash has played, it snaps back when the delayed and live
-//      pictures agree; failing that, after `delay_hold` the lag decays over
-//      `return_time` — the read head fast-forwards to live.
+//      of one event are staggered 1, 2, 3 steps (shuffled, jittered). After
+//      `lag + delay_hold` the lag decays over `return_time`: the read head
+//      fast-forwards to live.
 // dt = 0 (a re-render with no tick) steps nothing and re-derives `proc`.
 
 #include "common.hlsl"
@@ -48,6 +57,14 @@ cbuffer SimU : register(b6) {
   float return_time; float rise_time; float spad0; float spad1;
 };
 
+// How long a band's own excitation peak is held against its next flash. It
+// must outlast the onset's own fall (rise_time) so a flash's tail never reads
+// as a new flash, and stay short enough that a 16th-note strobe still does.
+static const float DET_TIME = 0.2;
+static const float DET_MARGIN = 0.1;
+static const float MIN_EXCITE = 0.15;   // weaker than this never starts an event
+static const float NEVER = -1e9;
+
 static float hash01(uint a, uint b, uint c) {
   uint h = a ^ (b * 0x9E3779B1u) ^ (c * 0x85EBCA77u);
   h ^= h >> 16; h *= 0x7FEB352Du; h ^= h >> 15; h *= 0x846CA68Bu; h ^= h >> 16;
@@ -57,9 +74,9 @@ static float hash01(uint a, uint b, uint c) {
 // The centre pair (bars 1, 2) is +1, the outer pair −1.
 static float centreness(int bar) { return (bar == 1 || bar == 2) ? 1.0 : -1.0; }
 
-// A cell's colour `lag` seconds ago. Slots are walked back from `head`, newest
-// first; a slot never written means there was no picture yet (black). A lag
-// past the whole ring clamps to its oldest slot.
+// A cell's colour at sim time `t`. Slots are walked back from `head`, newest
+// first; a slot never written means there was no picture yet (black). A time
+// before the whole ring clamps to its oldest slot.
 float3 readHistory(int cell, float t) {
   float t_next = slot_time[head];
   int s_next = head;
@@ -96,9 +113,9 @@ void main(uint3 gid : SV_DispatchThreadID) {
     }
     [loop] for (int j = 0; j < BS_MAX_GROUPS; j++) {
       GroupState g;
-      g.mode = BS_PASS; g.armed = 1;
-      g.t_fire = -1e9; g.t_event = -1e9;
-      g.lag = 0.0; g.gain = 0.0; g.pad0 = 0.0; g.pad1 = 0.0;
+      g.det = 0.0; g.hot = 0.0; g.t_event = NEVER; g.co = 0.0; g.amp = 0.0;
+      g.u_hit = 1.0; g.u_mode = 1.0; g.u_order = 0.0; g.u_jit = 0.5;
+      g.pad0 = 0.0; g.pad1 = 0.0; g.pad2 = 0.0;
       groups[j] = g;
     }
   }
@@ -117,139 +134,120 @@ void main(uint3 gid : SV_DispatchThreadID) {
   }
 
   float sens = max(sensitivity, 1e-3);
+  float det_keep = step ? exp(-dt / DET_TIME) : 1.0;
+  float hot_keep = step ? ((window > 1e-3) ? exp(-dt / window) : 0.0) : 1.0;
+  float base_p[BS_BARS];
+  [unroll] for (int bp = 0; bp < BS_BARS; bp++)
+    base_p[bp] = saturate(strength * (1.0 - tilt * centreness(bp)));
+
   [loop] for (int z = 0; z < nzones; z++) {
     int r0 = z * nrows / nzones, r1 = (z + 1) * nrows / nzones;
     int gbase = z * BS_BARS;
     GroupState G[BS_BARS];
-    bool fired[BS_BARS];
+    float x[BS_BARS];
+    bool fresh[BS_BARS];
 
-    // --- 2. Group onset ---
+    // --- 2. Excitation, and the peak-holds ---
     [unroll] for (int b = 0; b < BS_BARS; b++) {
       G[b] = groups[gbase + b];
-      fired[b] = false;
       float onset = 0.0;
       for (int r = r0; r < r1; r++) onset += rise[r * BS_BARS + b];
       onset /= float(max(r1 - r0, 1));
+      x[b] = smoothstep(0.5 * sens, sens, onset);
+      float det_prev = G[b].det * det_keep;
+      fresh[b] = step && x[b] > MIN_EXCITE && x[b] > det_prev + DET_MARGIN;
       if (step) {
-        if (G[b].armed != 0 && onset > sens) {
-          fired[b] = true; G[b].armed = 0; G[b].t_fire = now;
-        } else if (G[b].armed == 0 && onset < 0.5 * sens) {
-          G[b].armed = 1;
-        }
+        G[b].det = max(det_prev, x[b]);
+        G[b].hot = max(G[b].hot * hot_keep, x[b]);
       }
     }
 
-    // --- 3. Co-trigger ---
-    bool any_fired = false;
-    int in_window = 0;
+    // --- 3. Events: fresh dice, and how many flashed along ---
+    uint ev = frame * 131u + uint(z) * 7919u;
     [unroll] for (int b2 = 0; b2 < BS_BARS; b2++) {
-      any_fired = any_fired || fired[b2];
-      if (now - G[b2].t_fire <= window + 1e-4) in_window++;
+      if (!fresh[b2]) continue;
+      float others = 0.0;
+      [unroll] for (int o = 0; o < BS_BARS; o++) if (o != b2) others += G[o].hot;
+      G[b2].co = saturate(others - float(min_bars - 2));
+      G[b2].amp = x[b2];
+      G[b2].t_event = now;
+      G[b2].u_hit   = hash01(seed, ev, uint(b2));
+      G[b2].u_mode  = hash01(seed, ev, uint(b2) + 16u);
+      G[b2].u_order = hash01(seed, ev, uint(b2) + 32u);
+      G[b2].u_jit   = hash01(seed, ev, uint(b2) + 48u);
+      // The pre-flash picture, for the choke to hold the band at.
+      for (int r = r0; r < r1; r++) {
+        int ci = r * BS_BARS + b2;
+        CellState cs = cells[ci];
+        cs.snap_r = cs.prev_r; cs.snap_g = cs.prev_g; cs.snap_b = cs.prev_b;
+        cells[ci] = cs;
+      }
     }
 
-    // --- 4. The roll ---
-    if (any_fired && in_window >= min_bars) {
-      uint ev = frame * 131u + uint(z);
-      int fate[BS_BARS];
-      bool fresh[BS_BARS];   // fired this frame, and free to take a new fate
-      float p[BS_BARS];
+    // --- 4. Fate, from the dice and the live params ---
+    float p[BS_BARS];
+    bool hit[BS_BARS], delayed[BS_BARS];
+    [unroll] for (int b3 = 0; b3 < BS_BARS; b3++) {
+      p[b3] = base_p[b3] * G[b3].co;
+      hit[b3] = G[b3].u_hit < p[b3];
+      delayed[b3] = G[b3].u_mode < delay_share;
+    }
+    bool pass_anyway[BS_BARS];
+    [unroll] for (int b4 = 0; b4 < BS_BARS; b4++) {
+      // The survivor: among the bars whose events began within `window` of
+      // this one's, if every one is hit, the one closest to missing passes.
       bool all_hit = true;
-      [unroll] for (int b3 = 0; b3 < BS_BARS; b3++) {
-        p[b3] = saturate(strength * (1.0 - tilt * centreness(b3)));
-        fate[b3] = G[b3].mode;
-        fresh[b3] = fired[b3] && G[b3].mode == BS_PASS;
-        bool in_ev = now - G[b3].t_fire <= window + 1e-4;
-        if (fresh[b3]) {
-          if (hash01(seed, ev, uint(b3)) < p[b3])
-            fate[b3] = (hash01(seed, ev, uint(b3) + 16u) < delay_share) ? BS_DELAY : BS_CHOKE;
-        }
-        if (in_ev && fate[b3] == BS_PASS) all_hit = false;
+      int best = b4;
+      float best_margin = G[b4].u_hit - p[b4];
+      [unroll] for (int o2 = 0; o2 < BS_BARS; o2++) {
+        if (abs(G[o2].t_event - G[b4].t_event) > window + 1e-4) continue;
+        if (!hit[o2]) all_hit = false;
+        float m = G[o2].u_hit - p[o2];
+        if (m > best_margin || (m == best_margin && o2 < best)) { best_margin = m; best = o2; }
       }
-      // The survivor: the least likely to be hit, a random tie-break.
-      if (all_hit) {
-        int best = -1; float best_key = 1e9;
-        [unroll] for (int b4 = 0; b4 < BS_BARS; b4++) {
-          if (!fresh[b4]) continue;
-          float key = p[b4] + 1e-3 * hash01(seed, ev, uint(b4) + 32u);
-          if (key < best_key) { best_key = key; best = b4; }
-        }
-        if (best >= 0) fate[best] = BS_PASS;
-      }
-      // Staggered lags for the delays new this frame, in shuffled order.
-      float order[BS_BARS];
-      [unroll] for (int b5 = 0; b5 < BS_BARS; b5++) order[b5] = hash01(seed, ev, uint(b5) + 48u);
-      [unroll] for (int b6 = 0; b6 < BS_BARS; b6++) {
-        if (!fired[b6]) continue;
-        if (fate[b6] == BS_CHOKE) {
-          if (fresh[b6]) {
-            for (int r = r0; r < r1; r++) {
-              int ci = r * BS_BARS + b6;
-              CellState cs = cells[ci];
-              cs.snap_r = cs.prev_r; cs.snap_g = cs.prev_g; cs.snap_b = cs.prev_b;
-              cells[ci] = cs;
-            }
-          }
-          G[b6].t_event = now;   // a choke restarts its hold
-        } else if (fate[b6] == BS_DELAY && fresh[b6]) {
-          int k = 1;
-          [unroll] for (int o = 0; o < BS_BARS; o++)
-            if (o != b6 && fresh[o] && fate[o] == BS_DELAY && order[o] < order[b6]) k++;
-          float u = hash01(seed, ev, uint(b6) + 64u) - 0.5;
-          G[b6].lag = float(k) * delay_step * max(1.0 + delay_jitter * u, 0.05);
-          G[b6].t_event = now;
-        }
-        G[b6].mode = fate[b6];
-      }
+      pass_anyway[b4] = all_hit && best == b4;
     }
 
-    // --- 5–7. Advance each bar's fate and write the band ---
-    [unroll] for (int b7 = 0; b7 < BS_BARS; b7++) {
-      GroupState g = G[b7];
+    // --- 5–6. Each bar's band ---
+    [unroll] for (int b5 = 0; b5 < BS_BARS; b5++) {
+      GroupState g = G[b5];
       float el = now - g.t_event;
-      if (g.mode == BS_CHOKE) {
+      bool is_hit = hit[b5] && !pass_anyway[b5];
+      float gain = 0.0, lag = 0.0;
+      if (is_hit && !delayed[b5]) {
         float rel = max(el - choke_length, 0.0);
-        g.gain = exp(-rel / max(choke_release, 1e-3));
-        if (el > choke_length && g.gain < 0.01) { g.mode = BS_PASS; g.gain = 0.0; }
-      } else {
-        g.gain = 0.0;
-      }
-
-      if (g.mode == BS_DELAY && step && el > g.lag) {
-        // Played: snap back once the two pictures agree.
-        float diff = 0.0;
-        for (int r = r0; r < r1; r++) {
-          int ci = r * BS_BARS + b7;
-          float3 dl = readHistory(ci, now - g.lag);
-          float3 lv = float3(stats[ci].r, stats[ci].g, stats[ci].b);
-          float3 ad = abs(dl - lv);
-          diff = max(diff, max(ad.r, max(ad.g, ad.b)));
+        gain = saturate(choke_depth) * g.amp * exp(-rel / max(choke_release, 1e-3));
+      } else if (is_hit) {
+        // Staggered one step apart, in the event's shuffled order.
+        int k = 1;
+        [unroll] for (int o3 = 0; o3 < BS_BARS; o3++) {
+          if (o3 == b5 || abs(G[o3].t_event - g.t_event) > window + 1e-4) continue;
+          if (hit[o3] && !pass_anyway[o3] && delayed[o3] && G[o3].u_order < g.u_order) k++;
         }
-        if (diff < 0.02) {
-          g.mode = BS_PASS; g.lag = 0.0;
-        } else if (el > g.lag + delay_hold) {
-          g.lag *= exp(-dt / max(return_time, 1e-3));
-          if (g.lag < 0.004) { g.mode = BS_PASS; g.lag = 0.0; }
-        }
+        float full = float(k) * delay_step * max(1.0 + delay_jitter * (g.u_jit - 0.5), 0.05);
+        float back = max(el - full - delay_hold, 0.0);
+        lag = full * exp(-back / max(return_time, 1e-3));
+        if (lag < 0.004) lag = 0.0;
       }
 
       for (int r = r0; r < r1; r++) {
-        int ci = r * BS_BARS + b7;
+        int ci = r * BS_BARS + b5;
         float3 lv = float3(stats[ci].r, stats[ci].g, stats[ci].b);
         float3 o = lv;
-        if (g.mode == BS_CHOKE) {
+        if (gain > 1e-3) {
           CellState cs = cells[ci];
           float3 snap = float3(cs.snap_r, cs.snap_g, cs.snap_b);
-          o = lv - saturate(choke_depth) * g.gain * max(lv - snap, 0.0);
-        } else if (g.mode == BS_DELAY) {
-          o = readHistory(ci, now - g.lag);
+          o = lv - gain * max(lv - snap, 0.0);
+        } else if (lag > 0.0) {
+          o = readHistory(ci, now - lag);
         }
         proc[ci] = float4(o, 1.0);
       }
-      groups[gbase + b7] = g;
+      groups[gbase + b5] = g;
     }
   }
 
-  // Last frame's live colour, for the next choke's snapshot.
+  // Last frame's live colour, for the next event's snapshot.
   if (step) {
     [loop] for (int c2 = 0; c2 < nrows * BS_BARS; c2++) {
       CellState cs = cells[c2];
