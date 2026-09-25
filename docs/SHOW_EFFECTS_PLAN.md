@@ -1056,6 +1056,22 @@ shared `nano_led_bars.hlsl` pass onto `tex_out`.
 - **Rails**: `speed_out`, `release_out`, `level_out`, `sweep_out`. `sweep_out` can still drive
   three_planes' glints.
 
+### filter.light.bounce_resonator
+
+The dedicated "fx" version of `source.light.bounce_resonator`: a passive reverb for light rather than a triggered generator. It's a new effect (`effects/bounce_resonator_fx/`), and the source effect is unchanged.
+
+- **Grid.** The state is 4 bars × `rows` cells (default 10, one per segment). Each row is its own copy of the 4-bar diffusion network, and every row steps through the **same** cycling matrix (`fx::DiffusionNetwork4`) at the same hop. So the impulse-response pattern crosses the whole grid at once, while each cell keeps its own energy and the picture's shape survives into the tail.
+- **Excitation.** It is continuous and needs no triggers:
+  - **Grains:** each cell fires kicks of `grain_size` at a Poisson rate of `grain_rate × luma`.
+  - **Edges:** a rise in a cell's luma kicks it by `edge_excite × rise`. Reset zeroes the remembered luma, so an image arriving is itself an edge.
+  - The kicks carry the cell's colour, blended toward `band_color` by `input_color`.
+- **A/C.** Each cell tracks a running mean of its energy (`ac_time`), and the output shows `v − ac_amount·mean`:
+  - Above the mean, the cell's colour is added, with the same bloom and chroma-hold limiter as the source effect.
+  - Below the mean, the dry image is choked by `exp(−black_depth·|d|)`, which is the overshoot into black.
+  - Steady energy cancels out, so bright footage fizzes instead of flooding.
+- **Hop cap.** There is at most one hop per rendered frame, and `cycle_rate` runs to 120. At or past the frame rate, a low spread flips the energy cell to cell every frame, giving a solid strobe.
+- **GPU passes.** State is GPU-resident across three passes: reduce (one thread per cell), sim (a single thread: hop, excite, A/C) and a full-resolution composite.
+
 ## Complicator FX (post-process)
 
 *"fx.wave_traveling_down" from the original list was a duplicate of motion-rain — already absorbed into `source.light.motion_blobs` (with `spawn_edge=top, traverse_speed > 0`).*
@@ -1541,7 +1557,7 @@ Then the rest as time permits:
 10. `source.light.strobe_channel`
 11. `fx.chrome_wave` → **shipped as `source.light.chroma_wave`** (reimagined: a self-rendered, polyphonic prismatic "wave bloom" generator rather than an input chroma-distorter — see the spec note below). All 11 effects above are now built.
 
-(`fx.bounce_resonator` was dropped: `source.light.bounce_resonator` became a GPU diffusion network, so the shared spring-oscillator helper no longer exists, and its `impulse_mode = tex_in` already samples the input image per bar — covering the audio-energy-driven gesture this slot was for.)
+(`fx.bounce_resonator` was first dropped, because `source.light.bounce_resonator`'s `impulse_mode = tex_in` sampled the input on a trigger. It has since been built for the four-bar show as `filter.light.bounce_resonator`: a passive, continuously input-excited, A/C resonator. See "Four-bar show".)
 
 ## Shared helpers we'll likely extract during this work
 

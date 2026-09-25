@@ -18,6 +18,7 @@ NANO_DECLARE_INSTANCE_EFFECT(dispersion)
 NANO_DECLARE_INSTANCE_EFFECT(plasma_beam_cannon)
 NANO_DECLARE_INSTANCE_EFFECT(orthomod)
 NANO_DECLARE_INSTANCE_EFFECT(bounce_resonator)
+NANO_DECLARE_INSTANCE_EFFECT(bounce_resonator_fx)
 NANO_DECLARE_INSTANCE_EFFECT(side_jet)
 NANO_DECLARE_INSTANCE_EFFECT(motion_blobs)
 NANO_DECLARE_INSTANCE_EFFECT(lights_sim)
@@ -102,6 +103,17 @@ void nano_module_main() {
         "la-broadcast-tower",
         NANO_INSTANCE_LIFECYCLE(bounce_resonator),
         nullptr, nullptr, nullptr, &bounce_resonator::eval_visibility,
+    });
+
+    nano::registerEffect({
+        2,
+        "filter.light.bounce_resonator",
+        "Bounce Resonator FX",
+        "The passive, input-excited version of Bounce Resonator: a reverb for light. The picture is cut into 4 bars x N cells (one per LED segment) and plucks every cell continuously — bright cells fire random grains, rising edges kick by how much they brightened — with no triggers. Every row runs the same cycling diffusion pattern at the same hop, so the energy bounces between the bars while the picture's shape rings on in the tail. The output is A/C: each cell subtracts its own running average, so steady energy cancels and the swing shows — bright above it, choking the picture to black below it. Hops cap at one per frame, so a Cycle Rate at the frame rate flips the energy every frame for a solid strobe.",
+        "filter",
+        "resonator,reverb,strobe,sparkle,led,bar,feedback",
+        "la-broadcast-tower",
+        NANO_INSTANCE_LIFECYCLE(bounce_resonator_fx),
     });
 
     nano::registerEffect({

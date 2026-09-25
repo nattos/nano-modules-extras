@@ -104,6 +104,13 @@ compile_shaders_compute_var_spv flicker_grid render
 _emit_spv_header_var flicker_grid reduce sim render
 echo "  flicker_grid shaders compiled (SPV: reduce + sim + render)"
 
+# bounce_resonator_fx: per-cell reduce + persistent resonator sim + composite.
+compile_shaders_compute_var_spv bounce_resonator_fx reduce
+compile_shaders_compute_var_spv bounce_resonator_fx sim
+compile_shaders_compute_var_spv bounce_resonator_fx render
+_emit_spv_header_var bounce_resonator_fx reduce sim render
+echo "  bounce_resonator_fx shaders compiled (SPV: reduce + sim + render)"
+
 compile_shaders_compute_var_spv tingle_top update
 compile_shaders_compute_var_spv tingle_top prefill
 compile_shaders_compute_var_spv tingle_top motion
@@ -136,6 +143,7 @@ wasm_build \
   $NANO_EFFECTS_ROOT/plasma_beam_cannon/main.cpp \
   $NANO_EFFECTS_ROOT/orthomod/main.cpp \
   $NANO_EFFECTS_ROOT/bounce_resonator/main.cpp \
+  $NANO_EFFECTS_ROOT/bounce_resonator_fx/main.cpp \
   $NANO_EFFECTS_ROOT/side_jet/main.cpp \
   $NANO_EFFECTS_ROOT/motion_blobs/main.cpp \
   $NANO_EFFECTS_ROOT/lights_sim/main.cpp \
