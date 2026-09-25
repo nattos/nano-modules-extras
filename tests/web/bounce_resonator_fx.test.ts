@@ -82,7 +82,7 @@ describe(`Bounce Resonator FX (${backend})`, () => {
 
   it('a busy waveguide overshoots into black and flips frame to frame', async () => {
     const params: [string, unknown][] = [
-      ['grain_rate', 40], ['grain_size', 1.0], ['feedback', 0.95], ['spread', 0.0],
+      ['grain_rate', 40], ['grain_size', 1.0], ['tail', 0.3], ['spread', 0.0],
       ['cycle_rate', 120], ['ac_amount', 1.0], ['ac_time', 0.3], ['black_depth', 3.0],
     ];
     // Long enough for every cell's running mean to settle onto its level.

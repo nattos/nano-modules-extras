@@ -5,7 +5,13 @@
 // work is tiny (≤ 64 cells, ≤ 1 hop per frame).
 //
 // Per frame:
-//   1. HOP (at most one — the rate caps at the frame rate). Every row is
+//   0. DECAY, in real time and independent of the hop rate: every cell's
+//      energy falls by exp(-decay_k·dt) (decay_k = ln(100)/tail seconds, so
+//      the tail is the time to fall to 1%; 0 holds forever). Decay Shaping
+//      bends it by where the grid is in its decay, as the source effect's
+//      per-hop feedback does.
+//   1. HOP (at most one — the rate caps at the frame rate). Pure
+//      redistribution: the matrix columns sum to 1. Every row is
 //      its own copy of the 4-bar network, and every row steps through the
 //      SAME cycling matrix at the same hop, so the impulse-response pattern
 //      travels across the whole grid at once while each cell keeps its own
@@ -32,7 +38,7 @@ StructuredBuffer<float>        mats  : register(t2);   // pattern_count × 48 fl
 RWStructuredBuffer<NetState>   net   : register(u3);
 
 cbuffer SimU : register(b4) {
-  float feedback; float decay_shaping; float hue_converge; float home_hue;
+  float decay_k; float decay_shaping; float hue_converge; float home_hue;
   int   pattern_count; int hop_idx; int do_hop; int rows;
   float grain_rate; float grain_size; float edge_excite; float input_color;
   float band_hue; float band_sat; float ac_amount; float ac_time;
@@ -80,22 +86,22 @@ void main(uint3 gid : SV_DispatchThreadID) {
     }
   }
 
+  // --- 0. Decay phase + shaped decay ---
+  // Where the grid is in its decay (1 = just peaked, 0 = faded), from a
+  // peak-follower on its total energy (effect_diffusion_network.h's proxy,
+  // its per-hop 0.98 release restated per second at 60 Hz).
+  float total = 0.0;
+  [loop] for (int i = 0; i < ncells; i++) total += cells[i].v;
+  if (dt > 0.0) ns.env = (total > ns.env) ? total : ns.env * exp(-1.2 * dt);
+  float phase = (ns.env > 1e-6) ? min(total / ns.env, 1.0) : 0.0;
+  // +shaping: slow while bright, fast at the tail (sustain then snap);
+  // -shaping: fast while bright, slow at the tail (pluck then linger).
+  float k = decay_k * max(1.0 + decay_shaping * 0.80 * (1.0 - 2.0 * phase), 0.0);
+  float keep = (dt > 0.0) ? exp(-k * dt) : 1.0;
+
   // --- 1. Hop ---
   if (do_hop != 0) {
     int base = (max(hop_idx, 0) % max(pattern_count, 1)) * 48;
-
-    // Decay-phase proxy over the whole grid + shaped feedback (mirrors
-    // effect_diffusion_network.h; the grid's total stands in for the 4 bars').
-    float total = 0.0;
-    [loop] for (int i = 0; i < ncells; i++) total += cells[i].v;
-    ns.env = (total > ns.env) ? total : ns.env * 0.98;
-    float phase = (ns.env > 1e-6) ? min(total / ns.env, 1.0) : 0.0;
-    float fb = feedback;
-    if (decay_shaping != 0.0 && feedback < 1.0) {
-      float d = 1.0 - feedback;
-      float factor = 1.0 + decay_shaping * 0.80 * (1.0 - 2.0 * phase);
-      fb = 1.0 - clamp(d * factor, 0.0, 1.0);
-    }
     float conv = 0.0;
     if (hue_converge > 0.0) { float t = 1.0 - phase; conv = min(hue_converge * t * t, 1.0); }
 
@@ -118,7 +124,7 @@ void main(uint3 gid : SV_DispatchThreadID) {
           hy += w * (sj[jj] * cd + cj[jj] * sd);
         }
         CellState o = cells[r * BR_BARS + i2];
-        o.v = clamp(a * fb, 0.0, 1e6);
+        o.v = clamp(a, 0.0, 1e6);
         float rl = sqrt(hx * hx + hy * hy);
         if (rl > 1e-6) o.h = wrapT(atan2(hy, hx) / TAU);
         if (a > 1e-6) o.s = saturate(rl / a);
@@ -139,6 +145,8 @@ void main(uint3 gid : SV_DispatchThreadID) {
     CellStat st = stats[k];
 
     if (dt > 0.0) {
+      c.v *= keep;
+
       // The injected colour: the cell's own, pulled toward the band colour.
       float3 hsv = nano_rgb_to_hsv(float3(st.r, st.g, st.b));
       float dh = frac(hsv.x - band_hue + 1.5) - 0.5;   // shortest-path hue lerp

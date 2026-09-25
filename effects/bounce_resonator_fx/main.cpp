@@ -57,7 +57,7 @@ struct ReduceUniforms { int32_t rows, tex_w, tex_h, pad; };
 static_assert(sizeof(ReduceUniforms) == 16, "ReduceUniforms layout mismatch");
 
 struct SimUniforms {
-  float    feedback, decay_shaping, hue_converge, home_hue;
+  float    decay_k, decay_shaping, hue_converge, home_hue;
   int32_t  pattern_count, hop_idx, do_hop, rows;
   float    grain_rate, grain_size, edge_excite, input_color;
   float    band_hue, band_sat, ac_amount, ac_time;
@@ -90,7 +90,7 @@ struct State {
   float grain_size      = 0.6f;
   float edge_excite     = 2.0f;
   float input_color     = 1.0f;
-  float feedback        = 0.90f;
+  float tail            = 0.55f;   // 0..1 → 0.05 s .. 60 s, exponential; 1 = hold
   float spread          = 0.30f;
   float spread_contrast = 0.0f;
   float decay_shaping   = 0.0f;
@@ -146,6 +146,17 @@ static void rgb_to_hsv(float r, float g, float b, float& h, float& s, float& v) 
   }
 }
 
+// Tail knob (0..1) → the energy decay rate, per second. The knob is
+// exponential in time — 0.05 s at 0, 60 s at 1 — so each step up the knob
+// multiplies the tail rather than creeping toward a cliff at 1.0; the tail
+// is the time to fall to 1% (ln 100 / T). The very top holds forever.
+static float decay_rate(float knob) {
+  knob = clampf(knob, 0.0f, 1.0f);
+  if (knob >= 0.999f) return 0.0f;
+  float seconds = 0.05f * std::pow(1200.0f, knob);
+  return 4.60517f / seconds;
+}
+
 void module_init() {
   state::init("filter.light.bounce_resonator", {1, 0, 0},
     state::Schema()
@@ -181,15 +192,21 @@ void module_init() {
       // --- Diffusion network ---
       .group("network", "Diffusion Network")
         .groupHelp(
-          "The bouncing engine, shared by every row. **Feedback** is the "
-          "energy kept per hop (near 1 = a long tail); **Spread** and "
+          "The bouncing engine, shared by every row. **Tail** is how long "
+          "energy rings, in real time whatever the hop rate — the knob is "
+          "exponential, and the very top holds forever; **Spread** and "
           "**Contrast** set how widely each hop fans out. **Cycle Rate** is "
           "hops per second, capped at one hop per frame — at or past your "
           "frame rate it hops every frame, and with a low Spread the energy "
           "flips bar to bar each frame. **Pattern Count** and **Seed** vary "
           "the routing; the **Hue** knobs let colour wander or settle back on "
           "the bar colour.")
-      .floatField("feedback",        0.90f, 0.0f, 1.2f,  state::PrimaryInput).label("Feedback", "Fbk")
+      .floatField("tail",            0.55f, 0.0f, 1.0f,  state::PrimaryInput,
+                  nullptr, 0.f, nullptr,
+                  "How long energy rings: the time to fade to 1%, exponential "
+                  "from 0.05 s (0) through ~0.35 s (0.25), ~2.5 s (0.55) and "
+                  "~17 s (0.83) to 60 s; the very top holds forever.")
+        .label("Tail", "Tail")
       .floatField("spread",          0.30f, 0.0f, 1.0f,  state::PrimaryInput).label("Spread", "Sprd")
       .floatField("spread_contrast", 0.0f, 0.0f, 1.0f,   state::PrimaryInput).label("Spread Contrast", "SprCon")
       .floatField("decay_shaping",   0.0f, -1.0f, 1.0f,  state::PrimaryInput).label("Decay Shaping", "Decay")
@@ -328,7 +345,7 @@ void on_state_patched(void* self, int n, const char* pb, const int* off,
     else if (state::pathIs(path, plen, "grain_size"))      s->grain_size      = state::patchFloat(i);
     else if (state::pathIs(path, plen, "edge_excite"))     s->edge_excite     = state::patchFloat(i);
     else if (state::pathIs(path, plen, "input_color"))     s->input_color     = state::patchFloat(i);
-    else if (state::pathIs(path, plen, "feedback"))        s->feedback        = state::patchFloat(i);
+    else if (state::pathIs(path, plen, "tail"))            s->tail            = state::patchFloat(i);
     else if (state::pathIs(path, plen, "spread"))          s->spread          = state::patchFloat(i);
     else if (state::pathIs(path, plen, "spread_contrast")) s->spread_contrast = state::patchFloat(i);
     else if (state::pathIs(path, plen, "decay_shaping"))   s->decay_shaping   = state::patchFloat(i);
@@ -365,7 +382,7 @@ void render(void* self, int vp_w, int vp_h) {
 
   // Build + upload the cycling matrices (rebuilt only when routing changes).
   fx::DiffusionNetwork4::Params p;
-  p.feedback        = clampf(s->feedback, 0.0f, 1.2f);
+  p.feedback        = 1.0f;   // unused: the decay is per second, in the sim
   p.spread          = clampf(s->spread, 0.0f, 1.0f);
   p.spread_contrast = clampf(s->spread_contrast, 0.0f, 1.0f);
   p.decay_shaping   = clampf(s->decay_shaping, -1.0f, 1.0f);
@@ -397,7 +414,7 @@ void render(void* self, int vp_w, int vp_h) {
   s->reduce_uniform_buf.writeOne(ru);
 
   SimUniforms su = {};
-  su.feedback      = p.feedback;
+  su.decay_k       = decay_rate(s->tail);
   su.decay_shaping = p.decay_shaping;
   su.hue_converge  = p.hue_converge;
   su.home_hue      = s->band_hue;
