@@ -30,6 +30,7 @@ NANO_DECLARE_INSTANCE_EFFECT(three_planes)
 NANO_DECLARE_INSTANCE_EFFECT(three_walls)
 NANO_DECLARE_INSTANCE_EFFECT(vcr_halo)
 NANO_DECLARE_INSTANCE_EFFECT(sweep_choke)
+NANO_DECLARE_INSTANCE_EFFECT(sweep_gradient)
 NANO_DECLARE_INSTANCE_EFFECT(ember_tone)
 NANO_DECLARE_INSTANCE_EFFECT(bar_scatter)
 
@@ -242,6 +243,18 @@ void nano_module_main() {
         "sweep,choke,knob,gradient,roll,tail,flicker,glint,mask,led,bar,show",
         "la-sliders-h",
         NANO_INSTANCE_LIFECYCLE(sweep_choke),
+    });
+
+    nano::registerEffect({
+        2,
+        "source.light.sweep_gradient",
+        "Sweep Gradient",
+        "Sweep Choke's rolling gradient on its own: the four LED bars in one colour, dimmed by a knob or by a trigger. The knob is full in the middle and dims past a wide deadzone to black at either end, always settling solid at its level; only a change is a gradient, rolling across the 4x10 grid at a set angle over Roll seconds, softened. A Gate, Trigger or Auto fire plays the same thing as a gesture - out toward an end (Upper, Lower, Alternate or Random) over Attack, held, and back over Release. Monophonic: the gesture owns the bars while it runs, a new fire picks up from where it is, and the knob takes back over when it ends.",
+        "source",
+        "sweep,gradient,roll,mask,choke,trigger,envelope,led,bar,show",
+        "la-sliders-h",
+        NANO_INSTANCE_LIFECYCLE(sweep_gradient),
+        nullptr, nullptr, nullptr, &sweep_gradient::eval_visibility,
     });
 
     nano::registerEffect({

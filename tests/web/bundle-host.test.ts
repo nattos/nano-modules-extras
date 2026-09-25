@@ -137,6 +137,7 @@ describe('schema metadata of the extras (groups / names / help)', () => {
       'source.light.side_jet', 'source.light.bounce_resonator', 'source.light.strobe_channel',
       'source.light.soft_glow', 'source.light.tingle_top', 'filter.glitch.block_dehance',
       'filter.light.bounce_resonator', 'filter.color.ember_tone', 'filter.light.bar_scatter',
+      'source.light.sweep_gradient',
     ];
     // captureSchemas JSON.parses each — a truncated/corrupt schema would throw here.
     const schemas = await captureSchemas(wasmPath('lights'), ids);

@@ -1071,6 +1071,24 @@ shared `nano_led_bars.hlsl` pass:
 - **Base**: the mask in colour at `base` (default 0), shaded by the glints' wakes (`glint_shadow`).
 - **Rails**: `speed_out`, `release_out`, `level_out` (the mask's mean), `sweep_out`.
 
+### source.light.sweep_gradient — "Sweep Gradient" *(built)*
+
+Sweep Choke's rolling gradient on its own, as a coloured LED map.
+
+- **The knob:** same law and knobs as Sweep Choke's mask. Full across the deadzone, dimming to `1 − depth` at either end, and always settling solid. A change rolls along Angle over Roll, eased by Soften, with Ping-Pong/One-Way.
+- **The trigger** plays a sweep gesture: a virtual knob goes out from home toward an end, Reach of the way, over Attack, holds for Hold, and comes back over Release.
+  - **Side** picks the end: Upper, Lower, Alternate or Random.
+  - **Fired by:** Gate or Trigger on a rising edge, or the shared `fx::AutoTrigger` block.
+- **Monophonic:**
+  - while the envelope runs, it owns the sweep and the knob is ignored;
+  - a retrigger climbs again from the current envelope value, so it never jumps;
+  - when the envelope ends, the knob takes back over;
+  - every handover is only a change of level, so it rolls like any other.
+- **Where it lives:**
+  - the logic is copied (not shared) into `include/sketch/sweep_gradient_core.h`, which is host-free and pinned by `tests/native/test_sweep_gradient.cpp`;
+  - the render is the shared `nano_led_bars.hlsl` pass.
+- **Rails:** `level_out`, `env_out`, and `sweep_out` (the sweep in effect).
+
 ### filter.light.bounce_resonator
 
 The dedicated "fx" version of `source.light.bounce_resonator`: a passive reverb for light rather than a triggered generator. It's a new effect (`effects/bounce_resonator_fx/`), and the source effect is unchanged.

@@ -52,6 +52,11 @@ compile_shaders_compute_var_spv sweep_choke led
 _emit_spv_header_var sweep_choke led
 echo "  sweep_choke shaders compiled (SPV: led)"
 
+# sweep_gradient: the LED map alone, drawn straight onto tex_out.
+compile_shaders_compute_var_spv sweep_gradient led
+_emit_spv_header_var sweep_gradient led
+echo "  sweep_gradient shaders compiled (SPV: led)"
+
 # vcr_halo: prefilter -> down chain -> progressive up chain -> composite.
 compile_shaders_compute_var_spv vcr_halo prefilter
 compile_shaders_compute_var_spv vcr_halo down
@@ -169,6 +174,7 @@ wasm_build \
   $NANO_EFFECTS_ROOT/three_walls/main.cpp \
   $NANO_EFFECTS_ROOT/vcr_halo/main.cpp \
   $NANO_EFFECTS_ROOT/sweep_choke/main.cpp \
+  $NANO_EFFECTS_ROOT/sweep_gradient/main.cpp \
   $NANO_EFFECTS_ROOT/ember_tone/main.cpp \
   $NANO_EFFECTS_ROOT/bar_scatter/main.cpp
 
