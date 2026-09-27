@@ -67,6 +67,20 @@ static gpu::Sampler    s_samp;
 // own statics — either way the bake is idempotent.
 static gpu::Texture s_luts[LUT_COUNT];
 static bool s_baked = false;
+// The bake's staging buffers, kept alive until the frame that encoded their
+// fills has been submitted: an effect's submit() is not a flush inside the
+// executor's frame batch (web engine worker as well as native), so releasing
+// them right after bake() destroyed them before the fills ever ran — every
+// cube stayed empty and the effect rendered black ("Buffer used in submit
+// while destroyed"). The instance that baked releases them on its NEXT render,
+// one frame later (or in destroy, if it goes first).
+static gpu::Buffer s_stages[LUT_COUNT];
+static void* s_stageOwner = nullptr;
+
+static void releaseStages() {
+  for (int i = 0; i < LUT_COUNT; i++) s_stages[i].release();
+  s_stageOwner = nullptr;
+}
 
 // Pregain in [-1,1] -> power exponent, matching the LUT 2 patch:
 //   p>=0:  1/(1+5p)   in (0,1]  (push toward highlights before lookup)
@@ -132,6 +146,7 @@ void destroy(void* self) {
   auto* s = static_cast<State*>(self);
   if (!s) return;
   s->uniform_buf.release();
+  if (s_stageOwner == self) releaseStages();
   delete s;
 }
 
@@ -175,8 +190,8 @@ int32_t is_identity(void* self) {
 // defers every effect-called submit() into one whole-frame command buffer, so
 // a write→dispatch→write loop on a shared buffer has every dispatch read the
 // LAST write (all 13 cubes ended up holding "Hue Rotate 270").
-static void bake() {
-  gpu::Buffer stages[LUT_COUNT];
+static void bake(void* owner) {
+  gpu::Buffer* stages = s_stages;
   for (int i = 0; i < LUT_COUNT; i++) {
     s_luts[i] = gpu::Device::createTexture3D(LUT_DIM, LUT_DIM, LUT_DIM, gpu::TextureFormat::RGBA8);
     stages[i] = gpu::Device::createBuffer(LUT_BYTES, gpu::BufferUsage::Storage);
@@ -188,10 +203,8 @@ static void bake() {
     cp.dispatch((LUT_DIM + 3) / 4, (LUT_DIM + 3) / 4, (LUT_DIM + 3) / 4);
     cp.end();
   }
-  // Flush the fills before releasing the staging (web: a real queue submit;
-  // native: no-op — the frame batch retains encoded resources past release).
   gpu::Device::submit();
-  for (int i = 0; i < LUT_COUNT; i++) stages[i].release();
+  s_stageOwner = owner;   // released a frame later — see s_stages
   s_baked = true;
 }
 
@@ -202,7 +215,8 @@ void render(void* self, int w, int h) {
   auto out = gpu::Device::textureForField("tex_out");
   if (!in.valid() || !out.valid()) return;
 
-  if (!s_baked) bake();
+  if (s_stageOwner == self) releaseStages();   // the bake's frame has gone
+  if (!s_baked) bake(self);
 
   int idx = s->lut;
   if (idx < 0) idx = 0;
