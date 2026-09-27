@@ -26,6 +26,7 @@
  */
 
 #include <gpu.h>
+#include <preview_scenario.h>
 #include <host.h>
 #include <val.h>
 #include <effect_utils.h>
@@ -544,3 +545,18 @@ void render(void* self, int vp_w, int vp_h) {
 }
 
 } // namespace bounce_resonator
+
+namespace bounce_resonator {
+
+// Effect store preview: auto-fired on the half beat at a random bar, caught
+// while the bars still ring. Light is added onto the input, so a black
+// backdrop keeps it visible.
+void preview(nano::PreviewScenario& s) {
+  s.input("black")
+      .param("auto_mode", 2.0f)
+      .param("auto_beats", 3.0f)
+      .param("impulse_mode", 2.0f)
+      .capture(2.0f);
+}
+
+}  // namespace bounce_resonator

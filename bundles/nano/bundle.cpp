@@ -65,7 +65,7 @@ void nano_module_main() {
         "loop,trigger,beat,midi",
         "la-redo",
         NANO_INSTANCE_LIFECYCLE(nanolooper),
-    });
+    }, &nanolooper::preview);
 
     nano::registerEffect({
         2,
@@ -76,7 +76,7 @@ void nano_module_main() {
         "motion,vectors,render-outputs,producer,luma,gradient",
         "la-arrows-alt",
         NANO_INSTANCE_LIFECYCLE(motion_field),
-    });
+    }, &motion_field::preview);
 
     nano::registerEffect({
         2,
@@ -133,7 +133,7 @@ void nano_module_main() {
         "la-shapes",
         NANO_INSTANCE_LIFECYCLE(shape_fold),
         nullptr, nullptr, nullptr, &shape_fold::eval_visibility,
-    });
+    }, &shape_fold::preview);
 
     nano::registerEffect({
         2,
@@ -204,7 +204,7 @@ void nano_module_main() {
         "modulation,spectral,morph,remap,curve,shaper,envelope",
         "la-chart-area",
         NANO_INSTANCE_LIFECYCLE(mod_spectral),
-    });
+    }, &mod_spectral::preview);
 
     nano::registerEffect({
         2,
@@ -273,7 +273,7 @@ void nano_module_main() {
         "la-bullseye",
         NANO_INSTANCE_LIFECYCLE(shape_burst),
         nullptr, nullptr, nullptr, &shape_burst::eval_visibility,
-    });
+    }, &shape_burst::preview);
 
     nano::registerEffect({
         2,
@@ -296,7 +296,7 @@ void nano_module_main() {
         "la-braille",
         NANO_INSTANCE_LIFECYCLE(pixel_descent),
         nullptr, nullptr, nullptr, &pixel_descent::eval_visibility,
-    });
+    }, &pixel_descent::preview);
 
     nano::registerEffect({
         2,
@@ -308,7 +308,7 @@ void nano_module_main() {
         "la-water",
         NANO_INSTANCE_LIFECYCLE(pixel_rift),
         nullptr, nullptr, nullptr, &pixel_rift::eval_visibility,
-    });
+    }, &pixel_rift::preview);
 
     nano::registerEffect({
         2,
@@ -344,7 +344,7 @@ void nano_module_main() {
         "la-bezier-curve",
         NANO_INSTANCE_LIFECYCLE(line_reconstruct),
         &line_reconstruct::is_identity,
-    });
+    }, &line_reconstruct::preview);
 
     nano::registerEffect({
         2,
@@ -357,7 +357,7 @@ void nano_module_main() {
         NANO_INSTANCE_LIFECYCLE(envelope_warp),
         &envelope_warp::is_identity,
         nullptr, nullptr, &envelope_warp::eval_visibility,
-    });
+    }, &envelope_warp::preview);
 
     nano::registerEffect({
         2,
@@ -427,7 +427,7 @@ void nano_module_main() {
         "generator,3d,sdf,field,provider,producer,sdf-field,shell,ridges,morph,procedural,simulation,erosion,tracers,streamlines",
         "la-globe",
         NANO_INSTANCE_LIFECYCLE(plume_field),
-    });
+    }, &plume_field::preview);
 
     nano::registerEffect({
         2,
@@ -450,7 +450,7 @@ void nano_module_main() {
         "storms,flare,excitable,criticality,aurora",
         "la-sun",
         NANO_INSTANCE_LIFECYCLE(helio_field),
-    });
+    }, &helio_field::preview);
 
     nano::registerEffect({
         2,
@@ -471,7 +471,7 @@ void nano_module_main() {
         "planetary,shell,orbit,glint,sparkle,beret,cloud,band",
         "la-circle-notch",
         NANO_INSTANCE_LIFECYCLE(dust_halo),
-    });
+    }, &dust_halo::preview);
 }
 
 } // extern "C"

@@ -30,6 +30,7 @@
  */
 
 #include <gpu.h>
+#include <preview_scenario.h>
 #include <host.h>
 #include <effect_sdf_field.h>
 
@@ -403,3 +404,15 @@ void on_resolume_param(void* self, long long param_id, double value) {
 }
 
 } // namespace plume_field
+
+namespace plume_field {
+
+// Effect store preview: an SDF provider: rendered by a Plume after it.
+void preview(nano::PreviewScenario& s) {
+  s.input("none")
+      .post("look", "source.sdf.plume")
+      .auxParam("look", "zoom", 0.25f)
+      .auxParam("look", "orbit", 0.3f);
+}
+
+}  // namespace plume_field

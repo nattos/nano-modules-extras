@@ -21,6 +21,7 @@
  */
 
 #include <gpu.h>
+#include <preview_scenario.h>
 #include <host.h>
 #include <effect_utils.h>
 #include "side_jet_shaders.h"
@@ -729,3 +730,14 @@ void render(void* self, int vp_w, int vp_h) {
 
 
 } // namespace side_jet
+
+namespace side_jet {
+
+// Effect store preview: full throttle, once the jet has spooled up.
+void preview(nano::PreviewScenario& s) {
+  s.input("black")
+      .param("throttle", 1.0f)
+      .capture(2.0f);
+}
+
+}  // namespace side_jet

@@ -23,6 +23,7 @@
  */
 
 #include <gpu.h>
+#include <preview_scenario.h>
 #include <host.h>
 #include <overlay.h>
 #include <val.h>
@@ -1322,3 +1323,13 @@ void render(void* self, int vp_w, int vp_h) {
 }
 
 } // namespace nanolooper
+
+namespace nanolooper {
+
+// Effect store preview: nothing to picture; the store shows its category
+// tile.
+void preview(nano::PreviewScenario& s) {
+  s.thumbIcon();
+}
+
+}  // namespace nanolooper

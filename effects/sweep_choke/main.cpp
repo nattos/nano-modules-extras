@@ -17,6 +17,7 @@
  */
 
 #include <gpu.h>
+#include <preview_scenario.h>
 #include <host.h>
 #include <val.h>
 #include <sketch/sweep_choke_core.h>
@@ -453,6 +454,20 @@ void render(void* self, int vp_w, int vp_h) {
   }
 
   gpu::Device::submit();
+}
+
+}  // namespace sweep_choke
+
+namespace sweep_choke {
+
+// Effect store preview: an LFO swinging the sweep so the choke and glints
+// fire.
+void preview(nano::PreviewScenario& s) {
+  s.input("black")
+      .aux("lfo", "mod.source.lfo")
+      .auxParam("lfo", "rate", 0.6f)
+      .wire("lfo.output", "$self.sweep")
+      .capture(1.6f);
 }
 
 }  // namespace sweep_choke

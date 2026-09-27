@@ -26,6 +26,7 @@
  */
 
 #include <gpu.h>
+#include <preview_scenario.h>
 #include <host.h>
 #include <val.h>
 #include <effect_utils.h>
@@ -1013,3 +1014,14 @@ void render(void* self, int vp_w, int vp_h) {
 }
 
 } // namespace shape_fold
+
+namespace shape_fold {
+
+// Effect store preview: on autopilot.
+void preview(nano::PreviewScenario& s) {
+  s.input("none")
+      .param("autopilot", 1.0f)
+      .capture(1.0f);
+}
+
+}  // namespace shape_fold

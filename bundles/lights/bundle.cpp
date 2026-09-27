@@ -50,7 +50,7 @@ void nano_module_main() {
         "strobe,chaos,logistic-map,bar,trigger",
         "la-bolt",
         NANO_INSTANCE_LIFECYCLE(strobe_channel),
-    });
+    }, &strobe_channel::preview);
 
     nano::registerEffect({
         2,
@@ -84,7 +84,7 @@ void nano_module_main() {
         "la-fire",
         NANO_INSTANCE_LIFECYCLE(plasma_beam_cannon),
         nullptr, nullptr, nullptr, &plasma_beam_cannon::eval_visibility,
-    });
+    }, &plasma_beam_cannon::preview);
 
     nano::registerEffect({
         2,
@@ -95,7 +95,7 @@ void nano_module_main() {
         "atmosphere,hadamard,beat,pattern,bar,bed",
         "la-border-all",
         NANO_INSTANCE_LIFECYCLE(orthomod),
-    });
+    }, &orthomod::preview);
 
     nano::registerEffect({
         2,
@@ -107,7 +107,7 @@ void nano_module_main() {
         "la-broadcast-tower",
         NANO_INSTANCE_LIFECYCLE(bounce_resonator),
         nullptr, nullptr, nullptr, &bounce_resonator::eval_visibility,
-    });
+    }, &bounce_resonator::preview);
 
     nano::registerEffect({
         2,
@@ -129,7 +129,7 @@ void nano_module_main() {
         "jet,trail,plume,trigger,motion,bar",
         "la-wind",
         NANO_INSTANCE_LIFECYCLE(side_jet),
-    });
+    }, &side_jet::preview);
 
     nano::registerEffect({
         2,
@@ -140,7 +140,7 @@ void nano_module_main() {
         "blobs,motion,shadow,flyover,rain,bar",
         "la-cloud",
         NANO_INSTANCE_LIFECYCLE(motion_blobs),
-    });
+    }, &motion_blobs::preview);
 
     nano::registerEffect({
         2,
@@ -174,7 +174,7 @@ void nano_module_main() {
         "la-snowflake",
         NANO_INSTANCE_LIFECYCLE(tingle_top),
         nullptr, nullptr, nullptr, &tingle_top::eval_visibility,
-    });
+    }, &tingle_top::preview);
 
     nano::registerEffect({
         2,
@@ -186,7 +186,7 @@ void nano_module_main() {
         "la-water",
         NANO_INSTANCE_LIFECYCLE(chroma_wave),
         nullptr, nullptr, nullptr, &chroma_wave::eval_visibility,
-    });
+    }, &chroma_wave::preview);
 
     nano::registerEffect({
         2,
@@ -197,7 +197,7 @@ void nano_module_main() {
         "flicker,grid,led,column,strobe,pulse,luma,temporal",
         "la-th-large",
         NANO_INSTANCE_LIFECYCLE(flicker_grid),
-    });
+    }, &flicker_grid::preview);
 
     nano::registerEffect({
         2,
@@ -222,7 +222,7 @@ void nano_module_main() {
         "tunnel,neon,vcr,glow,perspective,depth,pulse,resonate,strobe,frame,show,corridor",
         "la-expand",
         NANO_INSTANCE_LIFECYCLE(three_walls),
-    });
+    }, &three_walls::preview);
 
     nano::registerEffect({
         2,
@@ -244,7 +244,7 @@ void nano_module_main() {
         "sweep,choke,knob,gradient,roll,tail,flicker,glint,mask,led,bar,show",
         "la-sliders-h",
         NANO_INSTANCE_LIFECYCLE(sweep_choke),
-    });
+    }, &sweep_choke::preview);
 
     nano::registerEffect({
         2,
@@ -256,7 +256,7 @@ void nano_module_main() {
         "la-sliders-h",
         NANO_INSTANCE_LIFECYCLE(sweep_gradient),
         nullptr, nullptr, nullptr, &sweep_gradient::eval_visibility,
-    });
+    }, &sweep_gradient::preview);
 
     nano::registerEffect({
         2,
@@ -267,7 +267,7 @@ void nano_module_main() {
         "drum,kick,snare,trigger,pattern,groove,strobe,led,bar,show",
         "la-drum",
         NANO_INSTANCE_LIFECYCLE(drum_bars),
-    });
+    }, &drum_bars::preview);
 
     nano::registerEffect({
         2,
@@ -289,7 +289,7 @@ void nano_module_main() {
         "led,bar,choke,delay,stagger,contrast,flash",
         "la-random",
         NANO_INSTANCE_LIFECYCLE(bar_scatter),
-    });
+    }, &bar_scatter::preview);
 }
 
 } // extern "C"

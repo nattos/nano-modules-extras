@@ -40,6 +40,7 @@
  */
 
 #include <gpu.h>
+#include <preview_scenario.h>
 #include <host.h>
 #include <val.h>
 #include <effect_utils.h>   // fx::coverSquare
@@ -1131,6 +1132,21 @@ void on_state_patched(void* self, int n, const char* pb, const int* off,
     else if (state::pathIs(p, l, "led_quantize"))  s->led_quantize = state::patchBool(i);
     else if (state::pathIs(p, l, "debug_show_quads")) s->debug_show_quads = state::patchBool(i);
   }
+}
+
+}  // namespace three_walls
+
+namespace three_walls {
+
+// Effect store preview: pulsed on every beat, the quads enlarged to fill
+// the frame.
+void preview(nano::PreviewScenario& s) {
+  s.input("black")
+      .param("quad_size", 2.0f)
+      .aux("t", "mod.trigger.beat")
+      .auxParam("t", "single_frame", 1.0f)
+      .wire("t.output", "$self.pulse")
+      .capture(1.6f);
 }
 
 }  // namespace three_walls

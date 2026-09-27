@@ -26,6 +26,7 @@
  */
 
 #include <gpu.h>
+#include <preview_scenario.h>
 #include <host.h>
 #include <effect_utils.h>
 #include "motion_blobs_shaders.h"
@@ -679,3 +680,18 @@ void render(void* self, int vp_w, int vp_h) {
 }
 
 } // namespace motion_blobs
+
+namespace motion_blobs {
+
+// Effect store preview: blobs are spawned by upstream motion; the testonly
+// swarm supplies it (without testonly — release builds — the preview is
+// empty).
+void preview(nano::PreviewScenario& s) {
+  s.input("black")
+      .pre("mv", "debug.motion_swarm")
+      .auxParam("mv", "speed", 2.0f)
+      .auxParam("mv", "count", 12.0f)
+      .capture(1.6f);
+}
+
+}  // namespace motion_blobs

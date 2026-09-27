@@ -17,6 +17,7 @@
  */
 
 #include <gpu.h>
+#include <preview_scenario.h>
 #include <host.h>
 #include <val.h>
 #include <effect_beat_tick.h>
@@ -360,6 +361,17 @@ void render(void* self, int vp_w, int vp_h) {
   cp.end();
 
   gpu::Device::submit();
+}
+
+}  // namespace drum_bars
+
+namespace drum_bars {
+
+// Effect store preview: the auto groove playing the four bars.
+void preview(nano::PreviewScenario& s) {
+  s.input("black")
+      .param("auto", 1.0f)
+      .capture(1.6f);
 }
 
 }  // namespace drum_bars

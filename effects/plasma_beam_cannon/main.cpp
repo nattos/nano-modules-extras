@@ -27,6 +27,7 @@
  */
 
 #include <gpu.h>
+#include <preview_scenario.h>
 #include <host.h>
 #include <effect_utils.h>
 #include <effect_auto_trigger.h>  // fx::AutoTrigger — the shared Off/Random/Beats self-fire
@@ -878,3 +879,17 @@ void render(void* self, int vp_w, int vp_h) {
 }
 
 } // namespace plasma_beam_cannon
+
+namespace plasma_beam_cannon {
+
+// Effect store preview: auto-fired on the half beat, caught with a beam
+// grown and breaking.
+void preview(nano::PreviewScenario& s) {
+  s.input("black")
+      .param("auto_mode", 2.0f)
+      .param("auto_beats", 3.0f)
+      .param("bar_target_all", 0.0f)
+      .capture(1.8f);
+}
+
+}  // namespace plasma_beam_cannon

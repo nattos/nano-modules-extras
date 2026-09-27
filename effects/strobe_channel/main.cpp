@@ -16,6 +16,7 @@
  */
 
 #include <gpu.h>
+#include <preview_scenario.h>
 #include <host.h>
 #include "strobe_channel_shaders.h"
 
@@ -230,3 +231,14 @@ void render(void* self, int vp_w, int vp_h) {
 }
 
 } // namespace strobe_channel
+
+namespace strobe_channel {
+
+// Effect store preview: its chaotic single-bar strobe, over a black
+// backdrop.
+void preview(nano::PreviewScenario& s) {
+  s.input("black")
+      .capture(1.6f);
+}
+
+}  // namespace strobe_channel

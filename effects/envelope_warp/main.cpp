@@ -29,6 +29,7 @@
  */
 
 #include <gpu.h>
+#include <preview_scenario.h>
 #include <host.h>
 #include <sketch/envelope.h>
 #include "envelope_warp_shaders.h"
@@ -502,3 +503,14 @@ void render(void* self, int vp_w, int vp_h) {
 }
 
 } // namespace envelope_warp
+
+namespace envelope_warp {
+
+// Effect store preview: a radial bulge from a bowed curve.
+void preview(nano::PreviewScenario& s) {
+  s.input("motion")
+      .param("mode", 5.0f)
+      .paramStr("curve", "[0,0,0,0.5,0.85,0,1,1,0]");
+}
+
+}  // namespace envelope_warp

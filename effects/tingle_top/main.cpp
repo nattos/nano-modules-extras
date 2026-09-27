@@ -19,6 +19,7 @@
  */
 
 #include <gpu.h>
+#include <preview_scenario.h>
 #include <host.h>
 #include <effect_auto_trigger.h>  // fx::AutoTrigger — the shared Off/Random/Beats self-fire
 #include "tingle_top_shaders.h"
@@ -624,3 +625,18 @@ void render(void* self, int vp_w, int vp_h) {
 }
 
 } // namespace tingle_top
+
+namespace tingle_top {
+
+// Effect store preview: auto-fired on the beat, denser and bigger than
+// default so the sparkle reads at thumbnail size.
+void preview(nano::PreviewScenario& s) {
+  s.input("black")
+      .param("auto_mode", 2.0f)
+      .param("auto_beats", 4.0f)
+      .param("density", 200.0f)
+      .param("size", 0.015f)
+      .capture(1.6f);
+}
+
+}  // namespace tingle_top

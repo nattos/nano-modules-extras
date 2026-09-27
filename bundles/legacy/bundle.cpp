@@ -118,7 +118,7 @@ void nano_module_main() {
         "la-table",
         NANO_INSTANCE_LIFECYCLE(lut_collection),
         &lut_collection::is_identity,
-    });
+    }, &lut_collection::preview);
 
     nano::registerEffect({
         2,
@@ -147,7 +147,7 @@ void nano_module_main() {
         "la-water",
         NANO_INSTANCE_LIFECYCLE(subtle_blur),
         &subtle_blur::is_identity,
-    });
+    }, &subtle_blur::preview);
 
     nano::registerEffect({
         2,
@@ -178,7 +178,7 @@ void nano_module_main() {
         "burn,blowout,exposure,fade,envelope,grade,trigger,legacy",
         "la-fire",
         NANO_INSTANCE_LIFECYCLE(burn_out),
-    });
+    }, &burn_out::preview);
 
     nano::registerEffect({
         2,
@@ -192,7 +192,7 @@ void nano_module_main() {
         "wobble,chroma,aberration,noise,glitch,trigger,legacy",
         "la-water",
         NANO_INSTANCE_LIFECYCLE(chroma_wobble),
-    });
+    }, &chroma_wobble::preview);
 
     nano::registerEffect({
         2,
@@ -207,7 +207,7 @@ void nano_module_main() {
         "wobble,ripple,chroma,aberration,beat,pulse,radial,legacy",
         "la-water",
         NANO_INSTANCE_LIFECYCLE(wobble_master),
-    });
+    }, &wobble_master::preview);
 
     nano::registerEffect({
         2,
@@ -238,7 +238,7 @@ void nano_module_main() {
         "freeze,pulse,stutter,glitch,beat,blend,snapshot,legacy",
         "la-snowflake",
         NANO_INSTANCE_LIFECYCLE(freeze_pulse),
-    });
+    }, &freeze_pulse::preview);
 
     nano::registerEffect({
         2,

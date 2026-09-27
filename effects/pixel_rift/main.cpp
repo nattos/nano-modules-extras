@@ -29,6 +29,7 @@
  */
 
 #include <gpu.h>
+#include <preview_scenario.h>
 #include <host.h>
 #include "pixel_rift_shaders.h"
 
@@ -478,3 +479,13 @@ void render(void* self, int vp_w, int vp_h) {
 }
 
 } // namespace pixel_rift
+
+namespace pixel_rift {
+
+// Effect store preview: its rising rift columns.
+void preview(nano::PreviewScenario& s) {
+  s.input("none")
+      .capture(2.0f);
+}
+
+}  // namespace pixel_rift

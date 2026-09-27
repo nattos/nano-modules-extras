@@ -21,6 +21,7 @@
  */
 
 #include <gpu.h>
+#include <preview_scenario.h>
 #include <host.h>
 #include <effect_sdf_field.h>
 
@@ -500,3 +501,18 @@ void on_resolume_param(void* self, long long param_id, double value) {
 }
 
 } // namespace dust_halo
+
+namespace dust_halo {
+
+// Effect store preview: an intermediate SDF stage: a helio sun before it, a
+// Plume rendering after.
+void preview(nano::PreviewScenario& s) {
+  s.input("none")
+      .pre("sun", "source.sdf.helio_field")
+      .auxParam("sun", "radius", 0.8f)
+      .post("look", "source.sdf.plume")
+      .auxParam("look", "zoom", 0.25f)
+      .auxParam("look", "orbit", 0.3f);
+}
+
+}  // namespace dust_halo

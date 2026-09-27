@@ -35,6 +35,7 @@
  */
 
 #include <gpu.h>
+#include <preview_scenario.h>
 #include <host.h>
 #include "lut_collection_shaders.h"
 #include "lut_data.h"
@@ -240,3 +241,14 @@ void render(void* self, int w, int h) {
 }
 
 } // namespace lut_collection
+
+namespace lut_collection {
+
+// Effect store preview: the Noir preset on the moving shapes.
+void preview(nano::PreviewScenario& s) {
+  s.input("motion")
+      .param("lut", 7.0f)
+      .param("amount", 1.0f);
+}
+
+}  // namespace lut_collection

@@ -31,6 +31,7 @@
  */
 
 #include <gpu.h>
+#include <preview_scenario.h>
 #include <host.h>
 #include <effect_utils.h>
 #include <effect_auto_trigger.h>  // fx::AutoTrigger — the shared Off/Random/Beats self-fire
@@ -826,3 +827,18 @@ void render(void* self, int vp_w, int vp_h) {
 }
 
 } // namespace chroma_wave
+
+namespace chroma_wave {
+
+// Effect store preview: auto-fired on the half beat, caught as a wave
+// blooms (over a black backdrop: it adds light onto its input).
+void preview(nano::PreviewScenario& s) {
+  s.input("black")
+      .param("auto_mode", 2.0f)
+      .param("auto_beats", 3.0f)
+      .param("level", 0.8f)
+      .param("intensity", 2.0f)
+      .capture(3.0f);
+}
+
+}  // namespace chroma_wave

@@ -33,6 +33,7 @@
  */
 
 #include <gpu.h>
+#include <preview_scenario.h>
 #include <host.h>
 #include "pixel_descent_shaders.h"
 
@@ -329,3 +330,15 @@ void render(void* self, int vp_w, int vp_h) {
 }
 
 } // namespace pixel_descent
+
+namespace pixel_descent {
+
+// Effect store preview: a faster descent (two beats) so it moves within the
+// preview.
+void preview(nano::PreviewScenario& s) {
+  s.input("none")
+      .param("beats", 2.0f)
+      .capture(1.6f);
+}
+
+}  // namespace pixel_descent

@@ -26,6 +26,7 @@
  */
 
 #include <gpu.h>
+#include <preview_scenario.h>
 #include <host.h>
 #include "wobble_master_shaders.h"
 
@@ -307,3 +308,17 @@ void render(void* self, int vp_w, int vp_h) {
 }
 
 } // namespace wobble_master
+
+namespace wobble_master {
+
+// Effect store preview: a centred wobble fired on every beat.
+void preview(nano::PreviewScenario& s) {
+  s.input("motion")
+      .param("amount", 1.0f)
+      .param("center", 0.5f, 0.5f)
+      .aux("t", "mod.trigger.beat")
+      .auxParam("t", "single_frame", 1.0f)
+      .wire("t.output", "$self.trigger");
+}
+
+}  // namespace wobble_master

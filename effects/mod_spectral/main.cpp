@@ -13,6 +13,7 @@
  */
 
 #include <host.h>
+#include <preview_scenario.h>
 #include <val.h>
 #include "../spectral_lfo/spectral_curve.h"
 
@@ -134,3 +135,15 @@ void render(void* self, int vp_w, int vp_h) {
 }
 
 } // namespace mod_spectral
+
+namespace mod_spectral {
+
+// Effect store preview: a sine (ghosted) through the spectral shaper.
+void preview(nano::PreviewScenario& s) {
+  s.aux("a", "mod.source.lfo")
+      .auxParam("a", "rate", 0.5f)
+      .wire("a.output", "$self.input")
+      .plot("a.output");
+}
+
+}  // namespace mod_spectral

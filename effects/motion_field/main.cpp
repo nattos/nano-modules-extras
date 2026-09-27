@@ -35,6 +35,7 @@
  */
 
 #include <gpu.h>
+#include <preview_scenario.h>
 #include <host.h>
 #include "motion_field_shaders.h"
 
@@ -410,3 +411,15 @@ void render(void* self, int vp_w, int vp_h) {
 }
 
 } // namespace motion_field
+
+namespace motion_field {
+
+// Effect store preview: its motion field made visible over the picture.
+void preview(nano::PreviewScenario& s) {
+  s.input("motion")
+      .param("vis_opacity", 1.0f)
+      .param("magnitude", 0.02f)
+      .param("evolution_rate", 4.0f);
+}
+
+}  // namespace motion_field

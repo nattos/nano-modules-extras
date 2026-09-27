@@ -33,6 +33,7 @@
  */
 
 #include <gpu.h>
+#include <preview_scenario.h>
 #include <host.h>
 #include <val.h>
 #include <effect_utils.h>
@@ -868,3 +869,16 @@ void render(void* self, int vp_w, int vp_h) {
 }
 
 } // namespace orthomod
+
+namespace orthomod {
+
+// Effect store preview: triggered on every beat, over a black backdrop.
+void preview(nano::PreviewScenario& s) {
+  s.input("black")
+      .aux("t", "mod.trigger.beat")
+      .auxParam("t", "single_frame", 1.0f)
+      .wire("t.output", "$self.trigger")
+      .capture(1.6f);
+}
+
+}  // namespace orthomod

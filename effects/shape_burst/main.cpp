@@ -27,6 +27,7 @@
  */
 
 #include <gpu.h>
+#include <preview_scenario.h>
 #include <host.h>
 #include <effect_utils.h>
 #include <effect_twitch_mask.h>   // fx::TwitchMask — roaming distortion mask
@@ -577,3 +578,21 @@ void render(void* self, int vp_w, int vp_h) {
 }
 
 } // namespace shape_burst
+
+namespace shape_burst {
+
+// Effect store preview: triangles burst on eighth-note triggers.
+void preview(nano::PreviewScenario& s) {
+  s.input("none")
+      .param("shape", 2.0f)
+      .param("thickness", 0.06f)
+      .param("voices", 4.0f)
+      .param("retrigger", 2.0f)
+      .param("max_scale", 1.6f)
+      .aux("t", "mod.trigger.beat")
+      .auxParam("t", "single_frame", 1.0f)
+      .auxParam("t", "division", 5.0f)
+      .wire("t.output", "$self.trigger");
+}
+
+}  // namespace shape_burst

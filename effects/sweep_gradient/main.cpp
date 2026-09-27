@@ -17,6 +17,7 @@
  */
 
 #include <gpu.h>
+#include <preview_scenario.h>
 #include <host.h>
 #include <val.h>
 #include <effect_auto_trigger.h>
@@ -343,6 +344,18 @@ void render(void* self, int vp_w, int vp_h) {
   cp.end();
 
   gpu::Device::submit();
+}
+
+}  // namespace sweep_gradient
+
+namespace sweep_gradient {
+
+// Effect store preview: auto-fired sweeps on the half beat.
+void preview(nano::PreviewScenario& s) {
+  s.input("black")
+      .param("auto_mode", 2.0f)
+      .param("auto_beats", 3.0f)
+      .capture(1.6f);
 }
 
 }  // namespace sweep_gradient

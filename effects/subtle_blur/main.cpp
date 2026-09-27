@@ -31,6 +31,7 @@
  */
 
 #include <gpu.h>
+#include <preview_scenario.h>
 #include <host.h>
 #include <effect_blur.h>
 #include "subtle_blur_shaders.h"
@@ -231,3 +232,15 @@ void render(void* self, int vp_w, int vp_h) {
 }
 
 } // namespace subtle_blur
+
+namespace subtle_blur {
+
+// Effect store preview: turned up well past subtle so it reads at thumbnail
+// size.
+void preview(nano::PreviewScenario& s) {
+  s.input("motion")
+      .param("amount", 0.8f)
+      .param("blur", 0.5f);
+}
+
+}  // namespace subtle_blur

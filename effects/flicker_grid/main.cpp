@@ -32,6 +32,7 @@
  */
 
 #include <gpu.h>
+#include <preview_scenario.h>
 #include <host.h>
 #include "flicker_grid_shaders.h"
 
@@ -345,3 +346,13 @@ void render(void* self, int vp_w, int vp_h) {
 }
 
 } // namespace flicker_grid
+
+namespace flicker_grid {
+
+// Effect store preview: the moving shapes, as filled flickering cells.
+void preview(nano::PreviewScenario& s) {
+  s.input("motion")
+      .param("fill", 1.0f);
+}
+
+}  // namespace flicker_grid

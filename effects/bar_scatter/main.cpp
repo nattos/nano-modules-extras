@@ -30,6 +30,7 @@
  */
 
 #include <gpu.h>
+#include <preview_scenario.h>
 #include <host.h>
 #include <val.h>
 #include <effect_utils.h>
@@ -446,3 +447,17 @@ void render(void* self, int vp_w, int vp_h) {
 }
 
 } // namespace bar_scatter
+
+namespace bar_scatter {
+
+// Effect store preview: scatters co-triggering bars, so its input is the
+// drum-bars groove.
+void preview(nano::PreviewScenario& s) {
+  s.input("black")
+      .param("strength", 1.0f)
+      .pre("src", "source.light.drum_bars")
+      .auxParam("src", "auto", 1.0f)
+      .capture(2.0f);
+}
+
+}  // namespace bar_scatter

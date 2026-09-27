@@ -34,6 +34,7 @@
  */
 
 #include <gpu.h>
+#include <preview_scenario.h>
 #include <host.h>
 #include "line_reconstruct_shaders.h"
 #include "blur16.h"
@@ -463,3 +464,17 @@ void render(void* self, int vp_w, int vp_h) {
 }
 
 } // namespace line_reconstruct
+
+namespace line_reconstruct {
+
+// Effect store preview: it smooths stair-stepped lines, so its input is the
+// edge-traced shapes, zoomed afterwards so the difference shows.
+void preview(nano::PreviewScenario& s) {
+  s.input("motion")
+      .pre("ln", "filter.edges")
+      .auxParam("ln", "threshold", 0.08f)
+      .post("zoom", "warp.transform")
+      .auxParam("zoom", "scale", 0.7f);
+}
+
+}  // namespace line_reconstruct

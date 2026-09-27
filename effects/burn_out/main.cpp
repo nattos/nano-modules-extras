@@ -31,6 +31,7 @@
  */
 
 #include <gpu.h>
+#include <preview_scenario.h>
 #include <host.h>
 #include "burn_out_shaders.h"
 
@@ -241,3 +242,18 @@ void render(void* self, int vp_w, int vp_h) {
 }
 
 } // namespace burn_out
+
+namespace burn_out {
+
+// Effect store preview: burning on every beat, with the darkness eased so
+// the boost shows.
+void preview(nano::PreviewScenario& s) {
+  s.input("motion")
+      .param("amount", 0.6f)
+      .param("darkness", 0.2f)
+      .aux("t", "mod.trigger.beat")
+      .auxParam("t", "single_frame", 1.0f)
+      .wire("t.output", "$self.trigger");
+}
+
+}  // namespace burn_out

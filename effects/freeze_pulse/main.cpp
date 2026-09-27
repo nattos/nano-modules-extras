@@ -25,6 +25,7 @@
  */
 
 #include <gpu.h>
+#include <preview_scenario.h>
 #include <host.h>
 #include "freeze_pulse_shaders.h"
 
@@ -276,3 +277,16 @@ void render(void* self, int vp_w, int vp_h) {
 }
 
 } // namespace freeze_pulse
+
+namespace freeze_pulse {
+
+// Effect store preview: freeze-pulsing on every beat.
+void preview(nano::PreviewScenario& s) {
+  s.input("motion")
+      .aux("t", "mod.trigger.beat")
+      .auxParam("t", "single_frame", 1.0f)
+      .wire("t.output", "$self.trigger")
+      .capture(1.0f);
+}
+
+}  // namespace freeze_pulse
