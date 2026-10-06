@@ -17,7 +17,8 @@
  *  - The frame-stepped Snapshot/Delay envelope is replaced by a clean dt-based
  *    AR envelope (style guide §2.1) — Target-FPS normalization is unnecessary
  *    when we integrate real dt. A `gate` (hold/sustain) and a one-shot
- *    `trigger` both drive it; `amount` is a manual floor (screen-combined with
+ *    `trigger` (momentary: a tap is a full attack→release, a hold sustains)
+ *    both drive it; `amount` is a manual floor (screen-combined with
  *    the envelope, faithful to the Wire "Amount" knob).
  *  - The blow-out toward white is made explicit (`brightness_boost` exposure +
  *    `white_fade` crossfade) rather than emerging from the Cross Fader graph;
@@ -77,6 +78,7 @@ struct State {
   double env       = 0.0;   // raw envelope 0..1
   bool   gate      = false;
   bool   one_shot  = false; // a trigger tap is ramping up; auto-release at peak
+  bool   held      = false; // the trigger is still down (the Wire patch's Momentary)
   float  burn      = 0.0f;  // resolved burn intensity B (for is_identity)
 };
 
@@ -151,10 +153,11 @@ void tick(void* self, double dt) {
   if (!s) return;
   if (dt < 0.0) dt = 0.0;
 
-  // AR envelope. Rising while the gate is held OR a one-shot trigger is still
-  // climbing; falling otherwise. Reaching the peak ends a one-shot (so a tap
-  // gives attack→release; a held gate sustains at 1).
-  const bool rising = s->gate || s->one_shot;
+  // AR envelope. Rising while the gate or the trigger is held OR a one-shot
+  // trigger is still climbing; falling otherwise. Reaching the peak ends a
+  // one-shot (so a tap gives attack→release, however short; a held trigger --
+  // the Wire patch's Momentary -- or gate sustains at 1).
+  const bool rising = s->gate || s->held || s->one_shot;
   if (rising) {
     if (s->attack <= 1e-4f) s->env = 1.0;
     else s->env += dt / (double)s->attack;
@@ -199,6 +202,7 @@ void on_state_patched(void* self, int n, const char* pb, const int* off,
       bool t = state::patchFloat(i) != 0.0f;
       if (t && !s->trigger_prev) s->one_shot = true; // rising edge → one-shot AR
       s->trigger_prev = t;
+      s->held = t;                                  // ...sustained while held
     }
   }
 }

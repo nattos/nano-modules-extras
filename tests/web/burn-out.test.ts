@@ -72,6 +72,19 @@ describe(`Burn Out (color.legacy.burn_out) E2E (${backend})`, () => {
     expect(p.r).toBeLessThan(50); // faded toward black, not the resting 76
   });
 
+  it('a held trigger sustains the burn (the Wire patch\'s Momentary)', async () => {
+    // Release 0: a one-shot would cut straight back at the peak; held, it stays.
+    const held = await runGpuEffectTest({
+      module: 'color.legacy.burn_out', bundle: 'legacy',
+      inputColor: MID,
+      params: [['trigger', 1], ['amount', 0.0], ['attack', 0.05], ['release', 0.0]],
+      ticks: 16, renderEachTick: true,
+      dumpName: 'burn_held',
+    });
+    expect(held.success).toBe(true);
+    expect(held.pixelAt(32, 32).r).toBeLessThan(50);
+  });
+
   it('modulate_alpha drops alpha with the burn', async () => {
     const faded = await runGpuEffectTest({
       module: 'color.legacy.burn_out', bundle: 'legacy',
