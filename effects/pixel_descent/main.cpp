@@ -184,7 +184,7 @@ void module_init() {
           "the top when the cycle restarts. *Seed* re-deals all of it.")
       .floatField("jitter", 0.35f, 0.0f, 1.0f, state::PrimaryInput).label("Jitter", "Jit")
       .floatField("skip_chance", 0.15f, 0.0f, 1.0f, state::PrimaryInput).label("Skip Chance", "Skip")
-      .floatField("seed", 0.0f, 0.0f, 1.0f, state::SecondaryInput).label("Seed", "Seed")
+      .floatField("seed", 0.0f, 0.0f, 1.0f, state::SecondaryInput).wireCombine("replace").label("Seed", "Seed")
       // --- Look ---
       .group("look", "Look")
         .groupHelp(

@@ -105,7 +105,7 @@ void module_init() {
           "charges a throw.")
       .floatField("sweep", 0.5f, 0.f, 1.f, state::PrimaryInput,
                   nullptr, 0.f, nullptr,
-                  "The knob. 0.5 is home: full colour, no motion.")
+                  "The knob. 0.5 is home: full colour, no motion.").wireCombine("replace")
         .label("Sweep", "Sweep")
       .floatField("deadzone", 0.45f, 0.f, 0.95f, state::PrimaryInput,
                   nullptr, 0.f, nullptr,
@@ -304,7 +304,7 @@ void module_init() {
         .label("Level", "Lvl")
       .floatField("sweep_out", 0.5f, 0.f, 1.f, state::PrimaryOutput, "unsigned",
                   0.f, nullptr, "The knob, passed through — wire it to Three "
-                  "Planes' Glint Sweep.")
+                  "Planes' Glint Sweep.").wireCombine("replace")
         .label("Sweep Out", "SwOut")
       .textureField("tex_in",  state::PrimaryInput)
       .textureField("tex_out", state::PrimaryOutput)

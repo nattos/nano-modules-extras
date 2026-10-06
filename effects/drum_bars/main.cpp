@@ -108,7 +108,7 @@ void module_init() {
           "many changes one loop holds; **Seed** is a different loop.")
       .floatField("cycle", 0.0f, 0.f, 1.f, state::PrimaryInput,
                   nullptr, 0.f, nullptr,
-                  "Position in the pattern loop. Wraps: 1 is 0 again.")
+                  "Position in the pattern loop. Wraps: 1 is 0 again.").wireCombine("replace")
         .label("Cycle", "Cyc")
       .floatField("drift", 0.0f, -1.f, 1.f, state::PrimaryInput,
                   nullptr, 0.f, nullptr,
@@ -220,7 +220,7 @@ void module_init() {
                   0.f, nullptr, "Mean level across the bars.")
         .label("Level", "Lvl")
       .floatField("cycle_out", 0.f, 0.f, 1.f, state::PrimaryOutput, "unsigned",
-                  0.f, nullptr, "The Cycle position in effect, Drift included.")
+                  0.f, nullptr, "The Cycle position in effect, Drift included.").wireCombine("replace")
         .label("Cycle Out", "CycO")
       .textureField("tex_in",  state::PrimaryInput)
       .textureField("tex_out", state::PrimaryOutput)

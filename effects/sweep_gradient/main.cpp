@@ -108,7 +108,7 @@ void module_init() {
       .floatField("sweep", 0.5f, 0.f, 1.f, state::PrimaryInput,
                   nullptr, 0.f, nullptr,
                   "The knob. 0.5 is home: full colour. Ignored while a "
-                  "triggered gesture runs.")
+                  "triggered gesture runs.").wireCombine("replace")
         .label("Sweep", "Sweep")
       .floatField("deadzone", 0.45f, 0.f, 0.95f, state::PrimaryInput,
                   nullptr, 0.f, nullptr,
@@ -213,7 +213,7 @@ void module_init() {
         .label("Envelope", "Env")
       .floatField("sweep_out", 0.5f, 0.f, 1.f, state::PrimaryOutput, "unsigned",
                   0.f, nullptr, "The sweep in effect — the knob, or the "
-                  "gesture while one runs. Wire it to another Sweep.")
+                  "gesture while one runs. Wire it to another Sweep.").wireCombine("replace")
         .label("Sweep Out", "SwOut")
       .textureField("tex_in",  state::PrimaryInput)
       .textureField("tex_out", state::PrimaryOutput)

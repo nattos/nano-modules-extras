@@ -155,8 +155,8 @@ void module_init() {
       .floatField("ap_speed", 0.3f, 0.f, 1.f, state::PrimaryInput).label("Orbit Speed", "Spd")
       // Manifold position broadcast as outputs — unipolar [0,1]. min/max is the
       // modulation-range contract the UI band draws from (see env_lfo note).
-      .floatField("autopilot_x", 0.5f, 0.f, 1.f, state::SecondaryOutput, "unsigned")
-      .floatField("autopilot_y", 0.5f, 0.f, 1.f, state::SecondaryOutput, "unsigned")
+      .floatField("autopilot_x", 0.5f, 0.f, 1.f, state::SecondaryOutput, "unsigned").wireCombine("replace")
+      .floatField("autopilot_y", 0.5f, 0.f, 1.f, state::SecondaryOutput, "unsigned").wireCombine("replace")
       // Satellites — three extra taps offset in a triangle around the center.
       .group("satellites", "Satellites")
         .groupHelp(
@@ -168,7 +168,7 @@ void module_init() {
       .floatField("sat_spread", 0.3f, 0.f, 1.f, state::PrimaryInput).label("Spread", "Sprd")    // triangle size
       .floatField("sat_rotation", 0.0f, 0.f, 1.f, state::PrimaryInput).label("Rotation", "Rot")  // full turn
       // Live LFO phase [0,1) — broadcast so the editor can draw a playhead.
-      .floatField("phase", 0.0f, 0.f, 1.f, state::SecondaryOutput, "unsigned")
+      .floatField("phase", 0.0f, 0.f, 1.f, state::SecondaryOutput, "unsigned").wireCombine("replace")
       // Output — unipolar [0,1] LFO value.
       .floatField("output", 0.0f, 0.f, 1.f, state::PrimaryOutput, "unsigned")
       // Satellite outputs (mirror `output` when satellites are off).

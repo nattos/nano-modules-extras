@@ -52,7 +52,7 @@ void module_init() {
       .group("signal", "Signal")
       // The signal to remap (wire target). The `magnitude` decl marks this as
       // THE modulation INPUT channel (so the shaper auto-connect locates it).
-      .floatField("input", 0.0f, 0.f, 1.f, state::PrimaryInput, "unsigned").label("Input", "In")
+      .floatField("input", 0.0f, 0.f, 1.f, state::PrimaryInput, "unsigned").wireCombine("replace").label("Input", "In")
       // --- Curve shape (spectral morph manifold) ---
       .group("shape", "Curve Shape")
         .groupHelp(

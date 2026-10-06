@@ -299,7 +299,7 @@ void module_init() {
       .floatField("density", 0.4f, 0.0f, 1.0f, state::PrimaryInput).label("Density", "Dens")
       .floatField("dot_weight", 0.55f, 0.0f, 1.0f, state::PrimaryInput).label("Dot Weight", "Dot")
       .floatField("omega_weight", 0.45f, 0.0f, 1.0f, state::PrimaryInput).label("Omega Weight", "Omega")
-      .floatField("seed", 0.0f, 0.0f, 1.0f, state::SecondaryInput).label("Seed", "Seed")
+      .floatField("seed", 0.0f, 0.0f, 1.0f, state::SecondaryInput).wireCombine("replace").label("Seed", "Seed")
       // --- Look ---
       .group("look", "Look")
         .groupHelp(

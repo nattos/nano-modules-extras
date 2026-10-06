@@ -404,8 +404,8 @@ void module_init() {
       .floatField("jitter", 0.0f, 0.0f, 1.0f, state::PrimaryInput).label("Jitter", "Jit")
       .floatField("jitter_speed", 0.5f, 0.0f, 1.0f, state::PrimaryInput).label("Jitter Speed", "JitSpd")
       // Broadcast: effective XY so the custom editor shows the live position.
-      .floatField("autopilot_x", 0.2f, 0.0f, 1.0f, state::SecondaryOutput)
-      .floatField("autopilot_y", 0.2f, 0.0f, 1.0f, state::SecondaryOutput)
+      .floatField("autopilot_x", 0.2f, 0.0f, 1.0f, state::SecondaryOutput).wireCombine("replace")
+      .floatField("autopilot_y", 0.2f, 0.0f, 1.0f, state::SecondaryOutput).wireCombine("replace")
       // --- Skip empty: glide the orbit through the atlas holes ---
       .group("skip", "Skip Empty")
         .groupHelp(
@@ -419,7 +419,7 @@ void module_init() {
       .boolField("skip_empty", false, state::PrimaryInput).label("Skip Empty", "Skip")
       .floatField("skip_thresh", 0.12f, 0.0f, 0.5f, state::PrimaryInput).label("Sensitivity", "Sens")
       // Broadcast: the live engagement [0,1] so an editor can show when it fires.
-      .floatField("skip_active", 0.0f, 0.0f, 1.0f, state::SecondaryOutput)
+      .floatField("skip_active", 0.0f, 0.0f, 1.0f, state::SecondaryOutput).wireCombine("replace")
       // --- I/O: pure generator (no input) ---
       .textureField("tex_out", state::PrimaryOutput)
       // Flow field: the induced vector field, baked to a velocity texture so a

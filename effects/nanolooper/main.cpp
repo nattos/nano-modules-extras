@@ -899,10 +899,10 @@ void module_init() {
   // the looper as a rendering stage — binding a writable output + calling
   // render() — instead of a modulation-source passthrough (which skips render()).
   schema.endGroup();
-  schema.floatField("out_1", 0.f, 0.f, 1.f, state::PrimaryOutput).label("Out 1", "O1");
-  schema.floatField("out_2", 0.f, 0.f, 1.f, state::PrimaryOutput).label("Out 2", "O2");
-  schema.floatField("out_3", 0.f, 0.f, 1.f, state::PrimaryOutput).label("Out 3", "O3");
-  schema.floatField("out_4", 0.f, 0.f, 1.f, state::PrimaryOutput).label("Out 4", "O4");
+  schema.floatField("out_1", 0.f, 0.f, 1.f, state::PrimaryOutput).wireCombine("replace").label("Out 1", "O1");
+  schema.floatField("out_2", 0.f, 0.f, 1.f, state::PrimaryOutput).wireCombine("replace").label("Out 2", "O2");
+  schema.floatField("out_3", 0.f, 0.f, 1.f, state::PrimaryOutput).wireCombine("replace").label("Out 3", "O3");
+  schema.floatField("out_4", 0.f, 0.f, 1.f, state::PrimaryOutput).wireCombine("replace").label("Out 4", "O4");
   schema.textureField("tex_in",  state::PrimaryInput);
   schema.textureField("tex_out", state::PrimaryOutput);
 

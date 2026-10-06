@@ -479,7 +479,7 @@ void module_init() {
       .floatField("km_time", 0.0f, 0.0f, 1.0f, state::PrimaryInput,
                   nullptr, /*step=*/0.005f, /*units=*/nullptr,
                   "Manual playhead over the key-moment window (Time mode): 0 = window "
-                  "start, 1 = settled on the centre peak.").label("Time", "Time")
+                  "start, 1 = settled on the centre peak.").wireCombine("replace").label("Time", "Time")
       .eventField("km_trigger", state::PrimaryInput)
       .floatField("sky_threshold", 0.0f, 0.0f, 1.0f, state::PrimaryInput,
                   nullptr, /*step=*/0.01f, /*units=*/nullptr,
@@ -487,7 +487,7 @@ void module_init() {
                   "fraction of empty sky (less 'framed'), snapping to the nearest that passes. "
                   "0 keeps every cell.").label("Sky Threshold", "Sky")
       // Broadcast: the live playhead [0,1] within the window, for the editor readout.
-      .floatField("km_phase", 0.0f, 0.0f, 1.0f, state::SecondaryOutput)
+      .floatField("km_phase", 0.0f, 0.0f, 1.0f, state::SecondaryOutput).wireCombine("replace")
       // --- Atmosphere / colour grade ---
       .group("color", "Colour & Atmosphere")
       .floatField("fog", 1.0f, 0.0f, 5.0f, state::PrimaryInput).label("Fog", "Fog")
@@ -571,8 +571,8 @@ void module_init() {
       .floatField("ap_hold_jitter", 0.0f, 0.0f, 1.0f, state::PrimaryInput).label("Hold Jitter", "Jit")
       .eventField("ap_jump", state::PrimaryInput)
       // Broadcast: the effective XY so the custom editor can show the live position.
-      .floatField("autopilot_x", 0.6f, 0.0f, 1.0f, state::SecondaryOutput)
-      .floatField("autopilot_y", 0.6f, 0.0f, 1.0f, state::SecondaryOutput)
+      .floatField("autopilot_x", 0.6f, 0.0f, 1.0f, state::SecondaryOutput).wireCombine("replace")
+      .floatField("autopilot_y", 0.6f, 0.0f, 1.0f, state::SecondaryOutput).wireCombine("replace")
       // --- Skip empty: jog past dead (flat solid-colour) stretches ---
       .group("skip", "Skip Empty")
         .groupHelp(
@@ -619,7 +619,7 @@ void module_init() {
       .floatField("skip_rate", 0.5f, 0.0f, 1.0f, state::PrimaryInput).label("Jog Rate", "Rate")
       .boolField("skip_autopilot", true, state::PrimaryInput).label("Jog Autopilot", "JogAP")
       // Broadcast: the live engagement [0,1] so an editor can show when it fires.
-      .floatField("skip_active", 0.0f, 0.0f, 1.0f, state::SecondaryOutput)
+      .floatField("skip_active", 0.0f, 0.0f, 1.0f, state::SecondaryOutput).wireCombine("replace")
       // Broadcast: the live flatness metric (luminance std/edge blend) for tuning.
       .floatField("skip_variance", 0.0f, 0.0f, 1.0f, state::SecondaryOutput)
       // --- I/O: pure generator (no input) ---

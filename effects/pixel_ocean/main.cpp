@@ -284,7 +284,7 @@ void module_init() {
           "Smaller cells = a denser ceiling. *Seed* re-deals the whole sea. "
           "*Show Cells* overlays the lattice (borders + a tint on live cells).")
       .intField("spawn_size", 12, 8, 24, state::SecondaryInput).label("Spawn Cell", "Cell")
-      .floatField("seed", 0.0f, 0.f, 1.f, state::SecondaryInput).label("Seed", "Seed")
+      .floatField("seed", 0.0f, 0.f, 1.f, state::SecondaryInput).wireCombine("replace").label("Seed", "Seed")
       .boolField("debug_cells", false, state::SecondaryInput).label("Show Cells", "Cells")
       .textureField("tex_in", state::PrimaryInput)
       .textureField("tex_out", state::PrimaryOutput)

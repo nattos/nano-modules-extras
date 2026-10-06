@@ -671,7 +671,7 @@ void module_init() {
                   "The sweep knob itself — wire it from Three Planes Rig's "
                   "*Sweep Out*. Its MOTION is the whole input: a glint "
                   "launches every time it enters the middle band, travelling "
-                  "at the speed you moved.")
+                  "at the speed you moved.").wireCombine("replace")
         .label("Glint Sweep", "Sweep")
       .floatField("glimmer_ratio", 1.0f, 0.f, 4.f, state::PrimaryInput,
                   nullptr, 0.f, nullptr,
@@ -786,22 +786,22 @@ void module_init() {
       // ---------------- Outputs ----------------
       // Declared min/max IS the modulation contract for these rails.
       .floatField("plane1_y", 0.f, -1.f, 1.f, state::PrimaryOutput, "signed",
-                  0.f, nullptr, "Screen Y of plane 1's centre, cover-square.")
+                  0.f, nullptr, "Screen Y of plane 1's centre, cover-square.").wireCombine("replace")
         .label("Plane 1 Y", "P1 Y")
       .floatField("plane2_y", 0.f, -1.f, 1.f, state::PrimaryOutput, "signed",
-                  0.f, nullptr, "Screen Y of plane 2's centre, cover-square.")
+                  0.f, nullptr, "Screen Y of plane 2's centre, cover-square.").wireCombine("replace")
         .label("Plane 2 Y", "P2 Y")
       .floatField("plane3_y", 0.f, -1.f, 1.f, state::PrimaryOutput, "signed",
-                  0.f, nullptr, "Screen Y of plane 3's centre, cover-square.")
+                  0.f, nullptr, "Screen Y of plane 3's centre, cover-square.").wireCombine("replace")
         .label("Plane 3 Y", "P3 Y")
       .floatField("plane1_half_h", 0.f, 0.f, 1.f, state::PrimaryOutput, "unsigned",
-                  0.f, nullptr, "Half-height of plane 1's silhouette.")
+                  0.f, nullptr, "Half-height of plane 1's silhouette.").wireCombine("replace")
         .label("Plane 1 Half Height", "P1 H")
       .floatField("plane2_half_h", 0.f, 0.f, 1.f, state::PrimaryOutput, "unsigned",
-                  0.f, nullptr, "Half-height of plane 2's silhouette.")
+                  0.f, nullptr, "Half-height of plane 2's silhouette.").wireCombine("replace")
         .label("Plane 2 Half Height", "P2 H")
       .floatField("plane3_half_h", 0.f, 0.f, 1.f, state::PrimaryOutput, "unsigned",
-                  0.f, nullptr, "Half-height of plane 3's silhouette.")
+                  0.f, nullptr, "Half-height of plane 3's silhouette.").wireCombine("replace")
         .label("Plane 3 Half Height", "P3 H")
 
       // tex_in FIRST, and then the mask. The editor takes a module's texture

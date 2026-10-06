@@ -319,10 +319,10 @@ void module_init() {
       .floatField("km_time", 0.0f, 0.0f, 1.0f, state::PrimaryInput,
                   nullptr, /*step=*/0.005f, /*units=*/nullptr,
                   "Manual playhead over the key-moment window (Time mode): 0 = window "
-                  "start, 1 = settled on the centre peak.").label("Time", "Time")
+                  "start, 1 = settled on the centre peak.").wireCombine("replace").label("Time", "Time")
       .eventField("km_trigger", state::PrimaryInput).label("Trigger", "Trig")
       // Broadcast: the live playhead [0,1] within the window, for the editor readout.
-      .floatField("km_phase", 0.0f, 0.0f, 1.0f, state::SecondaryOutput)
+      .floatField("km_phase", 0.0f, 0.0f, 1.0f, state::SecondaryOutput).wireCombine("replace")
       // --- Autopilot (non-destructive XY override + broadcast) ---
       .group("autopilot", "Autopilot")
         .groupHelp(
@@ -357,8 +357,8 @@ void module_init() {
                     {"Viridis", 3}, {"Plasma", 4}, {"Turbo", 5}}, /*wrap=*/true).label("Colormap", "Color")
       // Broadcast: the effective XY (epicycle when autopilot is on, else the
       // input XY) so the custom editor can show the live position.
-      .floatField("autopilot_x", 0.25f, 0.0f, 1.0f, state::SecondaryOutput)
-      .floatField("autopilot_y", 0.85f, 0.0f, 1.0f, state::SecondaryOutput)
+      .floatField("autopilot_x", 0.25f, 0.0f, 1.0f, state::SecondaryOutput).wireCombine("replace")
+      .floatField("autopilot_y", 0.85f, 0.0f, 1.0f, state::SecondaryOutput).wireCombine("replace")
       // --- Skip static: jog past a large near-still construct ---
       .group("skip", "Skip Static")
         .groupHelp(
@@ -416,7 +416,7 @@ void module_init() {
       .floatField("skip_rate", 0.5f, 0.0f, 1.0f, state::PrimaryInput).label("Jog Rate", "Rate")
       .boolField("skip_autopilot", true, state::PrimaryInput).label("Jog Autopilot", "JogAP")
       // Broadcast: the live engagement [0,1] so an editor can show when it fires.
-      .floatField("skip_active", 0.0f, 0.0f, 1.0f, state::SecondaryOutput)
+      .floatField("skip_active", 0.0f, 0.0f, 1.0f, state::SecondaryOutput).wireCombine("replace")
       // Broadcast: the live activity metric (mean motion / feature blend) for tuning.
       .floatField("skip_motion", 0.0f, 0.0f, 1.0f, state::SecondaryOutput)
       // Broadcast: the live uniform-drift coherence [0,1] (1 = pure scroll) for tuning.
