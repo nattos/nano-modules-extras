@@ -267,7 +267,7 @@ void module_init() {
         "grayscale or a colormap — raw material for downstream effects to style.\n\n"
         "**Try:** push *Temporal Complexity* up and *Speed* low for a slow, richly "
         "animating field; turn on *Autopilot* to let it wander the atlas on its own; "
-        "swap the *Colormap* to recolour the whole look.")
+        "swap the *Colormap* to recolor the whole look.")
       // --- Shape axes (the custom XY pad drives frequency + simplicity) ---
       .group("shape", "Shape")
         .groupHelp(
@@ -298,7 +298,7 @@ void module_init() {
         .groupHelp(
           "Each atlas cell (and temporal layer) was scored offline for its **key "
           "moment** — the short window where new structure streams in and comes to "
-          "frame the centre. Turn this on to play just that window (anchored on the "
+          "frame the center. Turn this on to play just that window (anchored on the "
           "settled peak) instead of the whole loop; it also snaps to the exact cell "
           "so what plays is precisely what was scored. **Time Mode** picks how it "
           "plays: *Trigger* fires it once per **Trigger** and holds on the peak; "
@@ -319,7 +319,7 @@ void module_init() {
       .floatField("km_time", 0.0f, 0.0f, 1.0f, state::PrimaryInput,
                   nullptr, /*step=*/0.005f, /*units=*/nullptr,
                   "Manual playhead over the key-moment window (Time mode): 0 = window "
-                  "start, 1 = settled on the centre peak.").wireCombine("replace").label("Time", "Time")
+                  "start, 1 = settled on the center peak.").wireCombine("replace").label("Time", "Time")
       .eventField("km_trigger", state::PrimaryInput).label("Trigger", "Trig")
       // Broadcast: the live playhead [0,1] within the window, for the editor readout.
       .floatField("km_phase", 0.0f, 0.0f, 1.0f, state::SecondaryOutput).wireCombine("replace")
@@ -366,7 +366,7 @@ void module_init() {
           "just **sits there, barely moving**. Turn this on and the effect gently "
           "**jogs the loop forward** (on a smooth C2 curve) to glide past those "
           "still stretches instead of dwelling on them. Because shape_fold is never "
-          "a flat solid colour, detection is by **motion** (how much the frame is "
+          "a flat solid color, detection is by **motion** (how much the frame is "
           "changing) — not by flatness. *Sensitivity* sets how still a frame has to "
           "get before it kicks in; *Jog Rate* how briskly it skips. With "
           "**Autopilot** on it also nudges the orbit onward — or, if **Snap** is on, "

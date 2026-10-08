@@ -206,15 +206,15 @@ void module_init() {
       // --- Look: colors + how many waves ---
       .group("look", "Ocean")
         .groupHelp(
-          "*Ocean* and *Wave* are the two flat colours. *Density* is the chance "
+          "*Ocean* and *Wave* are the two flat colors. *Density* is the chance "
           "each spawn slot hosts a wave. It's LATCHED at spawn: raising it never "
           "pops a wave in mid-animation and lowering it never culls one — the "
           "change simply decides which cells do or don't respawn as they reach "
           "their next cycle, so it rolls in cleanly over about one cycle. "
           "**Composite** picks the backdrop: Ocean / Transparent / Custom / the "
           "Input image, with waves drawn on top.")
-      .rgbField("ocean_color", 0.10f, 0.32f, 0.55f, state::PrimaryInput).label("Ocean Colour", "Ocean")
-      .rgbField("wave_color", 0.0f, 0.0f, 0.0f, state::PrimaryInput).label("Wave Colour", "Wave")
+      .rgbField("ocean_color", 0.10f, 0.32f, 0.55f, state::PrimaryInput).label("Ocean Color", "Ocean")
+      .rgbField("wave_color", 0.0f, 0.0f, 0.0f, state::PrimaryInput).label("Wave Color", "Wave")
       .floatField("density", 0.35f, 0.f, 1.f, state::PrimaryInput).label("Density", "Dens")
       .selectField("composite", CompOcean, state::PrimaryInput,
                    {{"Ocean", CompOcean}, {"Transparent", CompTransparent},
@@ -250,7 +250,7 @@ void module_init() {
         .groupHelp(
           "Relative odds each new wave is a *Dot* (fleck that blinks and splits), "
           "an *Omega* (two-hump crest), or a *Swirl* (unrolling wind-curl). The "
-          "three are normalised, so only their ratio matters; set one to 0 to "
+          "three are normalized, so only their ratio matters; set one to 0 to "
           "drop that shape. Like the rest of the wave settings these latch at "
           "spawn, so a change re-mixes future waves, not ones already swimming.")
       .floatField("dot_weight", 0.45f, 0.f, 1.f, state::PrimaryInput).label("Dot Weight", "Dot")
@@ -273,7 +273,7 @@ void module_init() {
       .floatField("sparkle_jitter", 0.50f, 0.f, 1.f, state::PrimaryInput).label("Timing Jitter", "SJit")
       .floatField("sparkle_bloom", 0.50f, 0.f, 1.f, state::PrimaryInput).label("Bloom Weight", "Bloom")
       .floatField("sparkle_blink", 0.50f, 0.f, 1.f, state::PrimaryInput).label("Blink Weight", "Blink")
-      .rgbField("sparkle_color", 1.0f, 1.0f, 1.0f, state::PrimaryInput).label("Sparkle Colour", "SpkC")
+      .rgbField("sparkle_color", 1.0f, 1.0f, 1.0f, state::PrimaryInput).label("Sparkle Color", "SpkC")
       .floatField("sparkle_size", 0.40f, 0.f, 1.f, state::SecondaryInput).label("Sparkle Size", "SpkPx")
       .floatField("sparkle_rotation", 0.0f, -1.f, 1.f, state::SecondaryInput).label("Sparkle Angle", "SpkR")
       // --- Tuning + debug ---

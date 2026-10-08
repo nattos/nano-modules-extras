@@ -127,7 +127,7 @@ void module_init() {
         "levels and adding punchy temporal contrast.\n\n"
         "**Try:** turn on **Overflow Fill** and push **Max Rate** past your "
         "frame rate so hot columns glide from strobe into solid; raise "
-        "**Neutral Pull** so the cell colours stay vivid while the flicker "
+        "**Neutral Pull** so the cell colors stay vivid while the flicker "
         "does the dimming; use **Column Level** to pull a column's dim cells "
         "up to its brightest without lifting black.")
       // --- Grid ---
@@ -135,7 +135,7 @@ void module_init() {
         .groupHelp(
           "The sampling grid. The input is box-averaged into *Columns* × "
           "*Rows* flat cells — one cell per LED. Each column flickers as one "
-          "unit; cells keep their own colour.")
+          "unit; cells keep their own color.")
       .intField  ("columns",        4, 1, FG_MAX_COLS,  state::PrimaryInput).label("Columns", "Cols")
       .intField  ("rows",           10, 1, FG_MAX_ROWS, state::PrimaryInput).label("Rows", "Rows")
       // --- Flicker ---
@@ -158,11 +158,11 @@ void module_init() {
       // --- Color shaping ---
       .group("shape", "Color Shaping")
         .groupHelp(
-          "Per-cell colour, in HSL. **Neutral Pull** drags lightness toward "
+          "Per-cell color, in HSL. **Neutral Pull** drags lightness toward "
           "0.5 so the flicker — not the pixel luma — carries the brightness "
           "(otherwise dim content gets dimmed twice). **Column Level** lifts "
           "cells toward their column's brightest on a curve that fades out "
-          "near black, so dim colour brightens but black stays black.")
+          "near black, so dim color brightens but black stays black.")
       .floatField("neutral_pull",   0.5f, 0.0f, 1.0f,    state::PrimaryInput).label("Neutral Pull", "Neut")
       .floatField("level_strength", 0.5f, 0.0f, 1.0f,    state::PrimaryInput).label("Column Level", "Level")
       .capability(state::Capability::SeekableApproximate)

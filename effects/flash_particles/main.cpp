@@ -270,14 +270,14 @@ void module_init() {
         "## Flash Particles\n"
         "A **mask-driven particle compositor**. It keeps a GPU pool of "
         "short-lived particles, spawning each where a **mask** is brightest and "
-        "capturing the underlying image colour there. Particles live, fade on an "
+        "capturing the underlying image color there. Particles live, fade on an "
         "alpha curve, then respawn — a continuous shimmer keyed to image "
         "content, composited straight over the input.\n\n"
         "**Try:** wire a *mask* input (a luma, edge, or motion pass) to steer "
         "where particles land — with none wired it falls back to the image "
         "itself. Push *Count* up and *Lifetime* down for a fast sparkle, dial "
         "*Global Color* + *Color Blend* to tint between captured and chosen "
-        "colour, and switch *Composite* to **Add** for glowing light bursts.")
+        "color, and switch *Composite* to **Add** for glowing light bursts.")
       // ---- Pool ----
       .group("pool", "Pool")
       .intField  ("count",            64,    1,    MAX_PARTICLES, state::PrimaryInput).label("Count", "Count")
@@ -329,10 +329,10 @@ void module_init() {
       // ---- Color ----
       .group("color", "Color")
         .groupHelp(
-          "Each particle can wear the colour it captured from the image at spawn "
+          "Each particle can wear the color it captured from the image at spawn "
           "or a chosen *Global Color* — *Color Blend* cross-fades between them "
           "(0 = captured, 1 = global). The *Jitter* knobs (hue / brightness / "
-          "saturation / alpha) spread each particle around that colour for a "
+          "saturation / alpha) spread each particle around that color for a "
           "livelier, less flat spray.")
       .rgbField  ("global_color",     1.0f, 1.0f, 1.0f,           state::PrimaryInput).label("Global Color", "Color")
       .floatField("color_blend",      0.5f,  0.0f,  1.0f,         state::PrimaryInput).label("Color Blend", "Blend")
@@ -346,7 +346,7 @@ void module_init() {
           "How the particles land on the frame. **Alpha** blends over the input; "
           "**Add** accumulates light for glowing bursts. *Input Alpha* dims the "
           "underlying image (0 = particles on black), *Exposure* boosts particle "
-          "intensity (clips to white), and *Color Alpha* fades the whole colour "
+          "intensity (clips to white), and *Color Alpha* fades the whole color "
           "pass out — at 0 it's skipped entirely, yet the motion rail still "
           "emits for downstream effects.")
       .selectField("blend_mode",      BLEND_ALPHA,                state::PrimaryInput, {

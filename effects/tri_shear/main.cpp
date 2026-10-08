@@ -106,7 +106,7 @@ void module_init() {
         "triangle at the update rate (or on **Trigger**), never drifting.\n\n"
         "**Try:** raise *Obliqueness* for scalene triangles and *Obliqueness Jitter* to reshuffle "
         "each update; *Direction* -1 rifts, +1 overlaps, 0 slips. Set *Update Rate* to 0 and drive "
-        "**Trigger** on the beat. Raise *Tint* to colour the three wedges + centre.")
+        "**Trigger** on the beat. Raise *Tint* to color the three wedges + center.")
 
       .group("triangle", "Triangle")
         .groupHelp(
@@ -122,7 +122,7 @@ void module_init() {
       .floatField("obliqueness", 1.0f, 0.0f, 1.0f, state::PrimaryInput, nullptr, 0.01f, nullptr,
                   "0 = equilateral (edges locked 120° apart); 1 = each edge tilts freely to features (oblique / scalene).").label("Obliqueness", "Obliq")
       .floatField("obliqueness_jitter", 0.0f, 0.0f, 1.0f, state::PrimaryInput, nullptr, 0.01f, nullptr,
-                  "Each update, roll a fresh effective obliqueness around the centre value by ± this much.").label("Obliqueness Jitter", "Jit")
+                  "Each update, roll a fresh effective obliqueness around the center value by ± this much.").label("Obliqueness Jitter", "Jit")
 
       .group("motion", "Motion")
         .groupHelp(
@@ -170,20 +170,20 @@ void module_init() {
         {"A On Top", 0}, {"Blend", 1}, {"Additive", 2},
       }, false, "How the halves combine where they overlap.").label("Overlap", "Over")
 
-      .group("tint", "Colour Tint")
+      .group("tint", "Color Tint")
         .groupHelp(
-          "Tint each triangle region with its own colour. *Tint* is the strength; *Tint Mode* is "
-          "multiply / add / blend; *Wedge 0/1/2* are the three outer regions and *Centre* is "
+          "Tint each triangle region with its own color. *Tint* is the strength; *Tint Mode* is "
+          "multiply / add / blend; *Wedge 0/1/2* are the three outer regions and *Center* is "
           "inside the triangle.")
       .floatField("tint", 0.0f, 0.0f, 1.0f, state::PrimaryInput, nullptr, 0.01f, nullptr,
-                  "Colour tint amount. Each of the 3 outer wedges and the centre is tinted with its own colour.").label("Tint", "Tint")
+                  "Color tint amount. Each of the 3 outer wedges and the center is tinted with its own color.").label("Tint", "Tint")
       .selectField("tint_mode", 0, state::SecondaryInput, {
         {"Multiply", 0}, {"Add", 1}, {"Blend", 2},
-      }, false, "How the tint colour is combined with the image.").label("Tint Mode", "Mode")
-      .rgbField("tint_0",      1.0f, 0.30f, 0.30f, state::SecondaryInput).label("Wedge 0 Colour", "W0")
-      .rgbField("tint_1",      0.30f, 1.0f, 0.40f, state::SecondaryInput).label("Wedge 1 Colour", "W1")
-      .rgbField("tint_2",      0.40f, 0.50f, 1.0f, state::SecondaryInput).label("Wedge 2 Colour", "W2")
-      .rgbField("tint_center", 1.0f, 1.0f, 1.0f, state::SecondaryInput).label("Centre Colour", "Ctr")
+      }, false, "How the tint color is combined with the image.").label("Tint Mode", "Mode")
+      .rgbField("tint_0",      1.0f, 0.30f, 0.30f, state::SecondaryInput).label("Wedge 0 Color", "W0")
+      .rgbField("tint_1",      0.30f, 1.0f, 0.40f, state::SecondaryInput).label("Wedge 1 Color", "W1")
+      .rgbField("tint_2",      0.40f, 0.50f, 1.0f, state::SecondaryInput).label("Wedge 2 Color", "W2")
+      .rgbField("tint_center", 1.0f, 1.0f, 1.0f, state::SecondaryInput).label("Center Color", "Ctr")
 
       .group("tuning", "Tuning")
         .groupHelp("Fine-tuning. *Ease Curve* shapes the shear ramp.")

@@ -265,7 +265,7 @@ void module_init() {
         "A **full photographic-lens model** in one effect: shaped-aperture "
         "depth-of-field **bokeh**, lens **flare & glare**, chromatic aberration, "
         "distortion, and a filmic **finish** (tonemap + grain). Unlike a plain "
-        "blur it energy-normalises highlights (so bright points bloom into real "
+        "blur it energy-normalizes highlights (so bright points bloom into real "
         "bokeh discs), shapes the blur with the aperture polygon, and composites "
         "everything in linear HDR before the film curve — the look real glass has "
         "and phones clip away.\n\n"
@@ -299,15 +299,15 @@ void module_init() {
       .group("focus", "Depth of Field")
         .groupHelp(
           "The blur itself. *Blur Amount* is the circle-of-confusion radius (how "
-          "much out-of-focus areas spread). *Field Curvature* keeps the centre "
+          "much out-of-focus areas spread). *Field Curvature* keeps the center "
           "sharp while softening the corners (Petzval — that vintage 3D pop). "
-          "*Focus Centre* moves where the field is sharpest.")
+          "*Focus Center* moves where the field is sharpest.")
       .floatField("blur_amount", 0.16f, 0.f, 1.f, state::PrimaryInput, nullptr, 0.01f,
                   nullptr, "Circle-of-confusion radius (fraction of the frame's short side).").label("Blur Amount", "Blur")
       .floatField("field_curvature", 0.0f, 0.f, 1.f, state::PrimaryInput, nullptr, 0.01f,
-                  nullptr, "Petzval field curvature: sharp centre, softer corners.").label("Field Curvature", "Curve")
+                  nullptr, "Petzval field curvature: sharp center, softer corners.").label("Field Curvature", "Curve")
       .vec2Field("focus_center", 0.0f, 0.0f, state::PrimaryInput, -1.f, 1.f)
-        .label("Focus Centre", "Focus")
+        .label("Focus Center", "Focus")
 
       .group("bokeh", "Bokeh Shape")
         .groupHelp(
@@ -331,34 +331,34 @@ void module_init() {
       .floatField("anamorphic", 0.0f, 0.f, 1.f, state::PrimaryInput, nullptr, 0.01f,
                   nullptr, "Oval (anamorphic) bokeh: stretch horizontal, squeeze vertical.").label("Anamorphic", "Anam")
       .floatField("loca", 0.25f, 0.f, 1.f, state::PrimaryInput, nullptr, 0.01f,
-                  nullptr, "Longitudinal chromatic aberration — colour fringe on out-of-focus edges.").label("LoCA", "LoCA")
+                  nullptr, "Longitudinal chromatic aberration — color fringe on out-of-focus edges.").label("LoCA", "LoCA")
       .floatField("rim", 0.12f, 0.f, 1.f, state::PrimaryInput, nullptr, 0.01f,
                   nullptr, "Bright-rim (nervous) bokeh.").label("Rim", "Rim")
       .floatField("onion_ring", 0.06f, 0.f, 1.f, state::PrimaryInput, nullptr, 0.01f,
                   nullptr, "Aspheric concentric-ring texture inside defocused bokeh discs. Low = subtle/physical, high = exaggerated vintage ring-stack (quadratic). Most visible on defocused highlights.").label("Onion Ring", "Onion")
       .floatField("apodize", 0.55f, 0.f, 1.f, state::PrimaryInput, nullptr, 0.01f,
-                  nullptr, "Creamy centre-weighted disc falloff (raised-cosine apodization).").label("Apodize", "Apod")
+                  nullptr, "Creamy center-weighted disc falloff (raised-cosine apodization).").label("Apodize", "Apod")
 
       .group("highlight", "Highlights")
         .groupHelp(
           "Highlight energy for the bokeh. *Threshold* sets what counts as a "
           "highlight; *Boost* multiplies its energy so bright points survive the "
-          "energy-normalised gather as vivid discs rather than dim smears.")
+          "energy-normalized gather as vivid discs rather than dim smears.")
       .floatField("hl_threshold", 1.0f, 0.f, 2.f, state::SecondaryInput, nullptr, 0.01f,
                   nullptr, "Linear luma above which a pixel counts as a highlight.").label("HL Threshold", "HL Thr")
       .floatField("hl_boost", 0.375f, 0.f, 1.f, state::SecondaryInput, nullptr, 0.01f,
                   nullptr, "Extra energy given to highlights (0..1 → 0..8×).").label("HL Boost", "HL Boost")
 
-      .group("coating", "Coating & Colour")
+      .group("coating", "Coating & Color")
         .groupHelp(
-          "The lens coating: its colour cast and how it flares. *SMC* is a clean "
+          "The lens coating: its color cast and how it flares. *SMC* is a clean "
           "modern multicoat; *Single* / *Uncoated* are warmer, flarier vintage "
           "glass. *Warmth* and *Transmission* trim the overall tone and brightness.")
       .selectField("coating", 0, state::PrimaryInput,
                    {{"SMC", 0}, {"Single", 1}, {"Uncoated", 2}, {"Custom", 3}},
-                   false, "Coating stack: drives colour cast, flare colour and amount.").label("Coating", "Coat")
+                   false, "Coating stack: drives color cast, flare color and amount.").label("Coating", "Coat")
       .floatField("warmth", 0.0f, -1.f, 1.f, state::PrimaryInput, nullptr, 0.01f,
-                  nullptr, "Bipolar colour warmth (− cool / + warm).").label("Warmth", "Warm")
+                  nullptr, "Bipolar color warmth (− cool / + warm).").label("Warmth", "Warm")
       .floatField("transmission", 1.0f, 0.5f, 1.5f, state::SecondaryInput, nullptr, 0.01f,
                   nullptr, "Overall light throughput multiplier.").label("Transmission", "Trans")
 
@@ -382,7 +382,7 @@ void module_init() {
           "*Azimuth* / *Obliqueness* place the source. It manifests as a veil "
           "pedestal, a broad *Glow* toward the source, thin diffraction *Streaks* "
           "locked to the aperture blades, and a *Ghost* chain of aperture-shaped "
-          "reflections along the source→centre axis. *Dispersion* spreads the "
+          "reflections along the source→center axis. *Dispersion* spreads the "
           "spectrum for rainbow fringing.")
       .floatField("sun_intensity", 0.0f, 0.f, 1.f, state::PrimaryInput, nullptr, 0.01f,
                   nullptr, "Off-frame source brightness. 0 = the whole sun stack is skipped.").label("Sun Intensity", "Sun")
@@ -390,7 +390,7 @@ void module_init() {
                   nullptr, "Direction to the source (0..1 → full turn).").label("Sun Azimuth", "Azim")
       .floatField("sun_obliqueness", 0.35f, 0.f, 1.f, state::PrimaryInput, nullptr, 0.01f,
                   nullptr, "0 = grazing the frame edge, 1 = far off-axis.").label("Obliqueness", "Obliq")
-      .rgbField("sun_color", 1.0f, 0.85f, 0.6f, state::SecondaryInput).label("Sun Colour", "SunCol")
+      .rgbField("sun_color", 1.0f, 0.85f, 0.6f, state::SecondaryInput).label("Sun Color", "SunCol")
       .floatField("sun_veil", 0.6f, 0.f, 1.f, state::SecondaryInput, nullptr, 0.01f,
                   nullptr, "Near-flat veiling pedestal.").label("Sun Veil", "Veil")
       .floatField("sun_glow", 0.7f, 0.f, 1.f, state::SecondaryInput, nullptr, 0.01f,
@@ -411,7 +411,7 @@ void module_init() {
           "spread. Both bleed from the highlights.")
       .floatField("halation", 0.22f, 0.f, 1.f, state::PrimaryInput, nullptr, 0.01f,
                   nullptr, "Warm highlight bleed (wide ring).").label("Halation", "Halo")
-      .rgbField("halation_color", 1.0f, 0.4f, 0.22f, state::SecondaryInput).label("Halation Colour", "HaloCol")
+      .rgbField("halation_color", 1.0f, 0.4f, 0.22f, state::SecondaryInput).label("Halation Color", "HaloCol")
       .floatField("bloom", 0.12f, 0.f, 1.f, state::PrimaryInput, nullptr, 0.01f,
                   nullptr, "Neutral highlight bloom (gentle spread).").label("Bloom", "Bloom")
 

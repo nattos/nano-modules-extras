@@ -303,10 +303,10 @@ void module_init() {
       // --- Look ---
       .group("look", "Look")
         .groupHelp(
-          "*Wave Colour* and *Intensity* shape the lit cells. **Composite** "
+          "*Wave Color* and *Intensity* shape the lit cells. **Composite** "
           "picks what the rest of the grid is: Black / Transparent / a Custom "
-          "colour / the Input image passed through.")
-      .rgbField("pixel_color", 1.0f, 1.0f, 1.0f, state::PrimaryInput).label("Wave Colour", "Colour")
+          "color / the Input image passed through.")
+      .rgbField("pixel_color", 1.0f, 1.0f, 1.0f, state::PrimaryInput).label("Wave Color", "Color")
       .floatField("intensity", 1.0f, 0.0f, 2.0f, state::PrimaryInput).label("Intensity", "Int")
       .selectField("composite", CompBlack, state::PrimaryInput,
                    {{"Black", CompBlack}, {"Transparent", CompTransparent},

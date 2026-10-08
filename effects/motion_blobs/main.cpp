@@ -355,7 +355,7 @@ void module_init() {
       .helpField("intro",
         "## Motion Blobs\n"
         "A pool of soft blobs that drift across the frame and drive **two outputs at "
-        "once**: a motion-vector field (for motion blur) and a colour darkening (for "
+        "once**: a motion-vector field (for motion blur) and a color darkening (for "
         "shadow flyovers). The same blob field powers both — mix them with *Motion "
         "Strength* and *Shadow Darkness*.\n\n"
         "**Try:** *Motion Strength* 1 / *Shadow Darkness* 0 for invisible motion rain; "
@@ -381,7 +381,7 @@ void module_init() {
           "The one blob field feeds both outputs independently. *Motion Strength* scales "
           "the emitted motion vectors (for downstream motion blur) and *Motion Extent* "
           "limits their reach; *Shadow Darkness* + *Shadow Tint* paint the blobs as a "
-          "travelling darkening. Set either to 0 to use just the other.")
+          "traveling darkening. Set either to 0 to use just the other.")
       .floatField("motion_strength",       1.0f,  0.0f, 2.0f,    state::PrimaryInput).label("Motion Strength", "Motion")
       .floatField("motion_extent",         1.0f,  0.0f, 1.0f,    state::PrimaryInput).label("Motion Extent", "MotExt")
       .floatField("shadow_darkness",       0.0f,  0.0f, 1.0f,    state::PrimaryInput).label("Shadow Darkness", "Shadow")

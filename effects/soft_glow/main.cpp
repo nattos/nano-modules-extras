@@ -263,7 +263,7 @@ void module_init() {
         "and shifts hue as it fades, then respawns to keep the field alive.\n\n"
         "**Try:** raise *Blob Count* and *Blob Size* for a dense wash; set a *Drift X/Y* "
         "bias to make the bed sweep across the frame like wind-blown cloud; push *Hue "
-        "Shift* and *Overflow Band* for rolling colour bands. Wire the motion output "
+        "Shift* and *Overflow Band* for rolling color bands. Wire the motion output "
         "downstream to let the glow drive optical-flow effects.")
       // --- Output ---
       .group("output", "Output")
@@ -290,18 +290,18 @@ void module_init() {
       .floatField("drift_x_bias",     0.0f, -1.0f, 1.0f, state::PrimaryInput).label("Drift X", "X")
       .floatField("drift_y_bias",     0.0f, -1.0f, 1.0f, state::PrimaryInput).label("Drift Y", "Y")
       // --- Colour ---
-      .group("color", "Colour")
+      .group("color", "Color")
         .groupHelp(
           "Blobs are tinted from a hue ramp keyed to their brightness. *Hue* is the "
-          "colour at full amplitude; *Hue Shift* rotates it as a blob fades, and "
-          "*Overflow Band* keeps that rotation going past the peak for hard colour "
+          "color at full amplitude; *Hue Shift* rotates it as a blob fades, and "
+          "*Overflow Band* keeps that rotation going past the peak for hard color "
           "banding. *Saturation*, *White Point* and the two curves shape richness "
           "and how the tone rolls off.")
       .floatField("hue",              0.05f, 0.0f, 1.0f,  state::PrimaryInput).label("Hue", "Hue")
       .floatField("hue_shift",        0.30f, -3.0f, 3.0f, state::PrimaryInput).label("Hue Shift", "Shift")
       .floatField("hue_curve",        0.0f,  -1.0f, 1.0f, state::PrimaryInput).label("Hue Curve", "HCurve")
       .floatField("overflow_band",    0.0f,  0.0f,  3.0f, state::PrimaryInput).label("Overflow Band", "Band")
-      .floatField("color_strength",   1.0f,  0.0f,  4.0f, state::PrimaryInput).label("Colour Strength", "Str")
+      .floatField("color_strength",   1.0f,  0.0f,  4.0f, state::PrimaryInput).label("Color Strength", "Str")
       .floatField("saturation",       0.95f, 0.0f, 1.0f,  state::PrimaryInput).label("Saturation", "Sat")
       .floatField("intensity_skew",   0.0f,  0.0f, 1.0f,  state::PrimaryInput).label("Intensity Skew", "Skew")
       .floatField("ramp_curve",       0.0f, -1.0f, 1.0f, state::PrimaryInput).label("Ramp Curve", "Ramp")
@@ -319,7 +319,7 @@ void module_init() {
           "motion-driven effects (it doesn't change the glow itself). *Strength* "
           "scales the emitted velocity; *Skew* biases it toward the leading edge; "
           "*Curl* rotates it for a swirling feel; *Extent* shrinks the footprint "
-          "toward blob centres.")
+          "toward blob centers.")
       .floatField("motion_strength",  1.0f,  0.0f, 8.0f,  state::PrimaryInput).label("Motion Strength", "Str")
       .floatField("motion_skew",      0.0f,  0.0f, 1.0f,  state::PrimaryInput).label("Motion Skew", "Skew")
       .floatField("motion_curl",      0.0f, -1.0f, 1.0f,  state::PrimaryInput).label("Motion Curl", "Curl")

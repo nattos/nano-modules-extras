@@ -83,21 +83,21 @@ void module_init() {
     state::Schema()
       .helpField("intro",
         "## Ember Tone\n"
-        "A warm two-tone grade: part LUT, part saturation, part colourise. "
+        "A warm two-tone grade: part LUT, part saturation, part colorize. "
         "Brightness is all it reads. As a pixel gets brighter it **climbs** "
         "and rolls off onto a full, warm **body**, and the very brightest "
         "still **sizzle** through to white.\n\n"
         "Two tones split the range: the **weak** tone in the shadows, the "
         "**strong** one everywhere above a low threshold. Crossing between "
-        "them walks round the colour wheel rather than through grey, so "
+        "them walks round the color wheel rather than through gray, so "
         "every level stays punchy.\n\n"
         "**Try:** *Weak Offset* at -60 for a magenta crossing, or *Hue Amount* "
-        "at 0.5 to let the footage's own colours pull the grade apart.")
+        "at 0.5 to let the footage's own colors pull the grade apart.")
 
       // ---------------- Tone ----------------
       .group("tone", "Tone")
         .groupHelp(
-          "How brightness becomes colour. **Drive** pushes the input up the "
+          "How brightness becomes color. **Drive** pushes the input up the "
           "climb; **Body** is the lightness it rolls off onto, and **Chroma** "
           "how saturated the body is (as far as the screen can show that "
           "hue). **Roll-off Curve** bends the climb: negative holds the "
@@ -133,18 +133,18 @@ void module_init() {
       // ---------------- Two Tone ----------------
       .group("two_tone", "Two Tone")
         .groupHelp(
-          "**Strong Hue** is the main colour. The **weak** colour is its "
+          "**Strong Hue** is the main color. The **weak** color is its "
           "opposite on the wheel, turned by **Weak Offset**; the offset's "
           "sign also picks which way round the wheel the crossing goes. "
           "Below **Threshold** a pixel is weak, above it strong, over a "
           "**Softness** either side.")
       .floatField("strong_hue", 0.07f, 0.f, 1.f, state::PrimaryInput,
                   nullptr, 0.f, nullptr,
-                  "The main colour, as a hue. 0.07 is ember orange.")
+                  "The main color, as a hue. 0.07 is ember orange.")
         .label("Strong Hue", "Hue")
       .floatField("weak_offset", 35.0f, -180.f, 180.f, state::PrimaryInput,
                   nullptr, 0.f, "°",
-                  "Turns the weak colour away from the strong one's opposite.")
+                  "Turns the weak color away from the strong one's opposite.")
         .label("Weak Offset", "WkOff")
       .floatField("threshold", 0.3f, 0.f, 1.f, state::PrimaryInput,
                   nullptr, 0.f, nullptr,
@@ -159,13 +159,13 @@ void module_init() {
       // ---------------- Source Hue ----------------
       .group("source_hue", "Source Hue")
         .groupHelp(
-          "Let the footage's own colour back in. The **anchor** is the "
+          "Let the footage's own color back in. The **anchor** is the "
           "image's dominant hue (or **Anchor Hue**, in Fixed mode). A pixel "
           "whose hue differs from it turns the grade's hue by that "
           "difference times **Hue Amount** — negative turns the other way. "
-          "**Hue Curve** bends it: negative leaves near-anchor colours alone "
+          "**Hue Curve** bends it: negative leaves near-anchor colors alone "
           "and swings the far ones, positive swings even small differences. "
-          "Grey pixels have no hue and never turn. **Follow** is how long "
+          "Gray pixels have no hue and never turn. **Follow** is how long "
           "the anchor takes to move with the footage. **Source Saturation** "
           "lets dull input stay dull.")
       .floatField("hue_amount", 0.0f, -1.f, 1.f, state::PrimaryInput,
@@ -175,7 +175,7 @@ void module_init() {
         .label("Hue Amount", "HueAmt")
       .floatField("hue_curve", 0.0f, -1.f, 1.f, state::SecondaryInput,
                   nullptr, 0.f, nullptr,
-                  "-1 swings only the far colours, +1 even the near ones. "
+                  "-1 swings only the far colors, +1 even the near ones. "
                   "0 is linear.")
         .label("Hue Curve", "HueCrv")
       .floatField("hue_follow", 0.5f, 0.f, 4.f, state::SecondaryInput,
@@ -193,7 +193,7 @@ void module_init() {
         .label("Anchor Hue", "AncHue")
       .floatField("source_sat", 0.0f, 0.f, 1.f, state::PrimaryInput,
                   nullptr, 0.f, nullptr,
-                  "Mixes in the input's saturation: 1 leaves grey input grey.")
+                  "Mixes in the input's saturation: 1 leaves gray input gray.")
         .label("Source Saturation", "SrcSat")
 
       // ---------------- Output ----------------

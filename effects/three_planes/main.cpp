@@ -405,7 +405,7 @@ void module_init() {
         "transparent overlays.\n\n"
         "**Try:** drive the three *Emission* knobs from an envelope follower "
         "for a peak-holding VU tower — hold the peak plane on a different "
-        "*Colour*. Sweep *Orbit Azimuth* slowly under it; the published "
+        "*Color*. Sweep *Orbit Azimuth* slowly under it; the published "
         "`planeN_y` rails stay rock steady while it turns, so anything you "
         "composite on top stays glued to its floor.")
 
@@ -415,7 +415,7 @@ void module_init() {
           "The performance surface — wire all nine of these. **Emission** is "
           "the light coming up, on a dimmer curve. **Fill** is signed: push "
           "it positive to flood the plane with neon, negative to turn it "
-          "into a black mask that occludes the planes below. **Colour** is "
+          "into a black mask that occludes the planes below. **Color** is "
           "what the halo carries; the line core always blows out toward "
           "white (see *Core Whiten*).\n\n"
           "Plane 1 is the ground floor, plane 3 the top.\n\n"
@@ -429,19 +429,19 @@ void module_init() {
       .floatField("plane1_fill", 0.0f, -1.f, 1.f, state::PrimaryInput, "signed")
         .label("Plane 1 Fill", "P1 Fill")
       .rgbField("plane1_color", 1.00f, 0.22f, 0.62f, state::PrimaryInput)
-        .label("Plane 1 Colour", "P1 Col")
+        .label("Plane 1 Color", "P1 Col")
       .floatField("plane2_emission", 0.85f, 0.f, 1.5f, state::PrimaryInput)
         .label("Plane 2 Emission", "P2 Emit")
       .floatField("plane2_fill", 0.0f, -1.f, 1.f, state::PrimaryInput, "signed")
         .label("Plane 2 Fill", "P2 Fill")
       .rgbField("plane2_color", 0.30f, 0.85f, 1.00f, state::PrimaryInput)
-        .label("Plane 2 Colour", "P2 Col")
+        .label("Plane 2 Color", "P2 Col")
       .floatField("plane3_emission", 0.85f, 0.f, 1.5f, state::PrimaryInput)
         .label("Plane 3 Emission", "P3 Emit")
       .floatField("plane3_fill", 0.0f, -1.f, 1.f, state::PrimaryInput, "signed")
         .label("Plane 3 Fill", "P3 Fill")
       .rgbField("plane3_color", 0.72f, 0.35f, 1.00f, state::PrimaryInput)
-        .label("Plane 3 Colour", "P3 Col")
+        .label("Plane 3 Color", "P3 Col")
 
       // ---------------- Camera ----------------
       .group("camera", "Camera")
@@ -449,7 +449,7 @@ void module_init() {
           "Orthographic throughout — orbiting never introduces perspective, "
           "so the three planes stay exactly parallel and the stack keeps "
           "reading as a diagram rather than a photograph.\n\n"
-          "*Orbit Azimuth* is normalised to [0,1] precisely because it is "
+          "*Orbit Azimuth* is normalized to [0,1] precisely because it is "
           "meant to be swept from an envelope. *Elevation* defaults to "
           "35.26 deg, the true isometric tilt; drop it toward 0 for a flat "
           "side-on stack, push it up for a top-down board.")
@@ -478,7 +478,7 @@ void module_init() {
           "perfectly smooth around corners.\n\n"
           "**Core Whiten** is the knob that decides whether this reads as "
           "neon at all: real neon photographs have a white-hot filament with "
-          "the colour surviving only out in the glow. At 0 the line stays "
+          "the color surviving only out in the glow. At 0 the line stays "
           "fully tinted and looks like vector art; push it up and the tube "
           "lights.")
       .floatField("line_width", 0.18f, 0.f, 1.f, state::PrimaryInput)
@@ -670,7 +670,7 @@ void module_init() {
                   "unsigned", 0.f, nullptr,
                   "The sweep knob itself — wire it from Three Planes Rig's "
                   "*Sweep Out*. Its MOTION is the whole input: a glint "
-                  "launches every time it enters the middle band, travelling "
+                  "launches every time it enters the middle band, traveling "
                   "at the speed you moved.").wireCombine("replace")
         .label("Glint Sweep", "Sweep")
       .floatField("glimmer_ratio", 1.0f, 0.f, 4.f, state::PrimaryInput,
@@ -720,7 +720,7 @@ void module_init() {
       // ---------------- Grade ----------------
       .group("grade", "Warmth & Dehancement")
         .groupHelp(
-          "The analogue tail. *Chroma Bleed* splits R/G/B horizontally the "
+          "The analog tail. *Chroma Bleed* splits R/G/B horizontally the "
           "way a tape transport does — here it is exact, because the whole "
           "stack is re-evaluated at three offsets rather than blurred.\n\n"
           "*Drive* and *Asymmetry* are where warmth actually lives: the "
@@ -749,7 +749,7 @@ void module_init() {
         .label("Highlight Tint", "Hi Tint")
       .floatField("highlight_tint_amount", 0.0f, 0.f, 1.f, state::PrimaryInput,
                   nullptr, 0.f, nullptr,
-                  "Colours the blown-out cores that Highlight Desat just "
+                  "Colors the blown-out cores that Highlight Desat just "
                   "bleached white. The swatch is what a fully clipped pixel "
                   "BECOMES, so what you pick is what you get — dim it for a "
                   "deeper, more saturated core, keep it hot for a tinted "
@@ -759,7 +759,7 @@ void module_init() {
                   nullptr, 0.f, nullptr,
                   "Where the tint starts biting, and how much of the image it "
                   "catches. 1.0 is exactly at clipping and the tint arrives "
-                  "fully a stop above that; drop it to pull colour into "
+                  "fully a stop above that; drop it to pull color into "
                   "highlights that would have survived the tone map intact.")
         .label("Tint Pivot", "Pivot")
       .floatField("scanline", 0.12f, 0.f, 1.f, state::SecondaryInput)
@@ -786,13 +786,13 @@ void module_init() {
       // ---------------- Outputs ----------------
       // Declared min/max IS the modulation contract for these rails.
       .floatField("plane1_y", 0.f, -1.f, 1.f, state::PrimaryOutput, "signed",
-                  0.f, nullptr, "Screen Y of plane 1's centre, cover-square.").wireCombine("replace")
+                  0.f, nullptr, "Screen Y of plane 1's center, cover-square.").wireCombine("replace")
         .label("Plane 1 Y", "P1 Y")
       .floatField("plane2_y", 0.f, -1.f, 1.f, state::PrimaryOutput, "signed",
-                  0.f, nullptr, "Screen Y of plane 2's centre, cover-square.").wireCombine("replace")
+                  0.f, nullptr, "Screen Y of plane 2's center, cover-square.").wireCombine("replace")
         .label("Plane 2 Y", "P2 Y")
       .floatField("plane3_y", 0.f, -1.f, 1.f, state::PrimaryOutput, "signed",
-                  0.f, nullptr, "Screen Y of plane 3's centre, cover-square.").wireCombine("replace")
+                  0.f, nullptr, "Screen Y of plane 3's center, cover-square.").wireCombine("replace")
         .label("Plane 3 Y", "P3 Y")
       .floatField("plane1_half_h", 0.f, 0.f, 1.f, state::PrimaryOutput, "unsigned",
                   0.f, nullptr, "Half-height of plane 1's silhouette.").wireCombine("replace")
@@ -821,7 +821,7 @@ void module_init() {
         "where it lands.\n\n"
         "What it covers is CUT AWAY, exactly the way a plane at Fill -1 cuts: "
         "a hole through the picture rather than a sticker on it. That is why "
-        "there is no colour here — a mask has a shape, not a look.\n\n"
+        "there is no color here — a mask has a shape, not a look.\n\n"
         "Its weight is the mask's **alpha times its luma**, and it wants both. "
         "A shape that is present but black is not a mask, and neither is a "
         "bright shape that is not there — so an ordinary rendered logo works "
@@ -870,10 +870,10 @@ void module_init() {
       .textureField("led_out", state::SecondaryOutput)
         .label("LED Out", "LED")
       .boolField("led_quantize", true, state::SecondaryInput,
-                 "Each segment a flat block of colour, which is what you want: "
+                 "Each segment a flat block of color, which is what you want: "
                  "anything sampling or averaging inside a block then comes away "
-                 "with the exact colour that segment asked for. Turn it off to "
-                 "interpolate between segment centres — a soft wash, and mud on "
+                 "with the exact color that segment asked for. Turn it off to "
+                 "interpolate between segment centers — a soft wash, and mud on "
                  "a physical rig.")
         .label("Quantize", "Quant")
       .floatField("led_solid", 1.0f, 0.f, 1.f, state::PrimaryInput,
@@ -885,20 +885,20 @@ void module_init() {
                   "those from Three Planes Rig and the rig in the room goes on "
                   "reading the meter while the screen sits Solid or chops. "
                   "Anywhere between is a mix, per floor, of both the brightness "
-                  "and the colour.")
+                  "and the color.")
         .label("Solid Mix", "Solid")
       .floatField("led1_emission", 0.85f, 0.f, 1.5f, state::SecondaryInput)
         .label("LED 1 Source", "L1 Em")
       .rgbField("led1_color", 1.00f, 0.22f, 0.62f, state::SecondaryInput)
-        .label("LED 1 Colour", "L1 Col")
+        .label("LED 1 Color", "L1 Col")
       .floatField("led2_emission", 0.85f, 0.f, 1.5f, state::SecondaryInput)
         .label("LED 2 Source", "L2 Em")
       .rgbField("led2_color", 0.30f, 0.85f, 1.00f, state::SecondaryInput)
-        .label("LED 2 Colour", "L2 Col")
+        .label("LED 2 Color", "L2 Col")
       .floatField("led3_emission", 0.85f, 0.f, 1.5f, state::SecondaryInput)
         .label("LED 3 Source", "L3 Em")
       .rgbField("led3_color", 0.72f, 0.35f, 1.00f, state::SecondaryInput)
-        .label("LED 3 Colour", "L3 Col")
+        .label("LED 3 Color", "L3 Col")
 
       // ---------------- Walls ----------------
       // After tex_out, like every other aux output on this card — the editor
@@ -960,8 +960,8 @@ void module_init() {
                   nullptr, 0.f, nullptr,
                   "How far a hot core blows out toward warm white. The "
                   "surround keeps its hue outright — this only takes the "
-                  "centre, which is what real light does and what stops a "
-                  "bright pool reading as a flat coloured shape.")
+                  "center, which is what real light does and what stops a "
+                  "bright pool reading as a flat colored shape.")
         .label("Warmth", "Warm")
       .floatField("wall_depth", 1.0f, 0.f, 1.f, state::PrimaryInput,
                   nullptr, 0.f, nullptr,

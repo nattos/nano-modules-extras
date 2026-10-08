@@ -149,7 +149,7 @@ void module_init() {
         "*perspective* pinch across the frame.\n\n"
         "**Try:** raise *Length* and set an *Angle* for a motion streak, dial *Tail* "
         "for a comet trail, and push *Perspective* for a tilt-shift ramp. Switch to "
-        "**Scatter** and crank *Dive* for Pixulant's dissolving coloured grain, now "
+        "**Scatter** and crank *Dive* for Pixulant's dissolving colored grain, now "
         "smeared along the axis.")
       .group("axis", "Axis")
         .groupHelp("*Angle* sets the major smear axis (0..1 of a turn, signed). The "

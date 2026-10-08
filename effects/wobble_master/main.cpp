@@ -145,7 +145,7 @@ void module_init() {
                   nullptr, "Chromatic afterglow left behind the wave (the Wire "
                   "patch's per-channel split directions).")
       .floatField("hue", 0.0f, 0.0f, 1.0f, state::PrimaryInput, nullptr, 0.01f,
-                  nullptr, "Hue rotation of the colour split.")
+                  nullptr, "Hue rotation of the color split.")
       .vec2Field ("center", 0.0f, 0.0f, state::PrimaryInput)
       .textureField("tex_in",  state::PrimaryInput)
       .textureField("tex_out", state::PrimaryOutput));

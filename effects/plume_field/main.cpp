@@ -124,7 +124,7 @@ void module_init() {
           "a *valley-cutter* (hugs valleys, gently digs along its whole "
           "path) or a *ridge-builder* (rides crests, builds them up) — the "
           "swirl carries it ALONG the feature while the slope holds it ON "
-          "the feature, so existing valleys and ridges get emphasised and "
+          "the feature, so existing valleys and ridges get emphasized and "
           "extended into streamlines. *Simulate* is the master amount (0 = "
           "off, the field is exactly the static sculpt). *Swirl* is the "
           "strength of the axial circulation. *Carve* mixes the population "

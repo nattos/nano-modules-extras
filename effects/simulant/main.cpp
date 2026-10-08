@@ -213,7 +213,7 @@ void module_init() {
         .groupHelp("How the input is placed into the accumulator. *Const Alpha* is "
                    "a steady injection amount — the simplest way to bring the stock "
                    "patch to life. *Scale* / *Pos X* / *Pos Y* place the (halved) "
-                   "input; *Colour* / *Colour Mix* tint it (grey by default).")
+                   "input; *Color* / *Color Mix* tint it (gray by default).")
       .floatField("const_alpha", 0.86f, 0.f, 1.f, state::PrimaryInput, nullptr, 0.01f, nullptr,
                   "Steady injection opacity added to the flicker (bring it alive).")
         .label("Const Alpha", "Const")
@@ -227,10 +227,10 @@ void module_init() {
                   "Vertical placement of the injected input.")
         .label("Pos Y", "PosY")
       .rgbField("color", 1.f, 1.f, 1.f, state::SecondaryInput)
-        .label("Colour Filter", "Colour")
+        .label("Color Filter", "Color")
       .floatField("color_alpha", 1.0f, 0.f, 1.f, state::SecondaryInput, nullptr, 0.01f, nullptr,
-                  "Crossfade the injected input toward the colour-tinted grey.")
-        .label("Colour Mix", "ColMix")
+                  "Crossfade the injected input toward the color-tinted gray.")
+        .label("Color Mix", "ColMix")
 
       // ---- Flicker: pulse the injection ----
       .group("flicker", "Flicker")
@@ -280,7 +280,7 @@ void module_init() {
                   "Feather of the region's edge.")
         .label("Mask Softness", "MSoft")
       .floatField("mask_position", 0.0f, -1.f, 1.f, state::SecondaryInput, nullptr, 0.01f, nullptr,
-                  "Spawn bias: -1 outer ring → +1 centre.")
+                  "Spawn bias: -1 outer ring → +1 center.")
         .label("Mask Position", "MPos")
 
       // ---- Line: threshold the accumulator ----
@@ -311,7 +311,7 @@ void module_init() {
                   "Scale the accumulator field for the line pass.")
         .label("Zoom", "Zoom")
       .rgbField("line_color", 1.f, 1.f, 1.f, state::SecondaryInput)
-        .label("Line Colour", "LineCol")
+        .label("Line Color", "LineCol")
 
       // ---- I/O ----
       .textureField("tex_in",  state::PrimaryInput)

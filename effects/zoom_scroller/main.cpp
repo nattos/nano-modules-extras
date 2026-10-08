@@ -165,9 +165,9 @@ void module_init() {
       .floatField("scale_variance",   0.1f, 0.0f, 1.0f,  state::PrimaryInput, nullptr, 0.0f, nullptr,
                   "How far the zoom random-walks each new sequence.")
       .floatField("target_min_radius",0.3f, 0.0f, 2.0f,  state::PrimaryInput, nullptr, 0.0f, nullptr,
-                  "Closest a sequence target lands from centre.")
+                  "Closest a sequence target lands from center.")
       .floatField("target_max_radius",0.6f, 0.0f, 2.0f,  state::PrimaryInput, nullptr, 0.0f, nullptr,
-                  "Farthest a sequence target lands from centre.")
+                  "Farthest a sequence target lands from center.")
       .intField  ("sub_steps",        6, 1, 30,          state::PrimaryInput, 0, nullptr,
                   "Quantized steps taken per pan (the choppiness).")
       .intField  ("sub_step_frames",  3, 0, 30,          state::PrimaryInput, 0, nullptr,
@@ -197,7 +197,7 @@ void module_init() {
       .floatField("target_step_distance", 0.3f, 0.0f, 1.0f, state::SecondaryInput, nullptr, 0.0f, nullptr,
                   "Grid step size: smaller → more waypoints per sequence.")
       .floatField("origin_center_bias", 0.3f, 0.0f, 1.0f, state::SecondaryInput, nullptr, 0.0f, nullptr,
-                  "How far back toward centre the origin sits behind the target.")
+                  "How far back toward center the origin sits behind the target.")
       .floatField("origin_variance",   0.1f, 0.0f, 1.0f,  state::SecondaryInput, nullptr, 0.0f, nullptr,
                   "Randomness of the origin set-back.")
       .floatField("gizmo_size",   0.9f, 0.0f, 2.0f, state::SecondaryInput, nullptr, 0.0f, nullptr,

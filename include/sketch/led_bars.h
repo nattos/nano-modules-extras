@@ -36,7 +36,7 @@ constexpr int kBars = 4;
 constexpr int kSegments = 10;
 constexpr int kCells = kBars * kSegments;
 constexpr int kBarsPerSide = kBars / 2;
-static_assert(kBars % 2 == 0, "the bars mirror about the room's centre line");
+static_assert(kBars % 2 == 0, "the bars mirror about the room's center line");
 
 /// The tower three_planes shows: three floors, bottom to top.
 constexpr int kLayers = 3;

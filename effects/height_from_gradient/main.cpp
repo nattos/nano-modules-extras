@@ -267,7 +267,7 @@ void module_init() {
           "(sweep *Light Angle* / *Elevation*); **Grayscale** maps height to "
           "brightness; **Normals** shows the surface normal; **Contours** draws "
           "iso-lines of the result. *Mix* cross-fades back toward the input, "
-          "and *Tint* colours the shaded / contour output.")
+          "and *Tint* colors the shaded / contour output.")
       // How to visualize the reconstructed height. Contours draws iso-lines of
       // OUR reconstructed height — a contour map of the result.
       .selectField("present_mode", 0, state::PrimaryInput,

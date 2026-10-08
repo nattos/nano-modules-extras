@@ -146,14 +146,14 @@ void module_init() {
         "bars staggered one step apart), so one big flash lands as a spread "
         "of separate hits. One bar always gets through.\n\n"
         "**Try:** raise **Strength** over footage with big full-frame hits; "
-        "**Tilt** +1 keeps the centre pair and scatters the outer pair; "
+        "**Tilt** +1 keeps the center pair and scatters the outer pair; "
         "**Delay Share** 1 turns every hit into a ripple across the rig.")
       // --- Scatter ---
       .group("scatter", "Scatter")
         .groupHelp(
           "**Strength** is the chance each co-triggering bar is hit, re-read "
           "every frame, so a turn of the knob lands at once. **Tilt** "
-          "leans it: +1 always lets the centre pair through and hits the outer "
+          "leans it: +1 always lets the center pair through and hits the outer "
           "pair twice as often, −1 the reverse. **Delay Share** splits the "
           "hits between choking (0) and delaying (1). **Seed** picks a "
           "different run of dice.")
@@ -163,7 +163,7 @@ void module_init() {
         .label("Strength", "Str")
       .floatField("tilt",         0.0f, -1.0f, 1.0f, state::PrimaryInput,
                   nullptr, 0.f, nullptr,
-                  "+1 protects the centre pair and hits the outer pair; −1 "
+                  "+1 protects the center pair and hits the outer pair; −1 "
                   "protects the outer pair.")
         .label("Tilt", "Tilt")
       .floatField("delay_share",  0.5f,  0.0f, 1.0f, state::PrimaryInput,

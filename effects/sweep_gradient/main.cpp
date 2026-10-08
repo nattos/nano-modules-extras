@@ -83,7 +83,7 @@ void module_init() {
       .helpField("intro",
         "## Sweep Gradient\n"
         "Sweep Choke's rolling gradient on its own: the four LED bars in one "
-        "colour, dimmed by a knob **or** by a trigger.\n\n"
+        "color, dimmed by a knob **or** by a trigger.\n\n"
         "**The knob.** Parked in the middle the bars are full; out past the "
         "deadzone they dim toward black at either end. Park anywhere and they "
         "settle solid at that level. Only a CHANGE is a gradient: it rolls "
@@ -107,7 +107,7 @@ void module_init() {
           "reach black. A trigger's gesture goes through these too.")
       .floatField("sweep", 0.5f, 0.f, 1.f, state::PrimaryInput,
                   nullptr, 0.f, nullptr,
-                  "The knob. 0.5 is home: full colour. Ignored while a "
+                  "The knob. 0.5 is home: full color. Ignored while a "
                   "triggered gesture runs.").wireCombine("replace")
         .label("Sweep", "Sweep")
       .floatField("deadzone", 0.45f, 0.f, 0.95f, state::PrimaryInput,
@@ -194,7 +194,7 @@ void module_init() {
       // ---------------- Light ----------------
       .group("light", "Light")
       .rgbField("color", 1.00f, 0.22f, 0.62f, state::PrimaryInput)
-        .label("Colour", "Col")
+        .label("Color", "Col")
       .floatField("intensity", 1.0f, 0.f, 2.f, state::PrimaryInput,
                   nullptr, 0.f, nullptr, "Overall output level.")
         .label("Intensity", "Int")
@@ -203,7 +203,7 @@ void module_init() {
       .group("output", "Output")
       .boolField("quantize", true, state::SecondaryInput,
                  "Each segment a flat block, so a pixel mapper lands on its "
-                 "exact colour. Off interpolates between segment centres.")
+                 "exact color. Off interpolates between segment centers.")
         .label("Quantize", "Quant")
       .floatField("level_out", 1.f, 0.f, 1.f, state::PrimaryOutput, "unsigned",
                   0.f, nullptr, "Mean level across the bars.")

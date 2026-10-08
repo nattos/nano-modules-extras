@@ -135,7 +135,7 @@ void module_init() {
           "The live controls. *Strength* is the master mix (0 = bypass). *Line "
           "Width* / *Point Size* are the target sizes strokes and dots are repainted "
           "at. *Uniformity* trades honest per-line width (0) against forcing every "
-          "line to the target (1). *Solidify* rescues the true colour of "
+          "line to the target (1). *Solidify* rescues the true color of "
           "aliased/dashed strokes from their brightest sample along the line "
           "(self-limiting — it can't over-brighten a uniformly-faint stroke). "
           "*Deband* collapses staircased gradients back onto a smooth ramp.")
@@ -147,7 +147,7 @@ void module_init() {
       .floatField("point_radius", 0.42f, 0.f, 1.f, state::PrimaryInput, nullptr, 0.01f,
                   nullptr, "Target point/dot radius. Log-mapped to 0.5..4 px.").label("Point Size", "Point")
       .floatField("solidify", 0.6f, 0.f, 1.f, state::PrimaryInput, nullptr, 0.01f,
-                  nullptr, "Recover stroke colour from the brightest sample along its length (dash/aliased rescue). Self-limiting.").label("Solidify", "Solid")
+                  nullptr, "Recover stroke color from the brightest sample along its length (dash/aliased rescue). Self-limiting.").label("Solidify", "Solid")
       .floatField("deband", 0.0f, 0.f, 1.f, state::PrimaryInput, nullptr, 0.01f,
                   nullptr, "De-band smooth gradients: clamp-bounded correction (0..4 LSB) + dither.").label("Deband", "Deband")
 
@@ -155,12 +155,12 @@ void module_init() {
         .groupHelp(
           "Model-shape knobs. *Sensitivity* sets the contrast floor for what counts "
           "as detail (higher = picks up fainter structure). *Recover* controls how "
-          "far the repaint may extrapolate contrast past the locally observed colour "
+          "far the repaint may extrapolate contrast past the locally observed color "
           "range (0 = never invent). *Max Width* caps what still counts as a line.")
       .floatField("sensitivity", 0.5f, 0.f, 1.f, state::SecondaryInput, nullptr, 0.01f,
                   nullptr, "Detail contrast floor: lerp(0.12, 0.01). Higher picks up fainter lines.").label("Sensitivity", "Sens")
       .floatField("recover", 0.7f, 0.f, 1.f, state::SecondaryInput, nullptr, 0.01f,
-                  nullptr, "How far the repaint extrapolates contrast past local evidence (0 = never invent colour).").label("Recover", "Rec")
+                  nullptr, "How far the repaint extrapolates contrast past local evidence (0 = never invent color).").label("Recover", "Rec")
       .floatField("max_width", 0.6f, 0.f, 1.f, state::SecondaryInput, nullptr, 0.01f,
                   nullptr, "Cap on what counts as a line. Log-mapped to 2..8 px.").label("Max Width", "MaxW")
 

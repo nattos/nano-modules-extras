@@ -122,7 +122,7 @@ void module_init() {
 
       .group("standard", "Recompose")
         .groupHelp(
-          "*Correction* is the whole effect: 0 leaves the frame alone, 1 lands the centre of "
+          "*Correction* is the whole effect: 0 leaves the frame alone, 1 lands the center of "
           "visual mass on the nearest rule-of-thirds intersection, and negative values push it "
           "away. *Spread* redistributes the individual cells around that correction — the "
           "overall balance is guaranteed either way, so Spread changes the character without "
@@ -141,26 +141,26 @@ void module_init() {
         .groupHelp(
           "What counts as \"visually heavy\". *Detail* follows edges and local contrast, "
           "*Contrast* follows how far a region sits from the frame's average brightness, and "
-          "*Colour* follows saturation. Only the RATIO between the three matters — scaling all "
-          "three together changes nothing. *Centre Bias* says how empty the middle cell should "
+          "*Color* follows saturation. Only the RATIO between the three matters — scaling all "
+          "three together changes nothing. *Center Bias* says how empty the middle cell should "
           "ideally be: 0 treats all nine cells equally, 1 wants everything in the corners.")
       .floatField("w_grad", 1.0f, 0.0f, 1.0f, state::PrimaryInput, nullptr, 0.01f, nullptr,
                   "Weight on edges and local detail.").label("Detail", "Detl")
       .floatField("w_dev", 0.5f, 0.0f, 1.0f, state::PrimaryInput, nullptr, 0.01f, nullptr,
                   "Weight on deviation from the frame's average brightness.").label("Contrast", "Cntr")
       .floatField("w_sat", 0.3f, 0.0f, 1.0f, state::PrimaryInput, nullptr, 0.01f, nullptr,
-                  "Weight on colour saturation.").label("Colour", "Col")
+                  "Weight on color saturation.").label("Color", "Col")
       .floatField("center_bias", 0.5f, 0.0f, 1.0f, state::PrimaryInput, nullptr, 0.01f, nullptr,
-                  "How strongly the ideal layout empties the centre cell. 0 = even, 1 = corners only.")
-        .label("Centre Bias", "CBias")
+                  "How strongly the ideal layout empties the center cell. 0 = even, 1 = corners only.")
+        .label("Center Bias", "CBias")
 
       .group("timing", "Timing")
         .groupHelp(
-          "*Update Rate* is how often the image is re-analysed — 0 freezes on the current "
+          "*Update Rate* is how often the image is re-analyzed — 0 freezes on the current "
           "solve and waits for **Trigger**. *Smoothing* eases the solved offsets so a retarget "
           "glides instead of snapping. **Trigger** forces a re-analysis now.")
       .floatField("update_rate", 0.35f, 0.0f, 1.0f, state::PrimaryInput, nullptr, 0.01f, nullptr,
-                  "How often the composition is re-analysed (0 = frozen, manual Trigger only; higher = faster).")
+                  "How often the composition is re-analyzed (0 = frozen, manual Trigger only; higher = faster).")
         .label("Update Rate", "Rate")
       .floatField("smooth", 0.4f, 0.0f, 1.0f, state::PrimaryInput, nullptr, 0.01f, nullptr,
                   "Temporal easing of the solved offsets. 0 = snap instantly.").label("Smoothing", "Smth")
@@ -195,7 +195,7 @@ void module_init() {
         .label("Overshoot", "Over+")
 
       .group("debug", "Debug")
-        .groupHelp("Inspection aids. *Show* overlays the thirds grid with the measured centre "
+        .groupHelp("Inspection aids. *Show* overlays the thirds grid with the measured center "
                    "of mass and its target, or a per-cell surplus/deficit heat map.")
       .selectField("debug_show", DBG_OFF, state::SecondaryInput, {
         {"Off", DBG_OFF}, {"Grid + Centroid", DBG_GRID}, {"Cell Mass", DBG_MASS},

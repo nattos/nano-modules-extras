@@ -421,11 +421,11 @@ void module_init() {
         "## Chroma Wave\n"
         "A charge-and-burst prismatic bloom. Hold the *Gate* to charge a soft blob — "
         "as pressure builds it flattens and curls into a downward crescent; release "
-        "and it **bursts**, opening while prismatic colour bands travel down the "
+        "and it **bursts**, opening while prismatic color bands travel down the "
         "gradient. It's **polyphonic**, so many waves can overlap.\n\n"
         "**Try:** play it rhythmically with the trigger for stacked bursts; set *Auto "
         "Mode* to **Beats** to fire it on the transport; push *Intensity* for glowing "
-        "additive colour.")
+        "additive color.")
       // --- Standard trigger surface ---
       .group("trigger", "Trigger")
         .groupHelp(
@@ -446,7 +446,7 @@ void module_init() {
           "Multiple waves run at once. *Voices* caps how many overlap (older bursts get "
           "stolen past the limit). *Position* and *Hue Jitter* scatter one-shots so they "
           "read as distinct waves. **Hue Interact** decides how overlaps blend: 0 "
-          "averages their colour, higher values rotate and compound the bands.")
+          "averages their color, higher values rotate and compound the bands.")
       .intField  ("voice_limit",        8, 1, MAX_VOICES,       state::PrimaryInput).label("Voices", "Vox")
       .floatField("voice_pos_jitter",   0.5f, 0.0f, 2.0f,       state::PrimaryInput).label("Position Jitter", "PosJit")
       .floatField("voice_hue_jitter",   0.1f, 0.0f, 1.0f,       state::PrimaryInput).label("Hue Jitter", "HueJit")
@@ -487,11 +487,11 @@ void module_init() {
       .floatField("burst_shallow",      0.7f,  0.0f, 0.95f,     state::PrimaryInput).label("Burst Shallow", "Shallow")
 
       // --- Colour grade ---
-      .group("grade", "Colour Grade")
+      .group("grade", "Color Grade")
         .groupHelp(
-          "The prismatic colour. **Base Hue** + **Hue Span** set where the spectrum sits "
+          "The prismatic color. **Base Hue** + **Hue Span** set where the spectrum sits "
           "and how wide it sweeps; the per-channel *Hue Shift* knobs twist the wheel. "
-          "**Band Freq** and **Fold Rate** control the travelling stripe density during "
+          "**Band Freq** and **Fold Rate** control the traveling stripe density during "
           "charge vs burst. Crank **Intensity** for a glowing additive over the input.")
       .floatField("base_hue",           0.55f, 0.0f, 1.0f,      state::PrimaryInput).label("Base Hue", "Hue")
       .floatField("hue_span",           0.18f, 0.0f, 1.0f,      state::PrimaryInput).label("Hue Span", "Span")
@@ -507,7 +507,7 @@ void module_init() {
       .floatField("band_contrast",      0.6f,  0.0f, 1.0f,      state::PrimaryInput).label("Band Contrast", "BndCon")
       .floatField("band_tilt",          0.0f,  -2.0f, 2.0f,     state::PrimaryInput).label("Band Tilt", "Tilt")
       .floatField("alpha_gamma",        1.2f,  0.25f, 4.0f,     state::PrimaryInput).label("Alpha Gamma", "Gamma")
-      .rgbField  ("blob_color",         1.0f,  1.0f, 1.0f,      state::PrimaryInput).label("Colour", "Col")
+      .rgbField  ("blob_color",         1.0f,  1.0f, 1.0f,      state::PrimaryInput).label("Color", "Col")
       .floatField("overlay_alpha_hold", 0.3f,  0.0f, 1.0f,      state::PrimaryInput).label("Alpha Hold", "AlpHld")
       .floatField("overlay_alpha_burst",0.7f,  0.0f, 1.0f,      state::PrimaryInput).label("Alpha Burst", "AlpBst")
       // Crankable master gain; soft per-channel rolloff for juicy colour.

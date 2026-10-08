@@ -301,7 +301,7 @@ void module_init() {
         "A GPU particle swarm that **rides a flow field**. Wire a `flow_field` "
         "rail (from *phase_fold* or any flow generator) into it and up to a "
         "million particles are advected along the sampled velocity, each capturing "
-        "the input colour where it spawns and respawning to keep density steady.\n\n"
+        "the input color where it spawns and respawning to keep density steady.\n\n"
         "**Try:** start with a modest *Count* and low *Speed* to read the field, "
         "then raise *Momentum* for silky trailing inertia; switch *Mode* to **Force** "
         "and add *Weight* for overshoot; enable *Interactions* to let the swarm "
@@ -313,7 +313,7 @@ void module_init() {
           "pre-sized to 1M, so dial it freely). **Velocity** mode treats the field "
           "as a target velocity — add *Momentum* for inertia; **Force** mode drives "
           "a mass (*Weight*) so the field becomes a hint and overshoot emerges. "
-          "*Settle* glues motion back toward the flow, *Substeps* stabilises fast "
+          "*Settle* glues motion back toward the flow, *Substeps* stabilizes fast "
           "flow, and *Jitter* sprays a little life along the direction of travel.")
       .intField  ("count",        150000, 1, MAX_PARTICLES, state::PrimaryInput).label("Count", "Count")
       // Acceleration mode: Velocity treats the field as a velocity (momentum
@@ -350,9 +350,9 @@ void module_init() {
       .floatField("life",         4.0f,  0.1f,  30.0f, state::PrimaryInput).label("Lifetime", "Life")
       .floatField("life_jitter",  0.4f,  0.0f,  1.0f,  state::PrimaryInput).label("Life Jitter", "LfJit")
       // ---- Color ----
-      .group("color", "Colour")
-      .floatField("color_blend",  0.3f,  0.0f,  1.0f,  state::PrimaryInput).label("Colour Blend", "Blend")
-      .rgbField  ("solid_color",  1.0f, 1.0f, 1.0f,    state::PrimaryInput).label("Solid Colour", "Colour")
+      .group("color", "Color")
+      .floatField("color_blend",  0.3f,  0.0f,  1.0f,  state::PrimaryInput).label("Color Blend", "Blend")
+      .rgbField  ("solid_color",  1.0f, 1.0f, 1.0f,    state::PrimaryInput).label("Solid Color", "Color")
       .floatField("tint_by_flow", 0.0f,  0.0f,  1.0f,  state::PrimaryInput).label("Tint By Flow", "Tint")
       // ---- Undertow: a depth-gated secondary flow ----
       .group("undertow", "Undertow")
@@ -375,7 +375,7 @@ void module_init() {
       // ---- Interactions (particle-vs-particle, via a density buffer) ----
       .group("interactions", "Interactions")
         .groupHelp(
-          "Lets particles feel their neighbours through a 1-frame crowding buffer "
+          "Lets particles feel their neighbors through a 1-frame crowding buffer "
           "(off by default — it adds a splat pass). *Radius* is the sensing range. "
           "**Density Death** thins over-packed areas back toward even coverage; "
           "**Avoidance** pushes down the crowd gradient (add *Curl* to swirl, "

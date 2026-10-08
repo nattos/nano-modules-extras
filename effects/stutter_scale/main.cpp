@@ -141,7 +141,7 @@ void module_init() {
         "What shows past the scaled image's border and in the endpoint "
         "deadzones (Edge smears the border; deadzones stay transparent).")
       .boolField ("flip", true, state::PrimaryInput, "Allow random Y-flips per step.")
-      .boolField ("color_invert", false, state::PrimaryInput, "Allow random colour inversion per step.")
+      .boolField ("color_invert", false, state::PrimaryInput, "Allow random color inversion per step.")
       .intField  ("seed", 1234, 0, 65535, state::PrimaryInput, 0, nullptr, "Random seed.")
       .capability(state::Capability::TimeIndependent)
       .textureField("tex_in",  state::PrimaryInput)

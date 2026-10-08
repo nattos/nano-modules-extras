@@ -133,7 +133,7 @@ void module_init() {
       .group("standard", "Standard")
         .groupHelp(
           "The core controls. *Rate* sets the LFO speed (0 freezes it); *Amplitude* "
-          "scales the swing around the centre. *Morph X/Y* is the position on the "
+          "scales the swing around the center. *Morph X/Y* is the position on the "
           "shape map — the heart of the effect — and *Metric* chooses which map "
           "(how the shapes are grouped). Turn *Interpolation* off to snap to a single "
           "shape instead of blending.")

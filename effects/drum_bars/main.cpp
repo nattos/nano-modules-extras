@@ -76,7 +76,7 @@ void module_init() {
       .helpField("intro",
         "## Drum Bars\n"
         "Three drum roles on the four LED bars, each bar one solid level of "
-        "the colour.\n\n"
+        "the color.\n\n"
         "**Ch1, the kick**, lights a mirror pair — the outer bars, the inner "
         "bars — or all four, at full. **Ch2, the backbeat**, lights the "
         "converse of what the kick would: inner for outer, outer for inner, "
@@ -197,7 +197,7 @@ void module_init() {
       // ---------------- Light ----------------
       .group("light", "Light")
       .rgbField("color", 1.0f, 0.55f, 0.18f, state::PrimaryInput)
-        .label("Colour", "Col")
+        .label("Color", "Col")
       .floatField("intensity", 1.0f, 0.f, 2.f, state::PrimaryInput,
                   nullptr, 0.f, nullptr, "Overall output level.")
         .label("Intensity", "Int")
@@ -206,7 +206,7 @@ void module_init() {
       .group("output", "Output")
       .boolField("quantize", true, state::SecondaryInput,
                  "Each segment a flat block, so a pixel mapper lands on its "
-                 "exact colour. Off interpolates between segment centres.")
+                 "exact color. Off interpolates between segment centers.")
         .label("Quantize", "Quant")
       .floatField("bar1_out", 0.f, 0.f, 1.f, state::PrimaryOutput, "unsigned",
                   0.f, nullptr, "Bar 1's level (left, outer).").label("Bar 1", "B1")

@@ -134,7 +134,7 @@ void module_init() {
         "downstream effects (swarms, warps, blurs) read it as velocity. Bright pixels "
         "(above *Threshold*) emit motion; the *Direction* is a weighted blend of a "
         "fixed rotation, a radial push, and the image's own luma gradient.\n\n"
-        "**Try:** raise *Vis Opacity* to see the field as a colour wheel while you "
+        "**Try:** raise *Vis Opacity* to see the field as a color wheel while you "
         "tune, then drop it back to 0 for production. Push *Gradient Weight* with a "
         "±90° *Gradient Bias* to get flow that hugs the edges of your image, and add a "
         "little *Evolution Rate* so the field breathes over time.")
@@ -160,7 +160,7 @@ void module_init() {
       .group("direction", "Direction")
         .groupHelp(
           "The heading of each vector is a **weighted sum** of three sources, then "
-          "normalised. *Rotation* is a fixed angle; *Radial* pushes outward from the "
+          "normalized. *Rotation* is a fixed angle; *Radial* pushes outward from the "
           "*Anchor*; *Gradient* follows the image's luma slope, and *Gradient Bias* "
           "rotates it — 0° climbs uphill, ±90° runs **along** iso-luma contours for "
           "an edge-flow look. Balance the three weights to taste.")
@@ -200,7 +200,7 @@ void module_init() {
       // expected to pass through tex_in unchanged).
       .group("viz", "Visualization")
         .groupHelp(
-          "A tuning aid: overlays the motion vectors on the image as an HSV colour "
+          "A tuning aid: overlays the motion vectors on the image as an HSV color "
           "wheel (hue = direction, brightness = speed). *Opacity* fades it in; "
           "*Scale* exaggerates short vectors so faint motion is visible. Leave "
           "*Opacity* at 0 in production — the image otherwise passes through untouched.")

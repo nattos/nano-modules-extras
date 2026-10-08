@@ -136,12 +136,12 @@ void module_init() {
         "## Triangulate\n"
         "Re-draws an input as a **Delaunay mesh that follows its topology** — dense on "
         "ridgelines and corners, coarse across flat voids. Feature maps (ridge, corner, "
-        "density) are histogram auto-levelled, a persistent seed pool is partitioned by a "
+        "density) are histogram auto-leveled, a persistent seed pool is partitioned by a "
         "GPU Voronoi, and the vertices *stochastically settle* onto features (no swim) and "
         "*decimate* to coalesce triangles. Works on video frames or sparse point clouds.\n\n"
         "**Try:** push *Decimation* to coarsen the mesh into big feature-hugging triangles; "
         "bias *Ridge* vs *Corner* weight to choose which features keep detail; drop *Feature "
-        "Threshold* to light more edges in the *Feature Colour*. Step *Debug View* to watch "
+        "Threshold* to light more edges in the *Feature Color*. Step *Debug View* to watch "
         "the importance field and Voronoi cells while you tune.")
 
       .group("budget", "Points")
@@ -155,7 +155,7 @@ void module_init() {
       .group("features", "Feature Weighting")
         .groupHelp(
           "What counts as a feature to follow. The ridge (crest), corner (peak) and void "
-          "(general density) maps are each histogram auto-levelled per frame, then mixed by "
+          "(general density) maps are each histogram auto-leveled per frame, then mixed by "
           "these weights into one importance field — so only the RELATIVE mix matters, and it "
           "chooses which features win. *Feature Scale* sets the smoothing before the "
           "derivatives (bigger = coarser, smoother features).")
@@ -180,22 +180,22 @@ void module_init() {
                   nullptr, "How aggressively low-importance vertices are dropped to coalesce triangles. Higher = sparser mesh, bigger contrast triangles; 0 = full density.").label("Decimation", "Decim")
       .selectField("scoring_mode", 0, state::SecondaryInput,
                    {{"Ridge Protect", 0}, {"Cell Residual", 1}, {"Feature Weight", 2}, {"Weight + Blue-noise", 3}},
-                   false, "Where the surviving vertices sit. Ridge Protect (default): relax toward the importance-weighted centre. Others are relaxation variants.").label("Dynamics Mode", "Mode")
+                   false, "Where the surviving vertices sit. Ridge Protect (default): relax toward the importance-weighted center. Others are relaxation variants.").label("Dynamics Mode", "Mode")
       .floatField("confidence",   0.4f, 0.f, 1.f, state::SecondaryInput, nullptr, 0.01f,
                   nullptr, "Takeover margin — a candidate must beat the incumbent by this much to displace it (higher = crisper/stiller). Relaxation modes only.").label("Confidence", "Conf")
 
       .group("style", "Mesh Style")
         .groupHelp(
-          "The drawn mesh. *Line Width/Colour* is the base edge; edges whose feature weight "
-          "beats *Feature Threshold* switch to *Feature Colour* (binary) so ridges stand out. "
+          "The drawn mesh. *Line Width/Color* is the base edge; edges whose feature weight "
+          "beats *Feature Threshold* switch to *Feature Color* (binary) so ridges stand out. "
           "*Frame Anchors* pin points around the border so the mesh triangulates out to the "
           "edges. *Backdrop* is what sits behind the mesh.")
       .floatField("line_width",   0.3f, 0.f, 1.f, state::PrimaryInput, nullptr, 0.01f,
                   nullptr, "Triangulation edge thickness.").label("Line Width", "Width")
-      .rgbField  ("line_color",   1.f, 1.f, 1.f, state::PrimaryInput).label("Line Colour", "Line")
-      .rgbField  ("feature_color",1.f, 0.45f, 0.15f, state::PrimaryInput).label("Feature Colour", "Feat")
+      .rgbField  ("line_color",   1.f, 1.f, 1.f, state::PrimaryInput).label("Line Color", "Line")
+      .rgbField  ("feature_color",1.f, 0.45f, 0.15f, state::PrimaryInput).label("Feature Color", "Feat")
       .floatField("edge_threshold",0.5f, 0.f, 1.f, state::PrimaryInput, nullptr, 0.01f,
-                  nullptr, "Binary edge colouring: edges whose feature weight exceeds this get feature_color, the rest line_color.").label("Feature Threshold", "Thresh")
+                  nullptr, "Binary edge coloring: edges whose feature weight exceeds this get feature_color, the rest line_color.").label("Feature Threshold", "Thresh")
       .intField  ("frame_points", 8, 0, 24, state::PrimaryInput, 1, nullptr,
                   "Fixed anchor points per frame edge — the mesh triangulates out to the border (0 = off).").label("Frame Anchors", "Frame")
       .floatField("fill_opacity", 0.0f, 0.f, 1.f, state::SecondaryInput, nullptr, 0.01f,

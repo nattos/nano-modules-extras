@@ -245,7 +245,7 @@ void module_init() {
       .helpField("intro",
         "## VCR Halo\n"
         "The *Three Planes* look, unbolted from its geometry and pointed at "
-        "whatever you feed it — a warm neon bloom plus the analogue "
+        "whatever you feed it — a warm neon bloom plus the analog "
         "dehancement tail (soft clip, toe/shoulder, chroma split, scanlines, "
         "grain).\n\n"
         "The halo is a multi-octave glow pyramid, so *Halo Radius* is "
@@ -358,7 +358,7 @@ void module_init() {
         .label("Highlight Tint", "Hi Tint")
       .floatField("highlight_tint_amount", 0.0f, 0.f, 1.f, state::PrimaryInput,
                   nullptr, 0.f, nullptr,
-                  "Colours the blown-out cores that Highlight Desat just "
+                  "Colors the blown-out cores that Highlight Desat just "
                   "bleached white. The swatch is what a fully clipped pixel "
                   "BECOMES, so what you pick is what you get — dim it for a "
                   "deeper, more saturated core, keep it hot for a tinted "
@@ -368,7 +368,7 @@ void module_init() {
                   nullptr, 0.f, nullptr,
                   "Where the tint starts biting, and how much of the image it "
                   "catches. 1.0 is exactly at clipping and the tint arrives "
-                  "fully a stop above that; drop it to pull colour into "
+                  "fully a stop above that; drop it to pull color into "
                   "highlights that would have survived the tone map intact.")
         .label("Tint Pivot", "Pivot")
       .floatField("scanline", 0.12f, 0.f, 1.f, state::SecondaryInput)

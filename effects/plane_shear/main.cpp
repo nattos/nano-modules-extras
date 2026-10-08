@@ -125,19 +125,19 @@ void module_init() {
         "only when you hit **Trigger**), never drifting. Only the translation animates.\n\n"
         "**Try:** *Direction* -1 rifts the halves apart, +1 overlaps them, 0 slips them along "
         "the plane; push *Distance* for a bigger throw. Set *Update Rate* to 0 and drive "
-        "**Trigger** on the beat. Raise *Tint* to colour each side; turn on *Show Plane* to see it.")
+        "**Trigger** on the beat. Raise *Tint* to color each side; turn on *Show Plane* to see it.")
 
       .group("plane", "Plane")
         .groupHelp(
           "How the dividing line is chosen. *Algorithm* picks the feature it follows; "
-          "*Centering* biases the line toward the image centre; *Lock Angle* fixes the "
+          "*Centering* biases the line toward the image center; *Lock Angle* fixes the "
           "orientation so the algorithm only picks the position.")
       .selectField("algorithm", ALG_DOMINANT, state::PrimaryInput, {
         {"Dominant Edge", ALG_DOMINANT}, {"Strongest Edge", ALG_HOUGH},
         {"Low-energy Seam", ALG_SEAM}, {"Content Centroid", ALG_PCA},
       }, false, "Which natural feature the dividing line follows.").label("Algorithm", "Algo")
       .floatField("center_weight", 0.0f, 0.0f, 1.0f, state::PrimaryInput, nullptr, 0.01f, nullptr,
-                  "Bias the plane toward the image centre. 0 = wherever the algorithm lands; 1 = always through the centre.").label("Centering", "Center")
+                  "Bias the plane toward the image center. 0 = wherever the algorithm lands; 1 = always through the center.").label("Centering", "Center")
       .boolField("lock_angle", false, state::PrimaryInput,
                  "Fix the plane angle; the algorithm then only picks the position.").label("Lock Angle", "Lock")
       .floatField("angle", 0.0f, -1.0f, 1.0f, state::PrimaryInput, nullptr, 0.01f, nullptr,
@@ -189,17 +189,17 @@ void module_init() {
         {"A On Top", 0}, {"Blend", 1}, {"Additive", 2},
       }, false, "How the halves combine where they overlap.").label("Overlap", "Over")
 
-      .group("tint", "Colour Tint")
+      .group("tint", "Color Tint")
         .groupHelp(
-          "Tint each side of the plane with its own colour. *Tint* is the strength; *Tint "
-          "Mode* is multiply / add / blend; *Side A/B Colour* are the two tints.")
+          "Tint each side of the plane with its own color. *Tint* is the strength; *Tint "
+          "Mode* is multiply / add / blend; *Side A/B Color* are the two tints.")
       .floatField("tint", 0.0f, 0.0f, 1.0f, state::PrimaryInput, nullptr, 0.01f, nullptr,
-                  "Colour tint amount. Each side of the plane is tinted with its own colour.").label("Tint", "Tint")
+                  "Color tint amount. Each side of the plane is tinted with its own color.").label("Tint", "Tint")
       .selectField("tint_mode", 0, state::SecondaryInput, {
         {"Multiply", 0}, {"Add", 1}, {"Blend", 2},
-      }, false, "How the tint colour is combined with the image.").label("Tint Mode", "Mode")
-      .rgbField("tint_a", 1.0f, 0.45f, 0.30f, state::SecondaryInput).label("Side A Colour", "A")
-      .rgbField("tint_b", 0.30f, 0.55f, 1.0f, state::SecondaryInput).label("Side B Colour", "B")
+      }, false, "How the tint color is combined with the image.").label("Tint Mode", "Mode")
+      .rgbField("tint_a", 1.0f, 0.45f, 0.30f, state::SecondaryInput).label("Side A Color", "A")
+      .rgbField("tint_b", 0.30f, 0.55f, 1.0f, state::SecondaryInput).label("Side B Color", "B")
 
       .group("tuning", "Tuning")
         .groupHelp("Fine-tuning. *Ease Curve* shapes the shear ramp.")

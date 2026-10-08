@@ -150,12 +150,12 @@ void module_init() {
     state::Schema()
       .helpField("intro",
         "Finds the brightest region of the image and anchors a layered "
-        "sparkle fan there, coloured from the local colour gradient — bright "
+        "sparkle fan there, colored from the local color gradient — bright "
         "edges throw deep, saturated glints that flicker and glow.")
       // ---- Sparkle ----
       .group("sparkle", "Sparkle")
         .groupHelp("The fan itself: stacked polygon discs anchored on the "
-                   "brightest spot, shaded by the local colour gradient.")
+                   "brightest spot, shaded by the local color gradient.")
       .floatField("size",       0.5f,  0.01f, 1.5f, state::PrimaryInput).label("Size", "Size")
       .intField  ("blades",     32,    3,     64,   state::PrimaryInput).label("Blades", "Blds")
       .intField  ("levels",     32,    1,     64,   state::PrimaryInput).label("Levels", "Lvls")
@@ -174,19 +174,19 @@ void module_init() {
       .floatField("stretch_y",           1.0f, 0.0f, 10.0f, state::SecondaryInput)
         .label("Stretch Y", "SY")
       // ---- Colour ----
-      .group("color", "Colour")
-        .groupHelp("How hard the local colour gradient shades the fan. Power "
-                   "runs hot by design — colours go negative and dig "
+      .group("color", "Color")
+        .groupHelp("How hard the local color gradient shades the fan. Power "
+                   "runs hot by design — colors go negative and dig "
                    "complementary hues out of the image.")
       .floatField("color_grad_power",      0.5f, 0.0f, 1.0f, state::PrimaryInput)
-        .label("Colour Power", "CPow")
+        .label("Color Power", "CPow")
       .rgbField  ("tint", 1.0f, 1.0f, 1.0f, state::PrimaryInput).label("Tint", "Tint")
       .floatField("color_grad_saturation", 0.5f, 0.0f, 1.0f, state::SecondaryInput)
-        .label("Colour Saturation", "CSat")
+        .label("Color Saturation", "CSat")
       .floatField("color_grad_soft",       0.2f, 0.0f, 1.0f, state::SecondaryInput)
-        .label("Colour Soft", "CSft")
+        .label("Color Soft", "CSft")
       .floatField("color_grad_sharp",      0.5f, 0.0f, 1.0f, state::SecondaryInput)
-        .label("Colour Sharp", "CShp")
+        .label("Color Sharp", "CShp")
       // ---- Glow ----
       .group("glow", "Glow")
         .groupHelp("The rendered fan is blurred into a glow layer; contrast "
@@ -208,7 +208,7 @@ void module_init() {
         .label("Flicker Curve", "FCrv")
       // ---- Input ----
       .group("input", "Input")
-        .groupHelp("Anchor search behaviour and base-image passthrough.")
+        .groupHelp("Anchor search behavior and base-image passthrough.")
       .floatField("input_chaos", 0.125f, 0.0f, 1.0f, state::SecondaryInput)
         .label("Input Chaos", "Chaos")
       .floatField("input_alpha", 1.0f,   0.0f, 1.0f, state::SecondaryInput)

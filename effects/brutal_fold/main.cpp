@@ -429,7 +429,7 @@ void module_init() {
       .group("shape", "Form")
         .groupHelp(
           "The **atlas** is a montage of pre-baked structures. *Complexity* (X) and "
-          "*Order* (Y) interpolate between neighbouring cells; *Liveliness* picks how "
+          "*Order* (Y) interpolate between neighboring cells; *Liveliness* picks how "
           "richly the cell animates. *Scale* zooms the form; *Balance* trades zoom "
           "between the two co-folded structures.")
       .floatField("complexity", 0.6f, 0.0f, 1.0f, state::PrimaryInput).label("Complexity", "Cplx")
@@ -458,7 +458,7 @@ void module_init() {
       .group("keymoment", "Key Moment")
         .groupHelp(
           "Each atlas cell was scored offline for its **key moment** — the short "
-          "window where new structure streams in and comes to frame the centre. "
+          "window where new structure streams in and comes to frame the center. "
           "Turn this on to play just that window (anchored on the settled peak) "
           "instead of the whole loop. **Time Mode** picks how it plays: *Trigger* "
           "fires it once per **Trigger** and holds on the peak; *Time* lets you "
@@ -479,7 +479,7 @@ void module_init() {
       .floatField("km_time", 0.0f, 0.0f, 1.0f, state::PrimaryInput,
                   nullptr, /*step=*/0.005f, /*units=*/nullptr,
                   "Manual playhead over the key-moment window (Time mode): 0 = window "
-                  "start, 1 = settled on the centre peak.").wireCombine("replace").label("Time", "Time")
+                  "start, 1 = settled on the center peak.").wireCombine("replace").label("Time", "Time")
       .eventField("km_trigger", state::PrimaryInput)
       .floatField("sky_threshold", 0.0f, 0.0f, 1.0f, state::PrimaryInput,
                   nullptr, /*step=*/0.01f, /*units=*/nullptr,
@@ -489,7 +489,7 @@ void module_init() {
       // Broadcast: the live playhead [0,1] within the window, for the editor readout.
       .floatField("km_phase", 0.0f, 0.0f, 1.0f, state::SecondaryOutput).wireCombine("replace")
       // --- Atmosphere / colour grade ---
-      .group("color", "Colour & Atmosphere")
+      .group("color", "Color & Atmosphere")
       .floatField("fog", 1.0f, 0.0f, 5.0f, state::PrimaryInput).label("Fog", "Fog")
       // --- Colour grade (3-control-point tone→hue twist; sat 0 = grayscale) ---
       // Diffuse: hue at panel shadows / mids / highlights, + tint strength.
@@ -577,7 +577,7 @@ void module_init() {
       .group("skip", "Skip Empty")
         .groupHelp(
           "The atlas and the in/out animation sometimes settle into a **flat, "
-          "near-solid-colour** frame — all sky, or one solid panel. Turn this on "
+          "near-solid-color** frame — all sky, or one solid panel. Turn this on "
           "and the effect gently **jogs the loop forward** (on a smooth C2 curve) to "
           "glide past those dead stretches instead of dwelling on them. Detection is "
           "by low visual **variance**, so it catches a screen full of one flat shape "

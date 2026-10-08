@@ -45,9 +45,9 @@ void nano_module_main() {
         2,
         "color.legacy.bicolor_grad",
         "Bicolor Gradient",
-        "Content-adaptive two-colour gradient. Analyses the input for its two "
+        "Content-adaptive two-color gradient. Analyzes the input for its two "
         "dominant complementary hues and where they sit, then paints a smooth "
-        "gradient between them, oriented along the image's own colour layout. "
+        "gradient between them, oriented along the image's own color layout. "
         "Port of the shipped NanoGraph BicolorGrad.",
         "color",
         "gradient,palette,color,analysis,legacy,bicolor",
@@ -61,7 +61,7 @@ void nano_module_main() {
         "Glisten",
         "Image-anchored sparkle. Locates the brightest region on a blurred "
         "search grid, then stacks layered polygon-disc glints there, shaded "
-        "hard by the local colour gradient (colours run negative and dig "
+        "hard by the local color gradient (colors run negative and dig "
         "complementary hues out of the image), blurred into a glow layer "
         "whose gain twinkles with a random flicker envelope. Faithful port "
         "of NanoGraph Glisten.",
@@ -77,9 +77,9 @@ void nano_module_main() {
         "Double Chamber",
         "Particle field-chamber: a pool of particles flows through a chaotic "
         "polynomial vector field, pulled and curled around a few drifting "
-        "attractors, bounded in a soft disc, coloured from the input image. "
+        "attractors, bounded in a soft disc, colored from the input image. "
         "Optional interactions let the particles feel each other through a "
-        "crowding buffer — thinning packed regions, avoiding neighbours, or "
+        "crowding buffer — thinning packed regions, avoiding neighbors, or "
         "streaming with the local group. v2 "
         "of the shipped NanoGraph DoubleChamber (the used subset — no charged "
         "accelerator, no laser output).",
@@ -95,7 +95,7 @@ void nano_module_main() {
         "warp.legacy.d_wave",
         "D Wave",
         "Radial-ripple distortion field. Ripples are stochastically spawned at "
-        "the centre, expand outward as concentric arcs, and decay — radially "
+        "the center, expand outward as concentric arcs, and decay — radially "
         "warping the input image as they pass. A trigger fires a full-circle "
         "shock ripple. v2 port of the distortion field (\"D wave\") from the "
         "shipped NanoGraph Darkburst (the one block we actually used live).",
@@ -109,7 +109,7 @@ void nano_module_main() {
         2,
         "color.legacy.lut_collection",
         "LUT Collection 1",
-        "Preset colour LUT grader. Applies one of 13 baked film/stylize look-up "
+        "Preset color LUT grader. Applies one of 13 baked film/stylize look-up "
         "tables with a pregain tone push and a mix amount. The LUTs are baked "
         "into real 32³ 3D textures and applied in a single hardware-trilinear "
         "sample. v2 of the shipped Resolume Wire \"LUT 2\" patch.",
@@ -139,7 +139,7 @@ void nano_module_main() {
         2,
         "filter.legacy.subtle_blur",
         "Subtle Blur",
-        "Light Gaussian blur with a slowly-drifting chromatic colour offset — a "
+        "Light Gaussian blur with a slowly-drifting chromatic color offset — a "
         "soft bloom with a faint, shifting RGB fringe on edges. Good for "
         "breaking up sharp edges. v2 of the Resolume Wire \"Subtle Blur\" patch.",
         "filter",
@@ -199,9 +199,9 @@ void nano_module_main() {
         "warp.legacy.wobble_master",
         "Wobble Master",
         "Triggered shockwave wobble with chromatic afterglow. Each pulse "
-        "emanates from a centre and travels outward, distorting only what's "
+        "emanates from a center and travels outward, distorting only what's "
         "under the wave (a radial push with an oscillating shimmer); the "
-        "colour split lingers behind the front (red out, blue in). "
+        "color split lingers behind the front (red out, blue in). "
         "v2 of the Resolume Wire \"Wobble Master\" family.",
         "warp",
         "wobble,ripple,chroma,aberration,beat,pulse,radial,legacy",
@@ -215,7 +215,7 @@ void nano_module_main() {
         "Stutter Scale",
         "Beat-stutter scale glitch. A phase is quantized into discrete steps; "
         "the zoom sweeps progressively min to max across them while each step "
-        "re-rolls a jitter shift, an optional flip and colour inversion, plus "
+        "re-rolls a jitter shift, an optional flip and color inversion, plus "
         "a hue and contrast push — crossfaded with the input. Great for "
         "stuttering overlays and logos. "
         "v2 of the Resolume Wire \"Stutter Scale 2\" patch.",
@@ -246,7 +246,7 @@ void nano_module_main() {
         "Pixulant",
         "Roiling pixel-scatter dive. The image is randomly scattered three times "
         "(light, mid, heavy) and the heavy copy is abs-differenced against the "
-        "light one, leaving coloured edge halos that bloom out of flat regions "
+        "light one, leaving colored edge halos that bloom out of flat regions "
         "and churn over time. Turn up Dive to push the picture into the grain, "
         "Scatter to widen it, Motion to set the churn rate. v2 of the Resolume "
         "Wire \"Pixulant\" patch.",

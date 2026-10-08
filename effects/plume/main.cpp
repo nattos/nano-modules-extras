@@ -337,7 +337,7 @@ void module_init() {
           "Plume shades in LINEAR light; by default the tonemapped "
           "result is written raw into the display-referred chain — the "
           "shipped look, tuned against that path. *sRGB Output* encodes "
-          "with the sRGB curve instead, for colour-managed comps: mids "
+          "with the sRGB curve instead, for color-managed comps: mids "
           "lift noticeably, so expect to re-grade Exposure.")
       .floatField("exposure", 0.5f, 0.f, 1.f, state::PrimaryInput)
           .label("Exposure", "Expo")

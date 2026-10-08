@@ -188,10 +188,10 @@ void module_init() {
       // --- Look ---
       .group("look", "Look")
         .groupHelp(
-          "*Pixel Colour* and *Intensity* shape the lit cells. **Composite** "
+          "*Pixel Color* and *Intensity* shape the lit cells. **Composite** "
           "picks what the rest of the grid is: Black / Transparent / a Custom "
-          "colour / the Input image passed through.")
-      .rgbField("pixel_color", 1.0f, 1.0f, 1.0f, state::PrimaryInput).label("Pixel Colour", "Colour")
+          "color / the Input image passed through.")
+      .rgbField("pixel_color", 1.0f, 1.0f, 1.0f, state::PrimaryInput).label("Pixel Color", "Color")
       .floatField("intensity", 1.0f, 0.0f, 2.0f, state::PrimaryInput).label("Intensity", "Int")
       .selectField("composite", CompBlack, state::PrimaryInput,
                    {{"Black", CompBlack}, {"Transparent", CompTransparent},

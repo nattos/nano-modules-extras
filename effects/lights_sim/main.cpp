@@ -53,7 +53,7 @@ void module_init() {
       .helpField("intro",
         "## Lights Sim\n"
         "Turns your input into a **Resolume-style LED wall** — four vertical bars, each "
-        "split into stacked LED *Segments*, sampling their colour from the underlying "
+        "split into stacked LED *Segments*, sampling their color from the underlying "
         "image. It's a filter: the source shows through, faded by *Input Opacity*.\n\n"
         "**Try:** drop *Segments* low for chunky pixel-strip bars, or push it high for a "
         "smooth column read; tuck the bars into their quarters with the *Inset* knobs and "
@@ -61,7 +61,7 @@ void module_init() {
       // --- LED bars ---
       .group("bars", "LED Bars")
         .groupHelp(
-          "Four vertical bars sample the input at the centre of each quarter. *Segments* "
+          "Four vertical bars sample the input at the center of each quarter. *Segments* "
           "sets the vertical LED resolution; the *Inset* pair pads the bars inside their "
           "quarters (horizontal gap vs. top/bottom gap); *Input Opacity* fades the "
           "underlying source behind them.")

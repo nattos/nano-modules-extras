@@ -105,7 +105,7 @@ void module_init() {
           "charges a throw.")
       .floatField("sweep", 0.5f, 0.f, 1.f, state::PrimaryInput,
                   nullptr, 0.f, nullptr,
-                  "The knob. 0.5 is home: full colour, no motion.").wireCombine("replace")
+                  "The knob. 0.5 is home: full color, no motion.").wireCombine("replace")
         .label("Sweep", "Sweep")
       .floatField("deadzone", 0.45f, 0.f, 0.95f, state::PrimaryInput,
                   nullptr, 0.f, nullptr,
@@ -168,12 +168,12 @@ void module_init() {
       .group("light", "Light")
         .groupHelp(
           "What the bars show. **Base** puts the mask under the glints, in "
-          "colour — 0 leaves the bars black between gestures, 1 is the full "
+          "color — 0 leaves the bars black between gestures, 1 is the full "
           "mask. **Bounce** is the flash coming back in fast; **Overdrive "
           "White** is how far anything past full — a bright glint, a hard "
           "bounce — blows out toward white.")
       .rgbField("color", 1.00f, 0.22f, 0.62f, state::PrimaryInput)
-        .label("Colour", "Col")
+        .label("Color", "Col")
       .floatField("intensity", 1.0f, 0.f, 2.f, state::PrimaryInput,
                   nullptr, 0.f, nullptr, "Overall output level.")
         .label("Intensity", "Int")
@@ -290,7 +290,7 @@ void module_init() {
       .group("output", "Output")
       .boolField("quantize", true, state::SecondaryInput,
                  "Each segment a flat block, so a pixel mapper lands on its "
-                 "exact colour. Off interpolates between segment centres.")
+                 "exact color. Off interpolates between segment centers.")
         .label("Quantize", "Quant")
       .floatField("speed_out", 0.f, 0.f, 1.f, state::PrimaryOutput, "unsigned",
                   0.f, nullptr, "How hard the knob is moving, 0..1.")

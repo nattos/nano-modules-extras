@@ -221,7 +221,7 @@ void module_init() {
         "**Trigger**, or let **Auto Rate** self-fire. **Try:** push **Feedback** "
         "near 1 for a long, humming decay; raise **Cycle Rate** so the bouncing "
         "pattern shimmers; and add **Hue Spread** to let each bounce drift the "
-        "colour across the bars.")
+        "color across the bars.")
       // --- Standard trigger surface ---
       .group("trigger", "Trigger")
         .groupHelp(
@@ -229,7 +229,7 @@ void module_init() {
           "fire on a rising edge. *Auto Mode* is **Off** by default — set it to "
           "**Random** (Poisson, at *Auto Rate*) so it lives on its own, or **Beats** "
           "to lock the impulses to the host transport. **Impulse Mode** chooses the "
-          "target — a fixed bar, a random bar, all four at once, or sampling colour "
+          "target — a fixed bar, a random bar, all four at once, or sampling color "
           "straight from the incoming video (**Input Color** sets how strongly the "
           "sampled hue takes over from **Bar Color**). **Try:** hold a steady auto rate and "
           "modulate the mode for an evolving, hands-off light show.")
@@ -247,10 +247,10 @@ void module_init() {
         .groupHelp(
           "The bouncing engine. **Feedback** sets how long energy rings before it "
           "dies (near 1 = a long resonant tail); **Spread** and **Contrast** shape "
-          "how much each hop bleeds into its neighbours. **Cycle Rate** and "
+          "how much each hop bleeds into its neighbors. **Cycle Rate** and "
           "**Pattern Count** drive how fast and how variedly the exchange matrix "
-          "shuffles, while the **Hue** knobs let colour wander or converge on the "
-          "bar colour. **Bar Color**, **Intensity** and **Input Opacity** set the "
+          "shuffles, while the **Hue** knobs let color wander or converge on the "
+          "bar color. **Bar Color**, **Intensity** and **Input Opacity** set the "
           "final look; **Chroma Hold** keeps overdriven bars saturated at their "
           "hue instead of blooming white-hot.")
       .floatField("feedback",            0.90f, 0.0f, 1.2f,      state::PrimaryInput).label("Feedback", "Fbk")

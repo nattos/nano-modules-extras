@@ -249,7 +249,7 @@ void module_init() {
       .floatField("rotation", 0.0f, -1.f, 1.f, state::PrimaryInput).label("Rotation", "Rot")
       .floatField("rotation_jitter", 0.0f, 0.f, 1.f, state::PrimaryInput).label("Rotation Jitter", "RotJit")
       .vec2Field("center", 0.0f, 0.0f, state::PrimaryInput, -1.f, 1.f).label("Center", "Center")
-      .rgbaField("color", 1.0f, 1.0f, 1.0f, 1.0f, state::PrimaryInput).label("Colour", "Col")
+      .rgbaField("color", 1.0f, 1.0f, 1.0f, 1.0f, state::PrimaryInput).label("Color", "Col")
       // --- Timing: how long a burst lasts + a manual scrub ---
       .group("timing", "Timing")
         .groupHelp(

@@ -284,7 +284,7 @@ void module_init() {
       .group("shape", "Shape")
         .groupHelp(
           "The **atlas** is a montage of pre-baked dynamical fields. *Eccentricity* "
-          "(X) and *Lobedness* (Y) interpolate between neighbouring cells to reshape "
+          "(X) and *Lobedness* (Y) interpolate between neighboring cells to reshape "
           "the orbit. **Wind** is the non-potential force that warps the cycle and, "
           "pushed far enough, kills it outright (the orbit collapses to a point). "
           "Add **Wind Jitter** for a restless, fling-ey wobble on that force.")
@@ -307,7 +307,7 @@ void module_init() {
       // --- Backdrop ---
       .group("backdrop", "Backdrop")
         .groupHelp(
-          "The coloured field behind everything — a contoured map of the system's "
+          "The colored field behind everything — a contoured map of the system's "
           "scalar height. *Shading* switches between the banded height field, the "
           "wind-aware flow gradient, and a set of matplotlib colormaps. *Bands* and "
           "*Contrast* set how the contours read; drop *Backdrop Dim* to mute it so "
@@ -326,7 +326,7 @@ void module_init() {
           "A grid of glowing lines traced through the flow field — the moving "
           "current of the portrait. *Seed Spread* above 1 starts lines outside the "
           "frame so they flow inward and keep it dense. *Flow Speed* animates the "
-          "glow travelling down each line (0 freezes it); *Line Width* and *Opacity* "
+          "glow traveling down each line (0 freezes it); *Line Width* and *Opacity* "
           "set their weight.")
       .boolField("show_streamlines", true, state::PrimaryInput).label("Streamlines", "Stream")
       .floatField("stream_width", 0.012f, 0.002f, 0.05f, state::PrimaryInput).label("Line Width", "Width")

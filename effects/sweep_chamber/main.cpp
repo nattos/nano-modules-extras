@@ -623,7 +623,7 @@ void module_init() {
       .floatField("l_fling_boost",      3.0f,   0.0f,  8.0f,  state::PrimaryInput).label("Line Fling", "LFling")
       .floatField("l_time_decay",       0.1f,   0.0f,  2.0f,  state::PrimaryInput).label("Line Life Decay", "LDecay")
       .floatField("l_reseed_spread",    0.4f,   0.0f,  1.0f,  state::PrimaryInput).label("Reseed Spread", "Reseed")
-      .floatField("l_color_contrib",    0.5f,   0.0f,  1.0f,  state::PrimaryInput).label("Line Colour", "LCol")
+      .floatField("l_color_contrib",    0.5f,   0.0f,  1.0f,  state::PrimaryInput).label("Line Color", "LCol")
       .floatField("l_width",            0.2f,   0.0f,  1.0f,  state::PrimaryInput).label("Line Width", "LWidth")
       .floatField("l_soft",             1.0f,   0.1f,  4.0f,  state::PrimaryInput).label("Line Softness", "LSoft")
       .floatField("l_opacity",          0.5f,   0.0f,  1.0f,  state::PrimaryInput).label("Line Opacity", "LOpac")
@@ -652,7 +652,7 @@ void module_init() {
       // ---- Interactions (flow_swarm parity) ----
       .group("interactions", "Interactions")
         .groupHelp(
-          "Lets particles feel their neighbours through a 1-frame crowding "
+          "Lets particles feel their neighbors through a 1-frame crowding "
           "buffer (off by default — it adds a splat pass). *Radius* is the "
           "sensing range. **Density Death** thins over-packed areas; "
           "**Avoidance** pushes down the crowd gradient (*Curl* swirls it, "
@@ -704,9 +704,9 @@ void module_init() {
       .floatField("boundary_stiffness", 4.0f,  0.5f, 16.0f, state::PrimaryInput).label("Boundary Stiffness", "BStiff")
       .floatField("boundary_death",     0.25f, 0.0f, 1.0f,  state::PrimaryInput).label("Boundary Death", "BDeath")
       // ---- Color ----
-      .group("color", "Colour")
-      .floatField("color_blend",  1.0f, 0.0f, 1.0f, state::PrimaryInput).label("Image Colour", "ImCol")
-      .rgbField  ("solid_color",  1.0f, 1.0f, 1.0f, state::PrimaryInput).label("Solid Colour", "Colour")
+      .group("color", "Color")
+      .floatField("color_blend",  1.0f, 0.0f, 1.0f, state::PrimaryInput).label("Image Color", "ImCol")
+      .rgbField  ("solid_color",  1.0f, 1.0f, 1.0f, state::PrimaryInput).label("Solid Color", "Color")
       .floatField("tint_by_flow", 0.0f, 0.0f, 1.0f, state::PrimaryInput).label("Tint By Flow", "Tint")
       // ---- Composite ----
       .group("composite", "Composite")

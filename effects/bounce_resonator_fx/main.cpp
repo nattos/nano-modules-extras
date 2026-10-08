@@ -236,7 +236,7 @@ void module_init() {
           "brightness (dimmer cells kick proportionally less often); **Grain "
           "Size** is how hard each kick is. **Edge Excite** kicks a cell by "
           "how much it just brightened, so cuts and flashes ring. **Input "
-          "Color** takes the kick's colour from the picture (1) or from "
+          "Color** takes the kick's color from the picture (1) or from "
           "**Bar Color** (0).")
       .floatField("grain_rate",      8.0f, 0.0f, 60.0f,  state::PrimaryInput).label("Grain Rate", "Grain")
       .floatField("grain_size",      0.6f, 0.0f, 2.0f,   state::PrimaryInput).label("Grain Size", "GSize")
@@ -255,8 +255,8 @@ void module_init() {
           "hops per second, capped at one hop per frame — at or past your "
           "frame rate it hops every frame, and with a low Spread the energy "
           "flips bar to bar each frame. **Pattern Count** and **Seed** vary "
-          "the routing; the **Hue** knobs let colour wander or settle back on "
-          "the bar colour.")
+          "the routing; the **Hue** knobs let color wander or settle back on "
+          "the bar color.")
       .floatField("tail",            0.55f, 0.0f, 1.0f,  state::PrimaryInput,
                   nullptr, 0.f, nullptr,
                   "How long energy rings: the time to fade to 1%, exponential "

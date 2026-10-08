@@ -115,13 +115,13 @@ void module_init() {
       .helpField("intro",
         "## Block Dehance\n"
         "Scatters glitch rectangles across the image that *dehance* whatever they "
-        "cover — crushing it to a fill colour, blocking it into a coarse mosaic, or "
+        "cover — crushing it to a fill color, blocking it into a coarse mosaic, or "
         "replacing it with noise. Rectangles continuously bright-seek the picture (or "
         "a wired mask), so they cluster on the brightest, most eye-catching regions.\n\n"
         "**Try:** balance the three *Mode Weights* to mix black / mosaic / noise "
         "blocks; raise *Count* and drop *Lifetime* for a frantic strobe; wire a *Mask* "
         "input to steer the blocks onto specific areas; bias the *Spawn Area* to pin "
-        "blocks to (or away from) the centre; add *Flicker* for a broken-signal "
+        "blocks to (or away from) the center; add *Flicker* for a broken-signal "
         "stutter.")
       // --- Rectangles ---
       .group("rects", "Rectangles")
@@ -158,9 +158,9 @@ void module_init() {
       .group("spawn", "Spawn Area")
         .groupHelp(
           "A vignette-like radial gate on where new rectangles may spawn. "
-          "*Spawn Bias* is bipolar: positive confines spawning to the centre, "
+          "*Spawn Bias* is bipolar: positive confines spawning to the center, "
           "negative pushes it out to the rim; 0 leaves the whole frame open. "
-          "*Radius* sets where the falloff starts (0 = the centre, 1 = the "
+          "*Radius* sets where the falloff starts (0 = the center, 1 = the "
           "frame edge) and *Softness* feathers it from a hard border into a "
           "gradual probability fade.")
       .floatField("spawn_amount",          0.0f, -1.0f, 1.0f,   state::PrimaryInput).label("Spawn Bias", "Bias")
@@ -170,13 +170,13 @@ void module_init() {
       .group("modes", "Dehance Modes")
         .groupHelp(
           "Each rectangle randomly picks one dehance style, weighted by these knobs: "
-          "*Black* crushes to the fill colour, *Mosaic* blocks the area into big "
+          "*Black* crushes to the fill color, *Mosaic* blocks the area into big "
           "pixels, *Noise* replaces it with static. Set a weight to 0 to drop that "
-          "style. *Fill Colour* is what the black mode paints.")
+          "style. *Fill Color* is what the black mode paints.")
       .floatField("mode_black_weight",     0.33f, 0.0f, 1.0f,   state::PrimaryInput).label("Black Weight", "Black")
       .floatField("mode_mosaic_weight",    0.33f, 0.0f, 1.0f,   state::PrimaryInput).label("Mosaic Weight", "Mosaic")
       .floatField("mode_noise_weight",     0.33f, 0.0f, 1.0f,   state::PrimaryInput).label("Noise Weight", "Noise")
-      .rgbaField ("fill_color",            0.0f, 0.0f, 0.0f, 1.0f, state::SecondaryInput).label("Fill Colour", "Fill")
+      .rgbaField ("fill_color",            0.0f, 0.0f, 0.0f, 1.0f, state::SecondaryInput).label("Fill Color", "Fill")
       // --- Mosaic ---
       .group("mosaic", "Mosaic")
       .floatField("mosaic_cell_size",      0.02f, 0.001f, 0.2f, state::PrimaryInput).label("Cell Size", "Cell")
@@ -185,7 +185,7 @@ void module_init() {
       .group("noise", "Noise")
       .boolField ("noise_temporal",        true,                state::PrimaryInput).label("Temporal Noise", "Temp")
       .selectField("noise_color_mode",     0, state::PrimaryInput,
-                   {{"rgb", 0}, {"grayscale", 1}, {"luma_preserve", 2}}).label("Noise Colour", "Colour")
+                   {{"rgb", 0}, {"grayscale", 1}, {"luma_preserve", 2}}).label("Noise Color", "Color")
       .floatField("noise_intensity",       1.0f, 0.0f, 1.0f,    state::PrimaryInput).label("Noise Intensity", "Int")
       // --- Pool ---
       .group("pool", "Pool")

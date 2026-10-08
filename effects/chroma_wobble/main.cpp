@@ -104,7 +104,7 @@ void module_init() {
       .floatField("speed", 0.25f, 0.0f, 1.0f, state::PrimaryInput, nullptr, 0.01f,
                   nullptr, "Animation speed of the wobble field.")
       .floatField("hue", 0.2f, 0.0f, 1.0f, state::PrimaryInput, nullptr, 0.01f,
-                  nullptr, "Hue rotation of the colour split.")
+                  nullptr, "Hue rotation of the color split.")
       .floatField("attack", 0.0f, 0.0f, 1.0f, state::PrimaryInput, nullptr, 0.01f,
                   "s", "Envelope ramp-up time.")
       .floatField("release", 0.5f, 0.0f, 5.0f, state::PrimaryInput, nullptr, 0.01f,

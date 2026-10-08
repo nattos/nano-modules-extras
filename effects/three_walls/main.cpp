@@ -541,25 +541,25 @@ void module_init() {
       // ---------------- Quads ----------------
       .group("quads", "Frames")
         .groupHelp(
-          "The three frames. Their colours default to Three Planes' own, so "
+          "The three frames. Their colors default to Three Planes' own, so "
           "the two cards look like they belong in the same piece.\n\n"
-          "*Fill* is signed: positive floods the frame with its own colour, "
+          "*Fill* is signed: positive floods the frame with its own color, "
           "negative turns it into a black body that eats the glow of anything "
           "behind it while keeping its own outline.")
       .rgbField("quad1_color", 1.00f, 0.22f, 0.62f, state::SecondaryInput)
-        .label("Frame 1 Colour", "C1")
+        .label("Frame 1 Color", "C1")
       .floatField("quad1_emission", 0.85f, 0.f, 1.f, state::SecondaryInput)
         .label("Frame 1 Emission", "E1")
       .floatField("quad1_fill", 0.0f, -1.f, 1.f, state::SecondaryInput, "signed")
         .label("Frame 1 Fill", "F1")
       .rgbField("quad2_color", 0.72f, 0.35f, 1.00f, state::SecondaryInput)
-        .label("Frame 2 Colour", "C2")
+        .label("Frame 2 Color", "C2")
       .floatField("quad2_emission", 0.85f, 0.f, 1.f, state::SecondaryInput)
         .label("Frame 2 Emission", "E2")
       .floatField("quad2_fill", 0.0f, -1.f, 1.f, state::SecondaryInput, "signed")
         .label("Frame 2 Fill", "F2")
       .rgbField("quad3_color", 0.30f, 0.85f, 1.00f, state::SecondaryInput)
-        .label("Frame 3 Colour", "C3")
+        .label("Frame 3 Color", "C3")
       .floatField("quad3_emission", 0.85f, 0.f, 1.f, state::SecondaryInput)
         .label("Frame 3 Emission", "E3")
       .floatField("quad3_fill", 0.0f, -1.f, 1.f, state::SecondaryInput, "signed")
@@ -598,7 +598,7 @@ void module_init() {
       // ---------------- Grade ----------------
       .group("grade", "Warmth & Dehancement")
         .groupHelp(
-          "The analogue tail, shared verbatim with Three Planes. *Chroma "
+          "The analog tail, shared verbatim with Three Planes. *Chroma "
           "Bleed* splits R/G/B horizontally the way a tape transport does — "
           "exact here, because the whole stack is re-evaluated at three "
           "offsets rather than blurred.")
@@ -702,10 +702,10 @@ void module_init() {
                   "two frames and the bar never lights at all.")
         .label("Bar Decay", "Decay")
       .boolField("led_quantize", true, state::SecondaryInput,
-                 "Each segment a flat block of colour, which is what you want: "
+                 "Each segment a flat block of color, which is what you want: "
                  "anything sampling or averaging inside a block then comes away "
-                 "with the exact colour that segment asked for. Turn it off to "
-                 "interpolate between segment centres.")
+                 "with the exact color that segment asked for. Turn it off to "
+                 "interpolate between segment centers.")
         .label("Quantize", "Quant")
 
       .capability(state::Capability::Generator)
