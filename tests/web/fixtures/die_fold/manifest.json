@@ -1,0 +1,41 @@
+{
+  "res": 128,
+  "cases": [
+    {
+      "name": "center",
+      "grain": 0.5,
+      "netness": 0.5,
+      "depth": 0.0,
+      "pan_x": 0.0,
+      "pan_y": 0.0,
+      "seed": 11
+    },
+    {
+      "name": "fine_net",
+      "grain": 0.14285714285714285,
+      "netness": 0.8571428571428571,
+      "depth": 0.37,
+      "pan_x": 0.0,
+      "pan_y": 0.0,
+      "seed": 11
+    },
+    {
+      "name": "far",
+      "grain": 0.8571428571428571,
+      "netness": 0.21428571428571427,
+      "depth": 0.63,
+      "pan_x": 37.31,
+      "pan_y": -12.62,
+      "seed": 11
+    },
+    {
+      "name": "seed",
+      "grain": 0.7142857142857143,
+      "netness": 0.6428571428571429,
+      "depth": 0.83,
+      "pan_x": 0.0,
+      "pan_y": 0.0,
+      "seed": 5
+    }
+  ]
+}

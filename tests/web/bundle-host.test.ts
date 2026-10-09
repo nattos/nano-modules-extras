@@ -119,7 +119,7 @@ describe('schema metadata of the extras (groups / names / help)', () => {
     const ids = [
       'source.particles.flash_particles', 'source.particles.flow_swarm', 'filter.height_from_gradient',
       'motion.local_delay', 'mod.shaper.spectral', 'motion.field', 'source.phase_fold',
-      'source.shape_fold', 'mod.source.spectral_lfo', 'source.brutal_fold',
+      'source.shape_fold', 'mod.source.spectral_lfo', 'source.brutal_fold', 'source.die_fold',
     ];
     const schemas = await captureSchemas(wasmPath('nano'), ids);
     expect(schemas.size).toBe(ids.length);   // all valid JSON (no truncation on the 41-field phase_fold)

@@ -21,6 +21,7 @@ NANO_DECLARE_INSTANCE_EFFECT(height_from_gradient)
 NANO_DECLARE_INSTANCE_EFFECT(shape_fold)
 NANO_DECLARE_INSTANCE_EFFECT(brutal_fold)
 NANO_DECLARE_INSTANCE_EFFECT(phase_fold)
+NANO_DECLARE_INSTANCE_EFFECT(die_fold)
 NANO_DECLARE_INSTANCE_EFFECT(flow_swarm)
 NANO_DECLARE_INSTANCE_EFFECT(sweep_chamber)
 NANO_DECLARE_INSTANCE_EFFECT(spectral_lfo)
@@ -158,6 +159,18 @@ void nano_module_main() {
         NANO_INSTANCE_LIFECYCLE(phase_fold),
         nullptr, nullptr, nullptr, &phase_fold::eval_visibility,
     });
+
+    nano::registerEffect({
+        2,
+        "source.die_fold",
+        "Die Fold",
+        "Endless fake-chip generator. Each pixel walks a hashed guillotine floorplan on a global track grid — blocks of repeated cells with well-placed defects, routing corridors with wires, jogs and vias, and a power-strap lattice over everything — and the camera descends through an 8-layer stack, each layer eroding away to uncover the next; the loop closes exactly. Infinite in both axes and zoomable without bound (each octave uncovers another level of the hierarchy). The XY pad samples a 15x15 parameter atlas (x = grain, y = netness) with one seed for the whole atlas, so a closed trajectory (Fly: six discovered paths, the camera flying the same curve, plus an optional Kepler orbit) morphs the die without popping; bipolar levers offset the folded parameters, and Look blends an EDA false-color layout into an SEM micrograph. Broadcasts the live pad position (pad_x/y) and descent phase. Pure generator (no input).",
+        "source",
+        "generator,chip,die,floorplan,circuit,layout,microscope,sem,descent,procedural,autopilot",
+        "la-microchip",
+        NANO_INSTANCE_LIFECYCLE(die_fold),
+        nullptr, nullptr, nullptr, &die_fold::eval_visibility,
+    }, &die_fold::preview);
 
     nano::registerEffect({
         2,
