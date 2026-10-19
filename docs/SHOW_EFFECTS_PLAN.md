@@ -1167,6 +1167,58 @@ The dedicated "fx" version of `source.light.bounce_resonator`: a passive reverb 
   - `tests/native/test_drum_bars.cpp` covers symmetry, the converse, the flam ripple, the strobe, XOR/Max, drift, the groove grid, determinism and NaN, all host-free.
   - `test_drum_bars_render.cpp` presses Ch1 through the real executor.
 
+## Six-bar show (two racks)
+
+The rig: two racks of three horizontal 1 m LED bars, 60 segments each, flanking the stage 2 m apart (about
+4 m end to end). Its pixel map is `include/sketch/rack_map.h`: physics cells side-major (segment 0 = a bar's
+OUTER end on both sides, so a segment index is a distance from the stage), plus the **compact grid** the
+texture carries — left rack on the left half, right rack on the right half, three rows with the top bar on top,
+the 60 segments of each row running left to right as the bars stand (120 × 3 flat blocks).
+
+**Setting the rig up** (Devices → Lights): a 60-pixel horizontal type; a rig of six slots, each rect
+`x 0–0.5` (left) or `0.5–1` (right), a thin band centered at `y` 1/6 (top bar), 1/2, 5/6 (bottom bar); `reverse`
+per slot to match which end each bar's data enters. The light runner's readback gives ~3.6 texels per pixel.
+
+### source.light.side_racks — "Side Racks" *(built)*
+
+The whole show on one card, so a set needs nothing else on the lights. The logic is
+`include/sketch/side_racks_core.h`, host-free and pinned by `tests/native/test_side_racks.cpp`; the card is
+`effects/side_racks/` with its own map pass (`led.hlsl`), driven through the executor by
+`test_side_racks_render.cpp` and on both web backends by `tests/web/side_racks.test.ts`.
+
+**Layers, every tick:**
+- **Sweep** — `sweep_knob.h` (the knob machine lifted out of Sweep Choke, whose goldens pin it): full in the
+  deadzone, choke at either end, bounce coming back in, a throw spent as `release`. The throw plays
+  `three_planes_strobe.h` over the three bars (all three land, then a 0-1-2-1 roll with grace strokes that
+  putters out) at `tail_level`.
+  - **Tilt** (mode *Up*): the choke is a front climbing the rack. While the knob moves, a tilted rack lights
+    only a spot around the front (`focus` bars wide) — at 1, the one bar it is passing; the spot sets out on the
+    bottom bar and leaves past the top, so the end is black. At rest the tilt falls to `rest_tilt` of itself and
+    the front becomes a soft edge `rest_blur` bars wide (passed bars darker). Inside the deadzone it does nothing.
+- **Primary** (one gate — bouncy-abode's `gate_strong`), `primary_amount` trim plus a per-mode amount:
+  - **Flam**: a sidechain-duck envelope (smooth attack → sustain while held → release; a gate shorter than the
+    attack still ducks fully), chopped into a shudder at `flam_rate`, frame-capped.
+  - **Wave**: a pulse from the stage center; front radius `wave_start + wave_speed · age` in meters (start 1 m
+    = the inner ends, so a kick lands at once). Behind the front the cut decays over `wave_recover`; on the front
+    (`± wave_width`) it is bit-crushed (blocks of `wave_crush` segments, 4 cut levels) and sparkles in
+    `wave_color` on a seeded 16-point Walsh code paged at `wave_sparkle_rate` (every frame past Nyquist).
+    Up to four pulses; cuts combine by min.
+  - **Beating**: two oscillators stepped `rate / fps` per frame (fps estimated as three_walls does), at
+    `beat_rate` and `+ beat_detune`, with per-bar phase spreads; each bar one solid color.
+- **Secondary** (three gates — `gate_low/mid/high`): each step (`step_mode`: the transport grid via
+  `fx::BeatTick`, or every primary hit) deals each channel a bar per side from `hash(seed, step)`. A lone hit
+  flashes its bar on one side, picked by ONE alternator shared by all three (so same-frame pairs split); all
+  three high within `heavy_window` flash every channel's bar on both sides.
+- **Lift & strobe** in the accent color: lift adds; the strobe flashes and blacks out from `strobe_min_hz` to
+  `strobe_max_hz` (log) as its depth rises, locking to exact frame alternation at half a cycle per frame
+  (env_lfo's 0.5 / 0.45 hysteresis).
+- **Mix Post**: the mix-ins are a cut (multiplier) and a color (additive) per segment, split around the lift and
+  strobe — at 0 under them, at 1 over them, so a duck can cut a strobe.
+
+**Open / to try on the rig:** the rest picture of the tilt (`rest_tilt`, `rest_blur`); more sweep modes (down,
+center-out, across the stage); more secondary modes; whether the strobe depth should also blend rather than
+only set the rate.
+
 ## Complicator FX (post-process)
 
 *"fx.wave_traveling_down" from the original list was a duplicate of motion-rain — already absorbed into `source.light.motion_blobs` (with `spawn_edge=top, traverse_speed > 0`).*
