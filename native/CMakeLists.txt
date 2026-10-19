@@ -125,7 +125,7 @@ if(TARGET effect_runtime AND TARGET gpu_backend)
     LEGACY_WASM_PATH="${NANO_WASM_DIR}/legacy.wasm")
   foreach(t test_plane_shear test_tri_shear test_recompose test_envelope_warp
             test_extras_render test_bar_scatter test_sweep_gradient_render
-            test_drum_bars_render)
+            test_drum_bars_render test_side_racks_render)
     add_executable(${t} ${EXTRAS_TESTS}/${t}.cpp)
     target_include_directories(${t} PRIVATE ${NANO_NATIVE_DIR}/src ${NANO_NATIVE_DIR}/tests)
     target_link_libraries(${t} PRIVATE

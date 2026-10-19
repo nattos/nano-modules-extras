@@ -32,6 +32,7 @@ NANO_DECLARE_INSTANCE_EFFECT(vcr_halo)
 NANO_DECLARE_INSTANCE_EFFECT(sweep_choke)
 NANO_DECLARE_INSTANCE_EFFECT(sweep_gradient)
 NANO_DECLARE_INSTANCE_EFFECT(drum_bars)
+NANO_DECLARE_INSTANCE_EFFECT(side_racks)
 NANO_DECLARE_INSTANCE_EFFECT(ember_tone)
 NANO_DECLARE_INSTANCE_EFFECT(bar_scatter)
 
@@ -268,6 +269,18 @@ void nano_module_main() {
         "la-drum",
         NANO_INSTANCE_LIFECYCLE(drum_bars),
     }, &drum_bars::preview);
+
+    nano::registerEffect({
+        2,
+        "source.light.side_racks",
+        "Side Racks",
+        "The whole show for the six-bar rig - two racks of three horizontal 1 m LED bars either side of the stage, 60 segments a bar - on one card. The house sweep: full in the middle, choking to black at either end past a wide deadzone, bouncing coming back in, and throwing Three Planes' rolling Strobe tail when a hard pass lands in the choke; Tilt rolls the three bars like a chord, the light gathering on the bar the choke is climbing through while the knob moves and relaxing to a soft gradient at rest. A primary gate (bouncy-abode's strong channel) plays a Flam (a sidechain duck that shudders, frame-capped), a Wave (a pulse from the stage center crossing the real 4 m, eating the light with a bit-crushed, Walsh-sparkled front that recovers behind it) or Beating (two frame-locked rates interfering up the racks, each bar one solid color). Three secondary gates flash a bar each, dealt by a seeded pattern per step, on one side by a shared alternator or both sides when all three land together. Built-in lift and strobe (capped at one frame on, one off) in an accent color, and Mix Post to put the mix-ins under them or over them. Output: a compact 120x3 grid, left rack on the left half, top bar on top.",
+        "source",
+        "rack,bar,sweep,choke,tilt,flam,duck,wave,beating,strobe,lift,pattern,led,show",
+        "la-bars",
+        NANO_INSTANCE_LIFECYCLE(side_racks),
+        nullptr, nullptr, nullptr, &side_racks::eval_visibility,
+    }, &side_racks::preview);
 
     nano::registerEffect({
         2,

@@ -62,6 +62,11 @@ compile_shaders_compute_var_spv drum_bars led
 _emit_spv_header_var drum_bars led
 echo "  drum_bars shaders compiled (SPV: led)"
 
+# side_racks: the six-bar rig's compact grid, 120 x 3 flat blocks.
+compile_shaders_compute_var_spv side_racks led
+_emit_spv_header_var side_racks led
+echo "  side_racks shaders compiled (SPV: led)"
+
 # vcr_halo: prefilter -> down chain -> progressive up chain -> composite.
 compile_shaders_compute_var_spv vcr_halo prefilter
 compile_shaders_compute_var_spv vcr_halo down
@@ -181,6 +186,7 @@ wasm_build \
   $NANO_EFFECTS_ROOT/sweep_choke/main.cpp \
   $NANO_EFFECTS_ROOT/sweep_gradient/main.cpp \
   $NANO_EFFECTS_ROOT/drum_bars/main.cpp \
+  $NANO_EFFECTS_ROOT/side_racks/main.cpp \
   $NANO_EFFECTS_ROOT/ember_tone/main.cpp \
   $NANO_EFFECTS_ROOT/bar_scatter/main.cpp
 
