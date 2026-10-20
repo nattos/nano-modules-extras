@@ -11,7 +11,8 @@
 //     (hard shadow rays against the boxes), GGX base + coat lobes
 //   - reflections: the reflected ray finds the next box (core-lit) and the
 //     lit haze in front of it — the glossy blocks mostly read through these
-//   - ember: blocks straining furthest out glow faintly from within
+//   - ember: blocks straining furthest out glow from within — stone in its
+//     grooves (Ember), shell over the whole block (Shell Glow)
 // Writes (linear radiance, hit distance) — LTN_MISS on a miss — for the fog
 // march and the composite.
 
@@ -99,7 +100,7 @@ LtnMat ltn_material(int box, float3 p) {
     m.rough = 0.2;
     m.coat = 0.6;
     m.coat_rough = 0.05;
-    m.emit = ltn_core_color() * (glow * glow * glow * 0.15);
+    m.emit = ltn_core_color() * (glow * glow * glow * 0.15 * surf.x);
   } else {
     // Stone: folded strata in the structure's frame.
     float3 q = ltn_to_egg(p);
@@ -120,9 +121,8 @@ LtnMat ltn_material(int box, float3 p) {
     m.rough = 0.65;
     m.coat = 0.15;
     m.coat_rough = 0.3;
-    m.emit = ltn_core_color() * (crack * glow * glow * 1.5);
+    m.emit = ltn_core_color() * (crack * glow * glow * 1.5 * shade.z);
   }
-  m.emit *= shade.z;
   return m;
 }
 
