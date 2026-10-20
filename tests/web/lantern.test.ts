@@ -105,6 +105,14 @@ forEachBackend((backend) => {
       expect(meanLum(cleared)).toBeGreaterThan(60);
     });
 
+    it('carves worn, chipped edges into the blocks', async () => {
+      // Plain boxes vs the carved default: ~1.8 apart, against ~0.3 of
+      // frame-to-frame dither.
+      const plain = await render(`lantern_${backend}_plain`, [['chips', 0], ['bevel', 0]]);
+      const carved = await render(`lantern_${backend}_carved`);
+      expect(meanAbsDiff(plain, carved)).toBeGreaterThan(1.0);
+    });
+
     it('opacity 0 passes the input through', async () => {
       const out = await runGpuEffectTest({
         module: 'source.mesh.lantern', bundle: 'nano', width: 32, height: 32,

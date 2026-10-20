@@ -1,9 +1,9 @@
 // source.mesh.lantern — primary visibility + surface shading (full res).
 //
 // Per pixel: nearest box along the camera ray (exact), then shade the hit:
-//   - worn edges: the face normal rolls over a quarter-circle bevel near each
-//     edge, its width wandering along the edge (the geometry stays a sharp box;
-//     only the shading rounds it)
+//   - carved edges: rounded wear, chips and sheared corners cut into each
+//     box near its edges, marched by the camera ray (ltn_carve_hit), so they
+//     break up the silhouettes too
 //   - two materials: a dark glossy SHELL (metal-flecked base + clear coat) and
 //     banded STONE whose strata are laid out in the structure's frame, so
 //     they run on across neighboring blocks and jutting blocks read as faults
@@ -75,6 +75,165 @@ float3 ltn_stone_ramp(float x) {
   if (x < 0.6)  return lerp(c1, c2, (x - 0.35) / 0.25);
   if (x < 0.82) return lerp(c2, c3, (x - 0.6) / 0.22);
   return lerp(c3, c4, (x - 0.82) / 0.18);
+}
+
+// --- Carved edges (camera rays only) ------------------------------------------
+//
+// The scene's blocks are finely divided boxes whose faces are pushed in near
+// their edges (part_structure.py _carve): rounded WEAR, chipped scoops and
+// sheared-off corners, all varying along each edge, roughened where cut. As
+// a solid: a point is inside when, for every face, its depth below that face
+// exceeds the face's cut there (which depends on its distance to the face's
+// two edges) — ltn_carve_f >= 0. The camera ray marches that near the edges,
+// so the cuts show in silhouette (a ray through a notch goes on to the next
+// box); flat faces away from every edge hit at once. Shadows, the fog and
+// reflections still see plain boxes.
+
+struct LtnCarve {
+  float3 h;      // half extents
+  float3 seed;
+  float  size;   // carving shrinks on small pieces (fragments)
+  float  corner; // this octant's corner shear depth (0: none)
+  float  rough;  // fracture roughness amplitude (faded where a pixel can't resolve it)
+  int    key;
+};
+
+LtnCarve ltn_carve_setup(int box) {
+  LtnCarve k;
+  k.h = float3(boxes[box * LTN_BOX_ROWS + 1].w, boxes[box * LTN_BOX_ROWS + 2].w,
+               boxes[box * LTN_BOX_ROWS + 3].w);
+  float s = boxes[box * LTN_BOX_ROWS + 4].y;
+  k.seed = frac(s * float3(1.0, 57.31, 113.77)) * 200.0 - 100.0;
+  k.size = min(1.0, min(min(k.h.x, k.h.y), k.h.z) * 2.0 / 0.95);
+  k.corner = 0.0;
+  k.rough = 0.25;
+  k.key = (int)(s * 65521.0);
+  return k;
+}
+
+// Corner shear depth for the octant `sp` (each corner: a 50% chance).
+float ltn_carve_corner(LtnCarve k, float3 sp) {
+  int3 si = int3(sp) + k.key;
+  float roll = nano_hash31i(si);
+  float depth = nano_hash31i(si * 7 + 13);
+  return roll < 0.5 * surf.y ? lerp(0.1, 0.32, depth) * k.size * k.size : 0.0;
+}
+
+// How far a face is cut at distance u from an edge whose wear and chip depth
+// are `wear`, `chip`: a quarter-circle round, and a concave scoop with a
+// crisp lip where it meets the face.
+float ltn_edge_profile(float u, float wear, float chip) {
+  float cut = 0.0;
+  if (u < wear) cut = wear - sqrt(max(wear * wear - (wear - u) * (wear - u), 0.0));
+  float width = chip * 1.6;
+  if (u < width) cut = max(cut, chip * pow(1.0 - u / width, 1.6));
+  return cut;
+}
+
+// Inside-ness of a point in the box's frame (>= 0 inside), in metres.
+float ltn_carve_f(LtnCarve k, float3 lp, float reach) {
+  float3 d = k.h - abs(lp);
+  float3 sp = select(lp >= 0.0, 1.0, -1.0);
+  // Each edge of this octant (edge e runs along axis e): its wear and chip,
+  // from noise at the nearest point ON the edge, so both its faces agree.
+  float wear[3], chip[3];
+  float chance = 0.22 * surf.y;
+  [unroll] for (int e = 0; e < 3; e++) {
+    int f1 = (e + 1) % 3, f2 = (e + 2) % 3;
+    wear[e] = 0.0;
+    chip[e] = 0.0;
+    if (d[f1] < reach && d[f2] < reach) {
+      float3 ep = lp;
+      ep[f1] = sp[f1] * k.h[f1];
+      ep[f2] = sp[f2] * k.h[f2];
+      wear[e] = shade.x * k.size * smoothstep(0.12, 0.6, nano_gnoise3(ep * 2.2 + k.seed));
+      // Chips: one cell in four-and-a-half per metre along the edge may be
+      // bitten; its depth tapers to nothing toward the cell's ends, so a
+      // bite is a lens-shaped scoop rather than a square notch.
+      float3 cp = ep * 4.5 + k.seed;
+      float c = nano_hash31i(int3(floor(cp)));
+      float along = frac(cp[e]);
+      float taper = smoothstep(0.0, 0.4, along) * smoothstep(1.0, 0.6, along);
+      if (c < chance) chip[e] = lerp(0.04, 0.15, c / chance) * k.size * sqrt(taper);
+    }
+  }
+  float rough = 1.0 + k.rough * nano_gnoise3(lp * 12.0 + k.seed);
+  float F = 1.0e9;
+  [unroll] for (int a = 0; a < 3; a++) {
+    int b = (a + 1) % 3, c = (a + 2) % 3;
+    // Face a meets face b along the edge running along c, and face c along b.
+    float cut = max(max(ltn_edge_profile(d[b], wear[c], chip[c]),
+                        ltn_edge_profile(d[c], wear[b], chip[b])),
+                    k.corner - (d[b] + d[c]));
+    F = min(F, d[a] - max(cut, 0.0) * rough);
+  }
+  return F;
+}
+
+// March the camera ray through box `box` (entered at tn, left at tf).
+// On a hit: t, and the outward normal in the box's frame (the entry face's
+// on a flat stretch). `pa` is a pixel's angular size.
+bool ltn_carve_hit(int box, float3 ro, float3 rd, float tn, float tf, int ax, float3 ld,
+                   float pa, out float t, out float3 nlocal) {
+  LtnCarve k = ltn_carve_setup(box);
+  float4 r0 = boxes[box * LTN_BOX_ROWS + 0];
+  float3 o = ro - r0.xyz;
+  float3 r1 = boxes[box * LTN_BOX_ROWS + 1].xyz, r2 = boxes[box * LTN_BOX_ROWS + 2].xyz,
+         r3 = boxes[box * LTN_BOX_ROWS + 3].xyz;
+  float3 lo = float3(dot(o, r1), dot(o, r2), dot(o, r3));
+  float3 lr = float3(dot(rd, r1), dot(rd, r2), dot(rd, r3));
+  t = max(tn, 0.0);
+  nlocal = float3(0.0, 0.0, 0.0);
+  nlocal[ax] = ld[ax] > 0.0 ? -1.0 : 1.0;
+
+  float reach = max(shade.x, surf.y > 0.0 ? 0.32 : 0.0) * k.size;
+  float3 lp = lo + lr * t;
+  float3 d = k.h - abs(lp);
+  // Away from every edge (the entry face's two other depths both beyond
+  // reach): a flat face, hit at entry.
+  if (reach <= 0.0 || (d[(ax + 1) % 3] > reach && d[(ax + 2) % 3] > reach)) return true;
+  // Fracture roughness (8 cm across — the scene's 35/m only survives its
+  // 1.6 cm mesh as a gentle unevenness), where its bumps span 4-12+ pixels;
+  // finer, it would only sparkle.
+  k.rough = 0.2 * saturate((0.021 - t * pa) / 0.014);
+
+  // March from the entry point (where F = -(the entry face's cut there):
+  // nothing cut means a plain face), then refine between the last sample
+  // outside and the first inside.
+  float tp = t;
+  bool hit = false;
+  [loop] for (int i = 0; i < 49; i++) {
+    lp = lo + lr * t;
+    k.corner = ltn_carve_corner(k, select(lp >= 0.0, 1.0, -1.0));
+    float F = ltn_carve_f(k, lp, reach);
+    if (i == 0 && F >= -1e-4) return true;
+    if (F >= 0.0) { hit = true; break; }
+    tp = t;
+    t += clamp(-F * 0.7, 0.002, 0.05);
+    if (t > tf) return false;
+  }
+  if (!hit) return false;
+  float ta = tp, tb = t;
+  [loop] for (int j = 0; j < 5; j++) {
+    float tm = 0.5 * (ta + tb);
+    float3 q = lo + lr * tm;
+    k.corner = ltn_carve_corner(k, select(q >= 0.0, 1.0, -1.0));
+    if (ltn_carve_f(k, q, reach) >= 0.0) tb = tm; else ta = tm;
+  }
+  t = tb;
+  lp = lo + lr * t;
+
+  // The carved surface's normal: the field's gradient (outward = falling).
+  k.corner = ltn_carve_corner(k, select(lp >= 0.0, 1.0, -1.0));
+  const float e = 0.004;
+  float3 g = float3(0.0, 0.0, 0.0);
+  [loop] for (int m = 0; m < 6; m++) {
+    float3 off = float3(0.0, 0.0, 0.0);
+    off[m >> 1] = (m & 1) ? -e : e;
+    g[m >> 1] += ((m & 1) ? -1.0 : 1.0) * ltn_carve_f(k, lp + off, reach);
+  }
+  if (dot(g, g) > 1e-12) nlocal = -normalize(g);
+  return true;
 }
 
 struct LtnMat {
@@ -223,10 +382,35 @@ void main(uint3 gid : SV_DispatchThreadID) {
   float3 ro, rd;
   ltn_camera_ray(float2(gid.xy), vp.xy, ro, rd);
 
-  float t;
-  int ax;
-  float3 ld;
-  int box = ltn_trace(ro, rd, 0.0, LTN_MISS, t, ax, ld);
+  // Nearest box whose carved shape the ray hits (a ray through a carved
+  // notch goes on to the boxes behind).
+  float t = LTN_MISS;
+  int ax = 0;
+  float3 ld = float3(0.0, 0.0, 1.0);
+  float3 nlocal = float3(0.0, 0.0, 1.0);
+  int box = -1;
+  {
+    float pa = 1.0 / (vp.y * cam_p.z * cam_p.x);   // a pixel's angle (rad)
+    float tmin = 0.0;
+    [loop] for (int it = 0; it < 4; it++) {
+      float tn, tf;
+      int bax;
+      float3 bld;
+      int bx = ltn_trace(ro, rd, tmin, LTN_MISS, tn, bax, bld);
+      if (bx < 0) break;
+      int ax2;
+      float3 ld2;
+      float tn2;
+      ltn_box_ray(bx, ro, rd, tn2, tf, ax2, ld2);
+      float th;
+      float3 nl;
+      if (ltn_carve_hit(bx, ro, rd, tn, tf, bax, bld, pa, th, nl)) {
+        box = bx; t = th; ax = bax; ld = bld; nlocal = nl;
+        break;
+      }
+      tmin = tn + 1e-4;
+    }
+  }
 
   // The incandescent heart: a small emissive ball at the core, seen only by
   // the camera (it lights nothing — the core light does that).
@@ -262,33 +446,20 @@ void main(uint3 gid : SV_DispatchThreadID) {
   float3 o = p - r0.xyz;
   float3 lp = float3(dot(o, r1.xyz), dot(o, r2.xyz), dot(o, r3.xyz));
 
-  // Worn edges: roll the normal over a quarter-circle bevel whose width
-  // wanders along each edge (knife-sharp stretches, rounded wear).
-  float face_s = ld[ax] > 0.0 ? -1.0 : 1.0;
-  int b = (ax + 1) % 3, c = (ax + 2) % 3;
-  float size_k = saturate(min(min(half_ext.x, half_ext.y), half_ext.z) * 2.0 / 0.95);
-  float wear = shade.x * size_k *
-               (0.3 + 0.7 * smoothstep(-0.35, 0.45,
-                                       nano_gnoise3(p * 2.2 + r4.y * 61.0)));
-  float3 nl = float3(0.0, 0.0, 0.0);
-  nl[ax] = face_s;
-  if (wear > 1e-4) {
-    float tb = saturate(1.0 - (half_ext[b] - abs(lp[b])) / wear);
-    float tc = saturate(1.0 - (half_ext[c] - abs(lp[c])) / wear);
-    tb = min(tb, 0.97);
-    tc = min(tc, 0.97);
-    nl[b] = (lp[b] >= 0.0 ? 1.0 : -1.0) * tb * rsqrt(1.0 - tb * tb);
-    nl[c] = (lp[c] >= 0.0 ? 1.0 : -1.0) * tc * rsqrt(1.0 - tc * tc);
-  }
-  float3 n = normalize(axes[0] * nl.x + axes[1] * nl.y + axes[2] * nl.z);
-  float3 ng = axes[ax] * face_s;          // geometric normal (shadow offsets)
+  float3 n = normalize(axes[0] * nlocal.x + axes[1] * nlocal.y + axes[2] * nlocal.z);
   float3 v = -rd;
+  // Lighting is looked up from just outside the PLAIN box (what the shadow
+  // maps and shadow rays see): a carved point sits inside it, so step out
+  // through its nearest face.
+  float3 dep = half_ext - abs(lp);
+  int fa = dep.x < dep.y ? (dep.x < dep.z ? 0 : 2) : (dep.y < dep.z ? 1 : 2);
+  float3 ng = axes[fa] * (lp[fa] >= 0.0 ? 1.0 : -1.0);
 
   LtnMat m = ltn_material(box, p);
   float ndv = max(dot(n, v), 1e-4);
   float coat_f = m.coat * ltn_schlick(float3(0.04, 0.04, 0.04), ndv).x;
   float coat_keep = 1.0 - coat_f;
-  float3 pl = p + ng * 0.01;
+  float3 pl = p + ng * (dep[fa] + 0.01);
 
   float3 col = m.emit;
 
