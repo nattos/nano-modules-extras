@@ -91,6 +91,20 @@ forEachBackend((backend) => {
       expect(meanAbsDiff(a, b)).toBeLessThan(0.6);
     });
 
+    it('the air wall clears thick water in front of the structure', async () => {
+      // At Water 0.25 the structure is buried (mean ~21); Air clears the
+      // near field and the glow comes back (mean ~85).
+      const meanLum = (f: any) => {
+        let sum = 0;
+        f.forEachPixel((c: any) => { sum += lum(c); });
+        return sum / (W * H);
+      };
+      const buried = await render(`lantern_${backend}_water_deep`, [['water', 0.25]]);
+      const cleared = await render(`lantern_${backend}_water_air`, [['water', 0.25], ['air', 1]]);
+      expect(meanLum(buried)).toBeLessThan(45);
+      expect(meanLum(cleared)).toBeGreaterThan(60);
+    });
+
     it('opacity 0 passes the input through', async () => {
       const out = await runGpuEffectTest({
         module: 'source.mesh.lantern', bundle: 'nano', width: 32, height: 32,

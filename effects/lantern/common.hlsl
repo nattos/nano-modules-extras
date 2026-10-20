@@ -56,6 +56,7 @@ cbuffer Frame : register(b0) {
   float4 egg_r2;
   float4 vol_k;     // volume light scale vs surfaces: core, ambient sun, 0, 0
   float4 heart;     // the heart's emission (rgb radiance), 0
+  float4 air;       // the air wall: view depth its edge starts, ends; amount, 0
   float4 lsamp[LTN_MAX_SAMPLES];  // core light sample positions (world)
 };
 
@@ -161,6 +162,34 @@ static const float LTN_PENUMBRA = 0.9;
 float ltn_fog_rho_max() { return LTN_PENUMBRA * core_p.w / LTN_SHELL; }
 float ltn_fog_rho(float r) {
   return ltn_fog_rho_max() * max(r - LTN_SHELL, 0.0) / max(r, 1e-3);
+}
+
+// --- The air wall -------------------------------------------------------------
+//
+// Not physical: a slab of clear air between the camera and a plane facing
+// it, so dense water can surround the structure without burying it. Water
+// and halo densities are scaled by ltn_air_f: 1 - amount far side of the
+// plane's soft edge (a smoothstep in view depth), 1 beyond it. `c` is the
+// ray's cosine to the view axis (view depth = t * c).
+
+float ltn_air_f(float t, float c) {
+  return 1.0 - air.z * (1.0 - smoothstep(air.x, air.y, t * c));
+}
+
+// Antiderivative of smoothstep(air.x, air.y, z) in z (continuous everywhere).
+float ltn_air_smooth_int(float z) {
+  float w = max(air.y - air.x, 1e-3);
+  float x = saturate((z - air.x) / w);
+  return w * (x * x * x - 0.5 * x * x * x * x) + max(z - air.y, 0.0);
+}
+
+// The length of water [ta, tb] along a ray amounts to: its integrated density.
+float ltn_air_len(float ta, float tb, float c) {
+  float len = max(tb - ta, 0.0);
+  if (air.z <= 0.0 || len <= 0.0) return len;
+  float cc = max(c, 1e-3);
+  float wet = (ltn_air_smooth_int(tb * cc) - ltn_air_smooth_int(ta * cc)) / cc;
+  return len - air.z * (len - wet);
 }
 
 // Henyey-Greenstein, normalized over the sphere. cosv = cos(angle between the

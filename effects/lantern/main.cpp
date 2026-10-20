@@ -85,9 +85,10 @@ struct FrameUniforms {
   float egg_r0[4], egg_r1[4], egg_r2[4];
   float vol_k[4];
   float heart[4];
+  float air[4];
   float lsamp[kSamples][4];
 };
-static_assert(sizeof(FrameUniforms) == 35 * 16, "FrameUniforms layout mismatch");
+static_assert(sizeof(FrameUniforms) == 36 * 16, "FrameUniforms layout mismatch");
 
 struct Row { float v[4]; };
 
@@ -378,6 +379,9 @@ struct State {
   float flicker = 0.0f;
   float halo = 0.08f;
   float water = 0.013f;
+  float air = 0.0f;          // the air wall's clarity (0 = off)
+  float air_depth = 6.0f;    // m of water left in front of the structure's center
+  float air_soft = 4.0f;     // m, the wall's soft edge
   float wisps = 1.0f;
   float halo_phase = 0.2f;
   float ambient = 2.0f;
@@ -469,15 +473,25 @@ void module_init() {
           "*Halo* is the thick water hanging around the structure that the "
           "beams light up; *Wisps* breaks it into clumps; *Halo Phase* pushes "
           "its glow toward looking into the light. *Water* is the thin "
-          "blue depth everywhere else.")
+          "blue depth everywhere else. *Air* clears the water between the "
+          "camera and a wall *Air Depth* in front of the structure (its edge "
+          "*Air Soft* wide) -- not physical, but it lets thick water surround "
+          "the structure without burying it.")
       .floatField("halo", 0.08f, 0.f, 0.3f, state::PrimaryInput)
           .label("Halo", "Halo")
       .floatField("wisps", 1.0f, 0.f, 1.f, state::PrimaryInput)
           .label("Wisps", "Wisp")
       .floatField("halo_phase", 0.2f, 0.f, 0.9f, state::PrimaryInput)
           .label("Halo Phase", "HPh")
-      .floatField("water", 0.013f, 0.f, 0.06f, state::PrimaryInput)
+      .floatField("water", 0.013f, 0.001f, 0.25f, state::PrimaryInput)
+          .logScale()
           .label("Water", "Water")
+      .floatField("air", 0.0f, 0.f, 1.f, state::PrimaryInput)
+          .label("Air", "Air")
+      .floatField("air_depth", 6.0f, 0.f, 40.f, state::PrimaryInput, nullptr, 0.f, "m")
+          .label("Air Depth", "ADep")
+      .floatField("air_soft", 4.0f, 0.f, 20.f, state::PrimaryInput, nullptr, 0.f, "m")
+          .label("Air Soft", "ASoft")
       .group("lights", "Lights")
         .groupHelp(
           "The cool lights outside: *Ambient* is the faint blue from far "
@@ -713,6 +727,9 @@ void on_state_patched(void* self, int n, const char* pb, const int* off,
     else if (state::pathIs(p, l, "wisps"))        s->wisps = state::patchFloat(i);
     else if (state::pathIs(p, l, "halo_phase"))   s->halo_phase = state::patchFloat(i);
     else if (state::pathIs(p, l, "water"))        s->water = state::patchFloat(i);
+    else if (state::pathIs(p, l, "air"))          s->air = state::patchFloat(i);
+    else if (state::pathIs(p, l, "air_depth"))    s->air_depth = state::patchFloat(i);
+    else if (state::pathIs(p, l, "air_soft"))     s->air_soft = state::patchFloat(i);
     else if (state::pathIs(p, l, "ambient"))      s->ambient = state::patchFloat(i);
     else if (state::pathIs(p, l, "rim"))          s->rim = state::patchFloat(i);
     else if (state::pathIs(p, l, "kicker"))       s->kicker = state::patchFloat(i);
@@ -877,6 +894,14 @@ void render(void* self, int vp_w, int vp_h) {
     u.cam_p[1] = cs.ax;
     u.cam_p[2] = cs.ay;
     u.cam_p[3] = (float)count;
+    // The air wall: a plane facing the camera, air_depth in front of the
+    // structure's center (view depth of the center = -pos . fwd).
+    const float zc = -dot(pos, fwd);
+    const float zw = zc - s->air_depth;
+    const float half = 0.5f * s->air_soft;
+    u.air[0] = zw - half;
+    u.air[1] = zw + half;
+    u.air[2] = s->air;
   }
   u.vp[0] = (float)vp_w; u.vp[1] = (float)vp_h;
   u.vp[2] = 1.0f / vp_w; u.vp[3] = 1.0f / vp_h;

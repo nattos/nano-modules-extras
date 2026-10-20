@@ -53,9 +53,11 @@ float ltn_fog_vis(float3 dl, float r) {
   return lerp(v3, v4, saturate(pos - 3.0));
 }
 
-// Homogeneous water lit by the ambient sun over [0, len]: in-scatter and
-// transmittance of the segment.
-void ltn_water_segment(float len, float3 rd, inout float3 I, inout float3 T) {
+// Water lit by the ambient sun over [ta, tb]: in-scatter and transmittance
+// of the segment. The source is uniform per unit density, so the air wall
+// only changes the segment's integrated length (ltn_air_len).
+void ltn_water_segment(float ta, float tb, float3 rd, float c, inout float3 I, inout float3 T) {
+  float len = ltn_air_len(ta, tb, c);
   if (len <= 0.0) return;
   float3 st = water_t.rgb;
   float3 seg = exp(-st * len);
@@ -91,7 +93,8 @@ void main(uint3 gid : SV_DispatchThreadID) {
     t1 = clamp(-b + sq, 0.0, depth);
   }
 
-  ltn_water_segment(t0, rd, I, T);
+  float cv = dot(rd, cam_f.xyz);
+  ltn_water_segment(0.0, t0, rd, cv, I, T);
 
   if (t1 > t0) {
     // Equiangular parameterisation about the core.
@@ -115,14 +118,15 @@ void main(uint3 gid : SV_DispatchThreadID) {
       float wn = 0.5 + 0.5 * nano_gfbm3((p - halo_c.xyz) * halo_k.xyz * halo_p.y +
                                         float3(0.0, 0.0, halo_p.z), 3, 0.6);
       float dh = ltn_halo_density(p, wn);
-      float3 sig_t = water_t.rgb + dh * halo_alb;
+      float fa = ltn_air_f(t, cv);   // the air wall thins both media
+      float3 sig_t = (water_t.rgb + dh * halo_alb) * fa;
 
       float3 dl = p - core_p.xyz;
       float r2 = dot(dl, dl);
       float cosv = dot(dl * rsqrt(max(r2, 1e-6)), -rd);
       float3 Lc = ltn_core_irr_vol(r2) * ltn_fog_vis(dl, sqrt(r2));
-      float3 src = water_s.rgb * (Lc * ltn_hg(water_s.w, cosv) + amb_w) +
-                   dh * halo_alb * (Lc * ltn_hg(halo_p.x, cosv) + amb_h);
+      float3 src = (water_s.rgb * (Lc * ltn_hg(water_s.w, cosv) + amb_w) +
+                    dh * halo_alb * (Lc * ltn_hg(halo_p.x, cosv) + amb_h)) * fa;
 
       float3 seg = exp(-sig_t * dt);
       I += T * src * (1.0 - seg) / max(sig_t, 1e-6);
@@ -132,8 +136,8 @@ void main(uint3 gid : SV_DispatchThreadID) {
 
   // Beyond the sphere: water again, to the surface or to infinity (where the
   // near-black world is entirely absorbed).
-  if (depth < LTN_MISS * 0.5) ltn_water_segment(depth - t1, rd, I, T);
-  else                        ltn_water_segment(1.0e4, rd, I, T);
+  if (depth < LTN_MISS * 0.5) ltn_water_segment(t1, depth, rd, cv, I, T);
+  else                        ltn_water_segment(t1, t1 + 1.0e4, rd, cv, I, T);
 
   fogI[gid.xy] = float4(I, depth);
   fogT[gid.xy] = float4(T, 1.0);
