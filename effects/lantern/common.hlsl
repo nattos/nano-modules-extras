@@ -10,7 +10,8 @@
 // tile per point sampled on the light's sphere (shadow.hlsl writes it): a
 // point is lit by sample k when it is no farther from that sample than the
 // first box along the same direction. Averaging the samples gives the soft
-// shadow of a large light; the fog march takes one sample per step instead.
+// shadow of a large light on the surfaces. The fog reads a smooth version
+// seen from the core's center instead (escape.hlsl, vis.hlsl).
 //
 // Light units follow Cycles (calibrated against it — main.cpp): every light
 // arrives here as IRRADIANCE at 1 m (point/area) or at the surface (sun), so a
@@ -148,26 +149,18 @@ float ltn_core_vis(Texture2D<float4> atlas, int k, float3 p) {
   return dist <= depth + 0.03 + 0.006 * dist ? 1.0 : 0.0;
 }
 
-// The same, with the lookup direction jittered across the gap between light
-// samples (u, v in [0,1): the jitter). Each sample's hard shadow then blurs
-// by the angle neighboring samples subtend from the blockers, growing with
-// distance beyond them — a stochastic PCSS that turns 8 point shadows into
-// the soft shadow of one large light. Blockers are taken to sit at the
-// shell (~2.5 m out); the light samples span 0.7 of the light's radius.
-float ltn_core_vis_soft(Texture2D<float4> atlas, int k, float3 p, float2 jit) {
-  float3 d = p - lsamp[k].xyz;
-  float dist = length(d);
-  float3 dir = d / max(dist, 1e-5);
-  const float shell = 2.5;
-  float rho = 0.9 * core_p.w * max(dist - shell, 0.0) / (max(dist, 1e-3) * shell);
-  float3 t1 = normalize(cross(dir, abs(dir.z) < 0.9 ? float3(0.0, 0.0, 1.0)
-                                                    : float3(1.0, 0.0, 0.0)));
-  float3 t2 = cross(dir, t1);
-  float ang = 6.2831853 * jit.x;
-  float rr = rho * sqrt(jit.y);
-  float3 jd = normalize(dir + (t1 * cos(ang) + t2 * sin(ang)) * rr);
-  float depth = atlas.Load(int3(ltn_atlas_texel(k, jd), 0)).r;
-  return dist <= depth + 0.03 + 0.006 * dist ? 1.0 : 0.0;
+// --- The fog's view of the core (escape.hlsl, vis.hlsl) ---------------------
+
+static const int   LTN_ESC_RES = 256;   // escape map + prefiltered levels
+static const int   LTN_ESC_LOW = 64;    // the escape map box-averaged
+static const float LTN_SHELL = 2.5;     // where the blockers are taken to sit
+static const float LTN_PENUMBRA = 0.9;
+
+// The angular radius (from the core's center) a point r out sees the light's
+// shadow blurred by: 0 at the shell, rising to ltn_fog_rho_max() far away.
+float ltn_fog_rho_max() { return LTN_PENUMBRA * core_p.w / LTN_SHELL; }
+float ltn_fog_rho(float r) {
+  return ltn_fog_rho_max() * max(r - LTN_SHELL, 0.0) / max(r, 1e-3);
 }
 
 // Henyey-Greenstein, normalized over the sphere. cosv = cos(angle between the

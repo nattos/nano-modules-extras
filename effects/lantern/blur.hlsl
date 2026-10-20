@@ -1,7 +1,6 @@
 // source.mesh.lantern — depth-aware blur of the half-res in-scatter.
 //
-// The fog march dithers (per-pixel step jitter, light samples cycling across
-// pixels); one 9-tap pass along `blur.xy`, run horizontally then vertically,
+// The fog march dithers its step positions per pixel; one 9-tap pass along `blur.xy`, run horizontally then vertically,
 // averages that into the soft haze it stands for. Taps that marched to a
 // different depth (the other side of a block's silhouette) are left out, so
 // glow doesn't bleed onto dark blocks in front of it.

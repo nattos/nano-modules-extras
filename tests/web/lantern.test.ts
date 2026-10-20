@@ -75,6 +75,22 @@ forEachBackend((backend) => {
       expect(peak).toBeGreaterThan(150);
     });
 
+    it('the beams hold still: a static scene barely changes frame to frame', async () => {
+      // The fog's core visibility is prefiltered (vis.hlsl), so only the
+      // march's step dither varies per frame. With random shadow lookups the
+      // haze boiled: ~1.06 here, against ~0.34 now.
+      const a = await runGpuEffectTest({
+        module: 'source.mesh.lantern', bundle: 'nano', width: W, height: H,
+        params: [...STATIC, ['flicker', 0]], ticks: 2,
+      });
+      const b = await runGpuEffectTest({
+        module: 'source.mesh.lantern', bundle: 'nano', width: W, height: H,
+        params: [...STATIC, ['flicker', 0]], ticks: 3,
+      });
+      expect(a.success && b.success).toBe(true);
+      expect(meanAbsDiff(a, b)).toBeLessThan(0.6);
+    });
+
     it('opacity 0 passes the input through', async () => {
       const out = await runGpuEffectTest({
         module: 'source.mesh.lantern', bundle: 'nano', width: 32, height: 32,

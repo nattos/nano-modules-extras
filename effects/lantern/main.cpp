@@ -16,7 +16,12 @@
  * Pass chain (all compute):
  *   shadow    — octahedral depth maps of the boxes from 8 points on the core
  *               light's sphere (one atlas, 512² a tile): the core's soft
- *               shadows on surfaces and its beams in the water.
+ *               shadows on surfaces.
+ *   escape    — what escapes the boxes, seen from the core's center (256²,
+ *   + reduce    supersampled; and box-averaged to 64²).
+ *   vis       — that map prefiltered at four penumbra widths: the beams'
+ *               smooth visibility in the water (no random lookups — the
+ *               march's beams don't crawl in motion).
  *   scene     — full res: nearest box, then shading (bevelled normals, shell
  *               and stone, the core + two suns + the kicker, reflections,
  *               ember) -> (radiance, hit distance).
@@ -68,6 +73,8 @@ constexpr int kTileRes = 512;
 constexpr int kAtlasCols = 4;
 constexpr int kAtlasRows = kSamples / kAtlasCols;
 constexpr int kFogSteps = 64;
+constexpr int kEscRes = 256;     // LTN_ESC_RES
+constexpr int kEscLow = 64;      // LTN_ESC_LOW
 
 struct FrameUniforms {
   float cam_r[4], cam_u[4], cam_f[4], cam_p[4], vp[4];
@@ -336,8 +343,8 @@ int buildProcedural(Block* out, int seed) {
 
 // ---------------------------------------------------------------------------
 
-static gpu::ComputePSO s_pso_shadow, s_pso_scene, s_pso_fog, s_pso_blur, s_pso_comp,
-    s_pso_prefill;
+static gpu::ComputePSO s_pso_shadow, s_pso_escape, s_pso_reduce, s_pso_vis, s_pso_scene,
+    s_pso_fog, s_pso_blur, s_pso_comp, s_pso_prefill;
 
 struct BlurUniforms { float dir_x, dir_y, spacing, _pad; };
 
@@ -345,6 +352,8 @@ struct State {
   bool initialized = false;
   gpu::Buffer ub_frame, box_buf, ub_blur_h, ub_blur_v;
   gpu::Texture atlas, scene_tex, fog_i, fog_t, fog_tmp, fog_blur, zero_tex;
+  gpu::Texture esc, esc_low, vis_f, vis_d;   // the fog's view of the core
+  gpu::Sampler samp;
   int scratch_w = 0, scratch_h = 0;
 
   Block blocks[kMaxBoxes];
@@ -521,6 +530,12 @@ void module_init() {
 
   state::registerShaderSPV("lantern_shadow", LANTERN_SHADOW_SPV, LANTERN_SHADOW_SPV_SIZE,
                            "rgba16float", "write");
+  state::registerShaderSPV("lantern_escape", LANTERN_ESCAPE_SPV, LANTERN_ESCAPE_SPV_SIZE,
+                           "rgba16float", "write");
+  state::registerShaderSPV("lantern_escape_reduce", LANTERN_ESCAPE_REDUCE_SPV,
+                           LANTERN_ESCAPE_REDUCE_SPV_SIZE, "rgba16float", "write");
+  state::registerShaderSPV("lantern_vis", LANTERN_VIS_SPV, LANTERN_VIS_SPV_SIZE,
+                           "rgba16float", "write");
   state::registerShaderSPV("lantern_scene", LANTERN_SCENE_SPV, LANTERN_SCENE_SPV_SIZE,
                            "rgba16float", "write");
   state::registerShaderSPV("lantern_fog", LANTERN_FOG_SPV, LANTERN_FOG_SPV_SIZE,
@@ -531,17 +546,37 @@ void module_init() {
                            LANTERN_COMPOSITE_SPV_SIZE);
   state::registerShaderSPV("lantern_prefill", LANTERN_PREFILL_SPV, LANTERN_PREFILL_SPV_SIZE);
   auto cs_shadow = gpu::Device::createShaderModuleByName("lantern_shadow");
+  auto cs_escape = gpu::Device::createShaderModuleByName("lantern_escape");
+  auto cs_reduce = gpu::Device::createShaderModuleByName("lantern_escape_reduce");
+  auto cs_vis = gpu::Device::createShaderModuleByName("lantern_vis");
   auto cs_scene = gpu::Device::createShaderModuleByName("lantern_scene");
   auto cs_fog = gpu::Device::createShaderModuleByName("lantern_fog");
   auto cs_blur = gpu::Device::createShaderModuleByName("lantern_blur");
   auto cs_comp = gpu::Device::createShaderModuleByName("lantern_composite");
   auto cs_prefill = gpu::Device::createShaderModuleByName("lantern_prefill");
-  if (!cs_shadow || !cs_scene || !cs_fog || !cs_blur || !cs_comp || !cs_prefill) return;
+  if (!cs_shadow || !cs_escape || !cs_reduce || !cs_vis || !cs_scene || !cs_fog || !cs_blur || !cs_comp || !cs_prefill) return;
 
   s_pso_shadow = gpu::Device::createComputePSO(cs_shadow, "main", gpu::Bindings()
       .uniform(0)
       .storage(1)
       .storageTex2d(2, gpu::TextureFormat::RGBA16F));
+  s_pso_escape = gpu::Device::createComputePSO(cs_escape, "main", gpu::Bindings()
+      .uniform(0)
+      .storage(1)
+      .storageTex2d(2, gpu::TextureFormat::RGBA16F));
+  s_pso_reduce = gpu::Device::createComputePSO(cs_reduce, "main", gpu::Bindings()
+      .uniform(0)
+      .storage(1)
+      .tex2d(2)
+      .storageTex2d(3, gpu::TextureFormat::RGBA16F));
+  s_pso_vis = gpu::Device::createComputePSO(cs_vis, "main", gpu::Bindings()
+      .uniform(0)
+      .storage(1)
+      .tex2d(2)
+      .tex2d(3)
+      .sampler(4)
+      .storageTex2d(5, gpu::TextureFormat::RGBA16F)
+      .storageTex2d(6, gpu::TextureFormat::RGBA16F));
   s_pso_scene = gpu::Device::createComputePSO(cs_scene, "main", gpu::Bindings()
       .uniform(0)
       .storage(1)
@@ -553,7 +588,10 @@ void module_init() {
       .tex2d(2)
       .tex2d(3)
       .storageTex2d(4, gpu::TextureFormat::RGBA16F)
-      .storageTex2d(5, gpu::TextureFormat::RGBA16F));
+      .storageTex2d(5, gpu::TextureFormat::RGBA16F)
+      .tex2d(6)
+      .tex2d(7)
+      .sampler(8));
   s_pso_blur = gpu::Device::createComputePSO(cs_blur, "main", gpu::Bindings()
       .uniform(0)
       .storage(1)
@@ -585,6 +623,11 @@ void* create() {
   s->ub_blur_v = gpu::Device::createBuffer(sizeof(BlurUniforms), gpu::BufferUsage::Uniform);
   s->zero_tex = gpu::Device::createTexture(1, 1, gpu::TextureFormat::RGBA16F);
   if (s->zero_tex.valid()) gpu::Device::clear(s->zero_tex, 0.0f, 0.0f, 0.0f, 0.0f);
+  s->esc = gpu::Device::createTexture(kEscRes, kEscRes, gpu::TextureFormat::RGBA16F);
+  s->esc_low = gpu::Device::createTexture(kEscLow, kEscLow, gpu::TextureFormat::RGBA16F);
+  s->vis_f = gpu::Device::createTexture(kEscRes, kEscRes, gpu::TextureFormat::RGBA16F);
+  s->vis_d = gpu::Device::createTexture(kEscRes, kEscRes, gpu::TextureFormat::RGBA16F);
+  s->samp = gpu::Device::createSampler(gpu::FilterMode::Linear, gpu::AddressMode::ClampToEdge);
   return s;
 }
 
@@ -602,6 +645,10 @@ void destroy(void* self) {
   s->ub_blur_h.release();
   s->ub_blur_v.release();
   s->zero_tex.release();
+  s->esc.release();
+  s->esc_low.release();
+  s->vis_f.release();
+  s->vis_d.release();
   delete s;
 }
 
@@ -609,7 +656,9 @@ void init(void* self) {
   auto* s = static_cast<State*>(self);
   if (!s) return;
   s->initialized = s->ub_frame.valid() && s->box_buf.valid() && s->atlas.valid() &&
-                   s_pso_shadow.valid() && s_pso_scene.valid() && s_pso_fog.valid() &&
+                   s->esc.valid() && s->esc_low.valid() && s->vis_f.valid() &&
+                   s->vis_d.valid() && s_pso_escape.valid() && s_pso_reduce.valid() &&
+                   s_pso_vis.valid() && s_pso_shadow.valid() && s_pso_scene.valid() && s_pso_fog.valid() &&
                    s_pso_blur.valid() && s_pso_comp.valid() && s_pso_prefill.valid() &&
                    s->ub_blur_h.valid() && s->ub_blur_v.valid();
 }
@@ -921,6 +970,38 @@ void render(void* self, int vp_w, int vp_h) {
   }
   {
     auto cp = gpu::ComputePass::begin();
+    cp.setPSO(s_pso_escape);
+    cp.setBuffer(s->ub_frame, 0);
+    cp.setBuffer(s->box_buf, 1);
+    cp.setTexture(s->esc, 2, 1);
+    cp.dispatch(kEscRes / 8, kEscRes / 8);
+    cp.end();
+  }
+  {
+    auto cp = gpu::ComputePass::begin();
+    cp.setPSO(s_pso_reduce);
+    cp.setBuffer(s->ub_frame, 0);
+    cp.setBuffer(s->box_buf, 1);
+    cp.setTexture(s->esc, 2, 0);
+    cp.setTexture(s->esc_low, 3, 1);
+    cp.dispatch(kEscLow / 8, kEscLow / 8);
+    cp.end();
+  }
+  {
+    auto cp = gpu::ComputePass::begin();
+    cp.setPSO(s_pso_vis);
+    cp.setBuffer(s->ub_frame, 0);
+    cp.setBuffer(s->box_buf, 1);
+    cp.setTexture(s->esc, 2, 0);
+    cp.setTexture(s->esc_low, 3, 0);
+    cp.setSampler(s->samp, 4);
+    cp.setTexture(s->vis_f, 5, 1);
+    cp.setTexture(s->vis_d, 6, 1);
+    cp.dispatch(kEscRes / 8, kEscRes / 8);
+    cp.end();
+  }
+  {
+    auto cp = gpu::ComputePass::begin();
     cp.setPSO(s_pso_scene);
     cp.setBuffer(s->ub_frame, 0);
     cp.setBuffer(s->box_buf, 1);
@@ -934,10 +1015,13 @@ void render(void* self, int vp_w, int vp_h) {
     cp.setPSO(s_pso_fog);
     cp.setBuffer(s->ub_frame, 0);
     cp.setBuffer(s->box_buf, 1);
-    cp.setTexture(s->atlas, 2, 0);
+    cp.setTexture(s->esc, 2, 0);
     cp.setTexture(s->scene_tex, 3, 0);
     cp.setTexture(s->fog_i, 4, 1);
     cp.setTexture(s->fog_t, 5, 1);
+    cp.setTexture(s->vis_f, 6, 0);
+    cp.setTexture(s->vis_d, 7, 0);
+    cp.setSampler(s->samp, 8);
     cp.dispatch((half_w + 7) / 8, (half_h + 7) / 8);
     cp.end();
   }

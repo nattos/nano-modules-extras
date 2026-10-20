@@ -148,18 +148,24 @@ echo "  plume shaders compiled (SPV: shell + bake + compose + march + prefill + 
 #   composite — depth-aware upsample + AgX.
 # The passthrough reuses plume's compiled prefill SPV.
 compile_shaders_compute_var_spv lantern shadow
+compile_shaders_compute_var_spv lantern escape
+compile_shaders_compute_var_spv lantern escape_reduce
+compile_shaders_compute_var_spv lantern vis
 compile_shaders_compute_var_spv lantern scene
 compile_shaders_compute_var_spv lantern fog
 compile_shaders_compute_var_spv lantern blur
 compile_shaders_compute_var_spv lantern composite
 "$PYTHON" "$NANO_SDK/scripts/_emit_spv_header.py" "$TMP_DIR/lantern_shaders.h" \
   "lantern_shadow=$TMP_DIR/lantern_shadow.spv" \
+  "lantern_escape=$TMP_DIR/lantern_escape.spv" \
+  "lantern_escape_reduce=$TMP_DIR/lantern_escape_reduce.spv" \
+  "lantern_vis=$TMP_DIR/lantern_vis.spv" \
   "lantern_scene=$TMP_DIR/lantern_scene.spv" \
   "lantern_fog=$TMP_DIR/lantern_fog.spv" \
   "lantern_blur=$TMP_DIR/lantern_blur.spv" \
   "lantern_composite=$TMP_DIR/lantern_composite.spv" \
   "lantern_prefill=$TMP_DIR/plume_prefill.spv"
-echo "  lantern shaders compiled (SPV: shadow + scene + fog + blur + composite + prefill reuse)"
+echo "  lantern shaders compiled (SPV: shadow + escape + escape_reduce + vis + scene + fog + blur + composite + prefill reuse)"
 
 # helio_field — simulated sun on the sdf_field rail: 2D MHD-lite (fluid +
 # magnetic potential) on an oct map, shell ridges derived from the live

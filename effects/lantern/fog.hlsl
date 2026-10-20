@@ -2,9 +2,9 @@
 //
 // Two media: WATER everywhere (thin, blue-scattering, red-absorbing) and the
 // HALO, a dense wispy ball around the structure that only the core lights.
-// Light: the core (shadowed per step by TWO of the light samples' atlas
-// tiles — they cycle across steps and pixels, and blur.hlsl averages them
-// into soft beams) and the ambient sun (unshadowed).
+// Light: the core, shadowed per step by its smooth, prefiltered visibility
+// (vis.hlsl — a few filtered samples, no random shadow lookups, so the
+// beams hold still under motion), and the ambient sun (unshadowed).
 //
 // Inside a sphere around the core the ray is marched with steps spaced
 // EQUIANGULARLY about the core (t = D + h tan(theta), theta uniform): dense
@@ -19,10 +19,39 @@
 #include "nano_hash.hlsl"
 #include "nano_noise3.hlsl"
 
-Texture2D<float4>   atlas    : register(t2);
+Texture2D<float4>   esc      : register(t2);
 Texture2D<float4>   sceneTex : register(t3);
 RWTexture2D<float4> fogI     : register(u4);
 RWTexture2D<float4> fogT     : register(u5);
+Texture2D<float4>   visF     : register(t6);
+Texture2D<float4>   visD     : register(t7);
+SamplerState        samp     : register(s8);
+
+// Lit fraction of the core at r, given an escaped fraction F and the mean
+// depth D of what blocked the rest: water in front of the blockers sees it all.
+float ltn_lit(float F, float D, float r) {
+  return F + (1.0 - F) * (1.0 - smoothstep(D - 0.2, D + 0.2, r));
+}
+
+// The core's smooth visibility at offset dl (length r) from its center: the
+// prefiltered escape map at the blur radius r calls for (vis.hlsl), between
+// its levels; the unblurred map near the shell.
+float ltn_fog_vis(float3 dl, float r) {
+  float2 uv = nano_oct_encode(dl / max(r, 1e-5));
+  float2 e = esc.SampleLevel(samp, uv, 0.0).rg;
+  float4 F = visF.SampleLevel(samp, uv, 0.0);
+  float4 D = visD.SampleLevel(samp, uv, 0.0);
+  float v0 = ltn_lit(e.x, e.y / max(1.0 - e.x, 1e-3), r);
+  float v1 = ltn_lit(F.x, D.x, r), v2 = ltn_lit(F.y, D.y, r);
+  float v3 = ltn_lit(F.z, D.z, r), v4 = ltn_lit(F.w, D.w, r);
+  // Levels sit at rho_max * (0, 1/8, 1/4, 1/2, 1).
+  float x = ltn_fog_rho(r) / ltn_fog_rho_max();
+  float pos = x <= 0.125 ? x * 8.0 : 1.0 + log2(x * 8.0);
+  if (pos < 1.0) return lerp(v0, v1, pos);
+  if (pos < 2.0) return lerp(v1, v2, pos - 1.0);
+  if (pos < 3.0) return lerp(v2, v3, pos - 2.0);
+  return lerp(v3, v4, saturate(pos - 3.0));
+}
 
 // Homogeneous water lit by the ambient sun over [0, len]: in-scatter and
 // transmittance of the segment.
@@ -71,8 +100,6 @@ void main(uint3 gid : SV_DispatchThreadID) {
     float ta = atan((t0 - D) / h), tb = atan((t1 - D) / h);
     int steps = (int)misc.w;
     float jitter = nano_ign(float2(gid.xy) + misc.x * float2(5.588238, 5.588238));
-    int ns = (int)core_i.w;
-    int kbase = (int)(nano_hash21(float2(gid.xy) * 0.37 + misc.x) * float(ns));
     float cos_amb = dot(-amb_d.xyz, -rd);
     float3 amb_w = ltn_hg(water_s.w, cos_amb) * amb_e.rgb * vol_k.y;
     float3 amb_h = ltn_hg(halo_p.x, cos_amb) * amb_e.rgb * vol_k.y;
@@ -93,13 +120,7 @@ void main(uint3 gid : SV_DispatchThreadID) {
       float3 dl = p - core_p.xyz;
       float r2 = dot(dl, dl);
       float cosv = dot(dl * rsqrt(max(r2, 1e-6)), -rd);
-      // Two light samples a step, half the samples apart (stratified).
-      int k = (kbase + i) % ns;
-      float2 jit = frac(float2(jitter * 7.31 + float(i) * 0.6180340,
-                               jitter * 3.17 + float(i) * 0.7548777));
-      float vis = 0.5 * (ltn_core_vis_soft(atlas, k, p, jit) +
-                         ltn_core_vis_soft(atlas, (k + ns / 2) % ns, p, frac(jit + 0.5)));
-      float3 Lc = ltn_core_irr_vol(r2) * vis;
+      float3 Lc = ltn_core_irr_vol(r2) * ltn_fog_vis(dl, sqrt(r2));
       float3 src = water_s.rgb * (Lc * ltn_hg(water_s.w, cosv) + amb_w) +
                    dh * halo_alb * (Lc * ltn_hg(halo_p.x, cosv) + amb_h);
 
