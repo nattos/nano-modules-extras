@@ -113,6 +113,19 @@ forEachBackend((backend) => {
       expect(meanAbsDiff(plain, carved)).toBeGreaterThan(1.0);
     });
 
+    it('Albedo 0 turns the blocks to silhouettes against the lit water', async () => {
+      // Mean luminance ~66 by default, ~59 with nothing reflected (the
+      // water's glow is most of the frame).
+      const meanLum = (f: any) => {
+        let sum = 0;
+        f.forEachPixel((c: any) => { sum += lum(c); });
+        return sum / (W * H);
+      };
+      const lit = await render(`lantern_${backend}_albedo1`);
+      const dark = await render(`lantern_${backend}_albedo0`, [['albedo', 0]]);
+      expect(meanLum(lit) - meanLum(dark)).toBeGreaterThan(3);
+    });
+
     it('opacity 0 passes the input through', async () => {
       const out = await runGpuEffectTest({
         module: 'source.mesh.lantern', bundle: 'nano', width: 32, height: 32,

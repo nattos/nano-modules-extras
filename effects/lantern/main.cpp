@@ -400,6 +400,7 @@ struct State {
   float ember = 1.0f;
   float shell_glow = 1.0f;
   float chips = 1.0f;
+  float albedo = 1.0f;
   float opacity = 1.0f;
   int debug_view = 0;
 
@@ -521,7 +522,9 @@ void module_init() {
       .group("render", "Render")
         .groupHelp(
           "*Exposure* in stops ahead of the AgX tonemap; *Contrast* steepens "
-          "it (the scene used Medium High Contrast, about 0.2). *Bevel* is "
+          "it (the scene used Medium High Contrast, about 0.2). *Albedo* scales "
+          "everything the blocks reflect (toward 0 they become dark "
+          "silhouettes against the lit water; what glows still glows). *Bevel* is "
           "the widest rounded edge wear, *Chips* how often edges are chipped "
           "and corners sheared off, *Reflect* scales the glossy reflections, "
           "*Ember* the glow in the grooves of straining stone, *Shell Glow* "
@@ -531,6 +534,8 @@ void module_init() {
           .label("Exposure", "Expo")
       .floatField("contrast", 0.2f, -0.5f, 1.f, state::PrimaryInput)
           .label("Contrast", "Ctr")
+      .floatField("albedo", 1.0f, 0.f, 2.f, state::PrimaryInput)
+          .label("Albedo", "Albd")
       .floatField("bevel", 0.1f, 0.f, 0.3f, state::PrimaryInput, nullptr, 0.f, "m")
           .label("Bevel", "Bev")
       .floatField("chips", 1.0f, 0.f, 1.f, state::PrimaryInput)
@@ -755,6 +760,7 @@ void on_state_patched(void* self, int n, const char* pb, const int* off,
     else if (state::pathIs(p, l, "ember"))        s->ember = state::patchFloat(i);
     else if (state::pathIs(p, l, "shell_glow"))   s->shell_glow = state::patchFloat(i);
     else if (state::pathIs(p, l, "chips"))        s->chips = state::patchFloat(i);
+    else if (state::pathIs(p, l, "albedo"))       s->albedo = state::patchFloat(i);
     else if (state::pathIs(p, l, "opacity"))      s->opacity = state::patchFloat(i);
     else if (state::pathIs(p, l, "debug_view"))   s->debug_view = state::patchInt(i);
   }
@@ -969,6 +975,7 @@ void render(void* self, int vp_w, int vp_h) {
   u.shade[2] = s->ember;
   u.surf[0] = s->shell_glow;
   u.surf[1] = s->chips;
+  u.surf[2] = s->albedo;
   u.shade[3] = (float)s->debug_view;
   u.grade[0] = std::pow(2.0f, s->exposure);
   u.grade[1] = s->opacity;

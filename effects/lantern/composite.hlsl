@@ -75,15 +75,15 @@ void main(uint3 gid : SV_DispatchThreadID) {
   T /= wsum;
 
   bool hit = d < LTN_MISS * 0.5;
-  float3 surf = hit ? scene.rgb : float3(0.0002, 0.0004, 0.0016);
-  float3 c = I + T * surf;
+  float3 surface = hit ? scene.rgb : float3(0.0002, 0.0004, 0.0016);
+  float3 c = I + T * surface;
   int dbg = (int)shade.w;
   if (dbg == 0) {
     c = ltn_agx(c * grade.x, grade.w);
   } else {
     // Debug views: LINEAR values (times exposure), sRGB-encoded, no tonemap —
     // for calibrating against a renderer's passes.
-    float3 v = dbg == 1 ? c : dbg == 2 ? surf : dbg == 3 ? I : T;
+    float3 v = dbg == 1 ? c : dbg == 2 ? surface : dbg == 3 ? I : T;
     c = ltn_srgb(v * (dbg == 4 ? 1.0 : grade.x));
   }
 

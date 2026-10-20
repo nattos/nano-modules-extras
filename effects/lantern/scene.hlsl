@@ -49,6 +49,13 @@ float3 ltn_schlick(float3 f0, float c) {
   return f0 + (1.0 - f0) * k;
 }
 
+// With a grazing reflectance f90 below 1 (Albedo darkens the base layer
+// all the way to grazing).
+float3 ltn_schlick90(float3 f0, float f90, float c) {
+  float k = pow(1.0 - saturate(c), 5.0);
+  return f0 + (f90 - f0) * k;
+}
+
 // Blender Wave texture, BANDS along Z, SAW profile: period 2pi / (20 scale).
 float ltn_saw_bands(float3 p, float scale, float distortion, float3 off) {
   float n = p.z * scale * 20.0;
@@ -239,6 +246,7 @@ bool ltn_carve_hit(int box, float3 ro, float3 rd, float tn, float tf, int ax, fl
 struct LtnMat {
   float3 diff;      // diffuse albedo
   float3 f0;        // base specular reflectance
+  float  f90;       // ... and at grazing
   float  rough;     // base GGX roughness (perceptual)
   float  coat;      // clear coat weight
   float  coat_rough;
@@ -282,6 +290,12 @@ LtnMat ltn_material(int box, float3 p) {
     m.coat_rough = 0.3;
     m.emit = ltn_core_color() * (crack * glow * glow * 1.5 * shade.z);
   }
+  // Albedo: scales everything the surface reflects (diffuse, base specular,
+  // the coat), not what it emits.
+  m.diff *= surf.z;
+  m.f0 *= surf.z;
+  m.coat *= surf.z;
+  m.f90 = min(surf.z, 1.0);
   return m;
 }
 
@@ -298,7 +312,7 @@ float3 ltn_light(LtnMat m, float3 n, float3 v, float3 l, float3 E, float widen,
   float a = saturate(m.rough * m.rough + widen);
   float ac = saturate(m.coat_rough * m.coat_rough + widen);
   float3 base = m.diff / LTN_PI +
-                ltn_ggx_d(ndh, a) * ltn_ggx_vis(ndl, ndv, a) * ltn_schlick(m.f0, vdh);
+                ltn_ggx_d(ndh, a) * ltn_ggx_vis(ndl, ndv, a) * ltn_schlick90(m.f0, m.f90, vdh);
   float coat = m.coat * ltn_ggx_d(ndh, ac) * ltn_ggx_vis(ndl, ndv, ac) *
                ltn_schlick(float3(0.04, 0.04, 0.04), vdh).x;
   return E * (base * coat_keep + coat);
@@ -335,7 +349,7 @@ float3 ltn_sphere_light(LtnMat m, float3 n, float3 v, float3 to_c, float3 E0,
   float a2 = saturate(a + grow), ac2 = saturate(ac + grow);
   float norm_b = (a / a2) * (a / a2), norm_c = (ac / ac2) * (ac / ac2);
   float3 spec = ltn_ggx_d(ndh, a) * norm_b * ltn_ggx_vis(ndl, ndv, a) *
-                ltn_schlick(m.f0, vdh) * coat_keep;
+                ltn_schlick90(m.f0, m.f90, vdh) * coat_keep;
   float coat = m.coat * ltn_ggx_d(ndh, ac) * norm_c * ltn_ggx_vis(ndl, ndv, ac) *
                ltn_schlick(float3(0.04, 0.04, 0.04), vdh).x;
   return col + E0 * ndl * (spec + coat);
@@ -499,7 +513,7 @@ void main(uint3 gid : SV_DispatchThreadID) {
   if (shade.y > 0.0) {
     float3 r = reflect(rd, n);
     float3 env = ltn_reflection(pl, r);
-    float3 fb = ltn_schlick(m.f0, ndv) * saturate(1.0 - m.rough * 1.4);
+    float3 fb = ltn_schlick90(m.f0, m.f90, ndv) * saturate(1.0 - m.rough * 1.4);
     col += shade.y * env * (coat_f + coat_keep * fb);
   }
 
