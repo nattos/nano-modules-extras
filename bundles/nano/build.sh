@@ -140,6 +140,27 @@ compile_shaders_compute_var_spv plume_field sim_resolve
   "plume_field_sim_resolve=$TMP_DIR/plume_field_sim_resolve.spv"
 echo "  plume shaders compiled (SPV: shell + bake + compose + march + prefill + slice_debug + gi + fog + composite + sim)"
 
+# lantern — a hollow block cluster with a light inside, in murky water.
+#   shadow    — octahedral depth atlas of the boxes from the core's light samples.
+#   scene     — exact ray-box primary + shading (full res).
+#   fog       — water + halo, equiangular march about the core (half res).
+#   blur      — depth-aware separable blur of the march's in-scatter.
+#   composite — depth-aware upsample + AgX.
+# The passthrough reuses plume's compiled prefill SPV.
+compile_shaders_compute_var_spv lantern shadow
+compile_shaders_compute_var_spv lantern scene
+compile_shaders_compute_var_spv lantern fog
+compile_shaders_compute_var_spv lantern blur
+compile_shaders_compute_var_spv lantern composite
+"$PYTHON" "$NANO_SDK/scripts/_emit_spv_header.py" "$TMP_DIR/lantern_shaders.h" \
+  "lantern_shadow=$TMP_DIR/lantern_shadow.spv" \
+  "lantern_scene=$TMP_DIR/lantern_scene.spv" \
+  "lantern_fog=$TMP_DIR/lantern_fog.spv" \
+  "lantern_blur=$TMP_DIR/lantern_blur.spv" \
+  "lantern_composite=$TMP_DIR/lantern_composite.spv" \
+  "lantern_prefill=$TMP_DIR/plume_prefill.spv"
+echo "  lantern shaders compiled (SPV: shadow + scene + fog + blur + composite + prefill reuse)"
+
 # helio_field — simulated sun on the sdf_field rail: 2D MHD-lite (fluid +
 # magnetic potential) on an oct map, shell ridges derived from the live
 # field lines. Reuses plume's compiled prefill SPV (passthrough) and the
@@ -592,6 +613,7 @@ wasm_build \
   $NANO_EFFECTS_ROOT/monolith/main.cpp \
   $NANO_EFFECTS_ROOT/plume/main.cpp \
   $NANO_EFFECTS_ROOT/plume_field/main.cpp \
+  $NANO_EFFECTS_ROOT/lantern/main.cpp \
   $NANO_EFFECTS_ROOT/helio_field/main.cpp \
   $NANO_EFFECTS_ROOT/dust_halo/main.cpp
 

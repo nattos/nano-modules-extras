@@ -43,6 +43,7 @@ NANO_DECLARE_INSTANCE_EFFECT(envelope_warp)
 NANO_DECLARE_INSTANCE_EFFECT(monolith)
 NANO_DECLARE_INSTANCE_EFFECT(plume)
 NANO_DECLARE_INSTANCE_EFFECT(plume_field)
+NANO_DECLARE_INSTANCE_EFFECT(lantern)
 NANO_DECLARE_INSTANCE_EFFECT(helio_field)
 NANO_DECLARE_INSTANCE_EFFECT(dust_halo)
 // is_identity is not part of NANO_DECLARE_INSTANCE_EFFECT; declare it so the
@@ -441,6 +442,24 @@ void nano_module_main() {
         "la-globe",
         NANO_INSTANCE_LIFECYCLE(plume_field),
     }, &plume_field::preview);
+
+    nano::registerEffect({
+        2,
+        "source.mesh.lantern",
+        "Lantern",
+        "A hollow cluster of stone and glossy shell blocks hanging in deep "
+        "water, with a light burning at its heart. The light escapes only "
+        "through the seams and through gaps where blocks have jutted out, "
+        "cutting soft beams through a halo of murky water; dark blocks "
+        "stand out against the glow, edges caught by cool rim lights. The "
+        "blocks breathe open and shut, the structure turns and the light "
+        "wanders inside it, swinging every beam at once. Layout 0 is the "
+        "poster scene it was built from; other layouts grow new clusters.",
+        "source",
+        "generator,3d,blocks,cubes,cluster,light,core,beams,godrays,volumetric,fog,underwater,halo,shafts,stone,glow,procedural",
+        "la-cube",
+        NANO_INSTANCE_LIFECYCLE(lantern),
+    });
 
     nano::registerEffect({
         2,
