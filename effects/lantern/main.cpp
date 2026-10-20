@@ -368,6 +368,7 @@ struct State {
   float breathe_rate = 0.3f;
   float seam = 0.057f;
   float spin = 0.0f;
+  int spin_axis = 0;   // 0 = vertical (world up), 1 = the structure's own axis
   float drift = 0.3f;
   float core_power = 0.5f;
   float core_r = 1.0f, core_g = 0.56f, core_b = 0.26f;
@@ -441,6 +442,8 @@ void module_init() {
           .label("Seam", "Seam")
       .floatField("spin", 0.0f, -1.f, 1.f, state::PrimaryInput)
           .label("Spin", "Spin")
+      .selectField("spin_axis", 0, state::SecondaryInput, {{"Vertical", 0}, {"Object", 1}})
+          .label("Spin Axis", "Axis")
       .floatField("drift", 0.3f, 0.f, 1.f, state::PrimaryInput)
           .label("Drift", "Drift")
       .group("core", "Core")
@@ -695,6 +698,7 @@ void on_state_patched(void* self, int n, const char* pb, const int* off,
     else if (state::pathIs(p, l, "breathe_rate")) s->breathe_rate = state::patchFloat(i);
     else if (state::pathIs(p, l, "seam"))         s->seam = state::patchFloat(i);
     else if (state::pathIs(p, l, "spin"))         s->spin = state::patchFloat(i);
+    else if (state::pathIs(p, l, "spin_axis"))    s->spin_axis = state::patchInt(i);
     else if (state::pathIs(p, l, "drift"))        s->drift = state::patchFloat(i);
     else if (state::pathIs(p, l, "core_power"))   s->core_power = state::patchFloat(i);
     else if (state::pathIs(p, l, "core_color")) {
@@ -736,7 +740,10 @@ M3 poseBlocks(State* s, int& count) {
     s->built_layout = s->layout;
   }
   const M3 tilt = euler(kRefTiltDeg[0] * kDeg, kRefTiltDeg[1] * kDeg, kRefTiltDeg[2] * kDeg);
-  const M3 egg = mul(tilt, euler(0.0f, 0.0f, (float)(s->spin_phase * kTau)));
+  // Spin turns the tilted structure about the world's vertical, or about its
+  // own (tilted) axis.
+  const M3 turn = euler(0.0f, 0.0f, (float)(s->spin_phase * kTau));
+  const M3 egg = s->spin_axis == 0 ? mul(turn, tilt) : mul(tilt, turn);
   const float bp = (float)s->breathe_phase;
   const float dp = (float)s->drift_phase;
   const float jmax = kCell * kJutMax;
