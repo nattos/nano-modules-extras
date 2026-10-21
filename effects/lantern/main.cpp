@@ -482,7 +482,7 @@ struct State {
   float standoff_deep = 0.7f;
   float speed_deep = 3.0f;
   float local = 0.85f;
-  float orbit_speed = 6.0f;
+  float orbit_speed = 10.0f;
   float streak = 1.0f;
   float heat = 1.0f;
   float hold = 1.0f;
@@ -753,7 +753,7 @@ void module_init() {
           .label("Reach", "Rch")
       .floatField("standoff", 0.08f, 0.01f, 0.5f, state::PrimaryInput, nullptr, 0.f, "m")
           .label("Standoff", "Stnd")
-      .floatField("orbit_speed", 6.0f, 0.f, 40.f, state::PrimaryInput, nullptr, 0.f, "m/s")
+      .floatField("orbit_speed", 10.0f, 0.f, 40.f, state::PrimaryInput, nullptr, 0.f, "m/s")
           .label("Orbit Speed", "OSpd")
       .floatField("standoff_deep", 0.7f, 0.01f, 3.f, state::PrimaryInput, nullptr, 0.f, "m")
           .label("Standoff Deep", "StDp")

@@ -232,7 +232,7 @@ void main(uint3 gid : SV_DispatchThreadID) {
     const float w = bound ? 1.0 : saturate(Scap * susc * pull * orbit.w);
     const float hs = max(h, 0.05);
 
-    if (bound && (Scap < 0.02 || g > 6.0 * hs + 0.3)) bound = false;   // torn loose
+    if (bound && (Scap < 0.02 || g > 4.0 * hs + 0.2)) bound = false;   // torn loose
     // Captured: a free flake drawn in close enough to its lane is held by it.
     if (!bound && captor >= 0 && Scap > 1e-4 && w > 0.15 && g < 3.0 * hs + 0.1) bound = true;
     if (!bound) loft = 0.0;
@@ -258,7 +258,9 @@ void main(uint3 gid : SV_DispatchThreadID) {
         float3 n0, nf;
         ltn_box_sdf(captor, pl, n0);
         ltn_box_sdf(captor, pl + vt3 * la, nf);
-        a -= ncap * (0.8 * dot(vt3, nf - n0) / la);
+        // (Only near the lane: knocked well off it, the lane's bend is no
+        // guide, and leading it at speed fed a runaway.)
+        a -= ncap * (0.8 * saturate(1.0 - abs(g) / (3.0 * hs)) * dot(vt3, nf - n0) / la);
       }
       // Over a face square to its block's spin axis the stream only circles;
       // there an UPDRAFT lifts its lane — steadily, the spring still holding
@@ -294,8 +296,11 @@ void main(uint3 gid : SV_DispatchThreadID) {
       float tl = length(t);
       t = tl > 1e-4 ? t / tl : vel * rsqrt(max(dot(vel, vel), 1e-8));
       // Slower toward the axis, as a turning body is, so a cap's center
-      // doesn't spin.
-      float V = orbit.y * pace * (1.0 + 0.5 * boost) * saturate(rho / lerp(1.5, 0.3, jet2.y));
+      // doesn't spin; faster the closer its lane (up to 1.3x the stream's
+      // pace, the highest 0.8x), so the streams hugging a face overtake those
+      // above them.
+      float V = orbit.y * pace * lerp(1.3, 0.8, lane) * (1.0 + 0.5 * boost) *
+                saturate(rho / lerp(1.5, 0.3, jet2.y));
       float vt = dot(vel, t);
       float3 side = vel - t * vt - ncap * vn;
       a += t * ((V - vt) * 2.0);
