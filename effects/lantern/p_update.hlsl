@@ -8,6 +8,7 @@
 #include "particles.hlsl"
 #include "nano_noise3.hlsl"
 
+
 RWStructuredBuffer<float4> parts  : register(u2);
 RWStructuredBuffer<uint>   gcount : register(u3);
 
@@ -33,11 +34,15 @@ float ltn_groove_offset(float3 p, out float mask) {
   return ph / 40.0;
 }
 
-// A soft box: the log-sum-exp of the distances past box i's three slabs
-// (blended over k), so its edges and corners are rounded over about k and
-// bulge a little outward rather than cutting in; flat faces read as the box's.
-// The normal is the matching smooth blend of the face normals.
-float ltn_box_soft(int i, float3 p, float k, out float3 n) {
+// A flake's LANE round box i, as a distance-like field whose level set at the
+// lane's altitude h is the lane: the box's true distance, less a LIFT that
+// rises toward each edge (over `ramp`, reaching `lift` at the edge and all
+// round it). So a lane rides at h over a face, climbs a little as it nears an
+// edge and wraps round it on a radius of h + lift — a gentle turn that never
+// comes closer to the block than h (a rounding that cut the corner would run
+// the low lanes into the block, flattening them all onto its surface). The
+// normal is the field's gradient (smooth: the true distance is, outside).
+float ltn_lane_field(int i, float3 p, float lift, float ramp, out float3 n) {
   float4 r0 = boxes[i * LTN_BOX_ROWS + 0];
   float4 r1 = boxes[i * LTN_BOX_ROWS + 1];
   float4 r2 = boxes[i * LTN_BOX_ROWS + 2];
@@ -45,13 +50,33 @@ float ltn_box_soft(int i, float3 p, float k, out float3 n) {
   float3 o = p - r0.xyz;
   float3 lq = float3(dot(o, r1.xyz), dot(o, r2.xyz), dot(o, r3.xyz));
   float3 q = abs(lq) - float3(r1.w, r2.w, r3.w);
-  float qm = max(q.x, max(q.y, q.z));
-  float3 e = exp((q - qm) / k);
-  float se = e.x + e.y + e.z;
-  float3 wgt = e / se;
-  float3 s = select(lq < 0.0, -1.0, 1.0);
-  n = normalize(r1.xyz * (wgt.x * s.x) + r2.xyz * (wgt.y * s.y) + r3.xyz * (wgt.z * s.z));
-  return qm + k * log(se);
+  float3 sg = select(lq < 0.0, -1.0, 1.0);
+  // The true distance and its gradient (local).
+  float3 op = max(q, 0.0);
+  float lo = length(op);
+  float d;
+  float3 gd;
+  if (lo > 1e-6) {
+    d = lo;
+    gd = op / lo;
+  } else {
+    d = max(q.x, max(q.y, q.z));
+    gd = (q.x >= q.y && q.x >= q.z) ? float3(1.0, 0.0, 0.0)
+       : (q.y >= q.z ? float3(0.0, 1.0, 0.0) : float3(0.0, 0.0, 1.0));
+  }
+  // How near an edge: per slab, 0 a ramp in from its plane, 1 at it and past;
+  // an edge is two slabs both near, S any of the three edges.
+  float3 t = saturate((q + ramp) / ramp);
+  float3 sm = t * t * (3.0 - 2.0 * t);
+  float3 dsm = 6.0 * t * (1.0 - t) / ramp;
+  float pxy = sm.x * sm.y, pyz = sm.y * sm.z, pzx = sm.z * sm.x;
+  float S = 1.0 - (1.0 - pxy) * (1.0 - pyz) * (1.0 - pzx);
+  float3 dS = float3(sm.y * (1.0 - pyz) * (1.0 - pzx) + sm.z * (1.0 - pxy) * (1.0 - pyz),
+                     sm.x * (1.0 - pyz) * (1.0 - pzx) + sm.z * (1.0 - pxy) * (1.0 - pzx),
+                     sm.y * (1.0 - pxy) * (1.0 - pzx) + sm.x * (1.0 - pxy) * (1.0 - pyz)) * dsm;
+  float3 gl = (gd - lift * dS) * sg;
+  n = normalize(r1.xyz * gl.x + r2.xyz * gl.y + r3.xyz * gl.z);
+  return d - lift * S;
 }
 
 // What scales a magnet's pull on a flake in flight: the sustain, the block's
@@ -168,6 +193,8 @@ void main(uint3 gid : SV_DispatchThreadID) {
   }
   float3 pos = s0.xyz, vel = s1.xyz, nrm = s2.xyz;
   bool bound = s1.w > 0.5;
+  // How far a vortex has lifted a bound flake's lane (s1.w is 1 + this).
+  float loft = bound ? max(s1.w - 1.0, 0.0) : 0.0;
   int captor = (int)s0.w;
   float susc = s3.w;
   int nbox = ltn_box_count();
@@ -200,8 +227,8 @@ void main(uint3 gid : SV_DispatchThreadID) {
     // about Reach is caught) scaled by the block's magnetism. And, for a
     // bound flake, its captor's own surface.
     const float h0 = orbit.x * lerp(0.35, 2.2, lane);
-    float pull = 0.0, dcap = 1.0e9, dnear = 1.0e9;
-    float3 ncap = float3(0.0, 0.0, 1.0);
+    float pull = 0.0, dcap = 1.0e9, dnear = 1.0e9, dnb = 1.0e9;
+    float3 ncap = float3(0.0, 0.0, 1.0), nnb = float3(0.0, 0.0, 1.0);
     int ibest = -1, inear = -1;
     [loop] for (int i = 0; i < nbox; i++) {
       float m = boxes[i * LTN_BOX_ROWS + 4].z;
@@ -209,6 +236,7 @@ void main(uint3 gid : SV_DispatchThreadID) {
       float3 n;
       float d = ltn_box_sdf(i, pos, n);
       if (i == captor) dcap = d;
+      else if (d < dnb) { dnb = d; nnb = n; }
       if (d < dnear) { dnear = d; inear = i; }
       if (!bound && Scap > 1e-4) {
         float eps = cap.y * cap.y * m;
@@ -224,14 +252,28 @@ void main(uint3 gid : SV_DispatchThreadID) {
     float mcap = captor >= 0 ? boxes[captor * LTN_BOX_ROWS + 4].z : 1.0;
     float boost = max(mcap - 1.0, 0.0);
     float h = h0 / (1.0 + 0.6 * boost);
-    // The lane: a SOFT box round the captor (rounding its edges over about
-    // `kr`, bulging a little out from them), so a stream turns an edge in a
-    // gentle arc instead of a lane-tight hairpin.
-    const float kr = 0.12 + 0.6 * h;
-    float g = 0.0;
+    // The lane round the captor (ltn_lane_field): lifted toward the edges so
+    // a stream turns one in a gentle arc instead of a lane-tight hairpin.
+    const float lift = 0.05 + 0.25 * h;
+    const float ramp = 2.0 * (h + lift);
+    float g = 0.0, own = 1.0;
+    float3 nown = ncap;
     if (captor >= 0) {
-      dcap = ltn_box_soft(captor, pos, kr, ncap);
-      g = dcap - h;
+      dcap = ltn_lane_field(captor, pos, lift, ramp, ncap);
+      g = dcap - h - loft;
+      nown = ncap;
+      // The air gap holds off its captor's neighbors too: where another block
+      // stands in the lane (a flush neighbor, one jutting past it), the lane
+      // steps up over it — a smooth union of the two — so the stream rides
+      // over the neighbor instead of jamming against it.
+      const float hn = 0.7 * h + 0.02, kn = 0.06;
+      float gn = dnb - hn;
+      float hh = saturate(0.5 + 0.5 * (gn - g) / kn);
+      own = hh;
+      g = lerp(gn, g, hh) - kn * hh * (1.0 - hh);
+      float3 nb2 = lerp(nnb, ncap, hh);
+      // (Squeezed between two facing walls the normals cancel: keep its own.)
+      if (dot(nb2, nb2) > 1e-4) ncap = normalize(nb2);
     }
 
     // The magnet: how stiffly a bound flake is held at its lane's altitude —
@@ -249,33 +291,51 @@ void main(uint3 gid : SV_DispatchThreadID) {
     if (bound && (Scap < 0.02 || g > 6.0 * hs + 0.3)) bound = false;   // torn loose
     // Captured: a free flake drawn in close enough to its lane is held by it.
     if (!bound && captor >= 0 && Scap > 1e-4 && w > 0.15 && g < 3.0 * hs + 0.1) bound = true;
+    if (!bound) loft = 0.0;
 
     float3 a = float3(0.0, 0.0, 0.0);
     if (bound) {
       // Its altitude: the spring.
       float vn = dot(vel, ncap);
       float hard = min(1.0 + (g / hs) * (g / hs), 3.0);
-      // Over a face square to its block's spin axis the stream only circles;
-      // there the field gives way to an UPDRAFT — the spring lets go and a
-      // lift takes over — so the flakes VORTEX up off the face, still
-      // circling, until they are high enough to tear loose and fly off.
-      float3 Ab = ltn_block_axis(captor);
-      // (Only off faces looking OUT of the structure: lifted off one inside
-      // the hollow, a flake would only vortex deeper in.)
-      float cap_w = smoothstep(0.6, 0.92, abs(dot(ncap, Ab))) * saturate(jet2.w) *
-                    smoothstep(0.0, 0.3, dot(ncap, pos) * rsqrt(max(dot(pos, pos), 1e-6)));
-      float lift = jet2.w * (1.5 + 0.18 * orbit.y);
-      a -= ncap * ((omega * omega * g * hard + 2.0 * 0.3 * omega * vn) * (1.0 - 0.92 * cap_w));
-      a += ncap * (lift * cap_w);
+      a -= ncap * (omega * omega * g * hard + 2.0 * 0.3 * omega * vn);
       // The field leads the turn: looking a moment ahead along its flight,
       // it supplies most of the push that keeps the flake level with its
       // lane as the lane bends (d(v.n)/dt = 0), so the spring only takes up
       // the rest — stiff, but it never has to whip a flake back.
+      // (Read off the lane itself — the flake set back onto it, looking ahead
+      // along it — not at the flake's own height: below the lane by an edge
+      // the field bends as tightly as the edge does, and leading that would
+      // fling it.)
       {
         float la = max(2.0 * dt, 0.004);
-        float3 nf;
-        ltn_box_soft(captor, pos + vel * la, kr, nf);
-        a -= ncap * (0.8 * dot(vel, nf - ncap) / la);
+        float3 pl = pos - ncap * g;
+        float3 vt3 = vel - ncap * vn;
+        float3 n0, nf;
+        ltn_lane_field(captor, pl, lift, ramp, n0);
+        ltn_lane_field(captor, pl + vt3 * la, lift, ramp, nf);
+        a -= ncap * (0.8 * own * dot(vt3, nf - n0) / la);
+      }
+      // A magnet's push on a moving charge does no work: it bends the flight,
+      // never brakes or spurs it. So the field's altitude forces act across
+      // the flake's way only (a slow flake, settling, is held as before), and
+      // each edge it turns costs it no speed — its pace is the stream's alone.
+      a -= vel * (dot(a, vel) / (dot(vel, vel) + 4.0));
+      // Over a face square to its block's spin axis the stream only circles;
+      // there an UPDRAFT lifts its lane — steadily, the spring still holding
+      // the flake to it — so the flakes VORTEX up off the face, still
+      // circling, and once high enough let go and fly off. Off the face the
+      // lane settles back down (never snapping: a slackened spring caught
+      // high would sling the flake away).
+      {
+        float3 Ab = ltn_block_axis(captor);
+        // (Only off faces looking OUT of the structure: lifted off one inside
+        // the hollow, a flake would only vortex deeper in.)
+        float cap_w = smoothstep(0.6, 0.92, abs(dot(ncap, Ab))) * saturate(jet2.w) *
+                      smoothstep(0.0, 0.3, dot(ncap, pos) * rsqrt(max(dot(pos, pos), 1e-6)));
+        float climb = jet2.w * (0.3 + 0.05 * orbit.y);
+        loft += dt * (climb * cap_w - 1.5 * loft * (1.0 - cap_w));
+        loft = max(loft, 0.0);
       }
       // Streaming round its captor, about the block's own axis (one of the
       // two it does not jut along, set per block) — or, as much as Local is
@@ -291,6 +351,13 @@ void main(uint3 gid : SV_DispatchThreadID) {
         rho = lerp(rg, rho, jet2.y);
         W *= rsqrt(max(dot(W, W), 1e-8)) * sgn;
       }
+      // (Up and over a neighbor in its way: where its lane rides a neighbor,
+      // the stream leans away from its own block, so one heading straight at
+      // a wall climbs it rather than stalling there.)
+      {
+        float wt = length(W - ncap * dot(W, ncap));
+        W += nown * (1.5 * (1.0 - own) * saturate(1.0 - 2.0 * wt));
+      }
       float3 t = W - ncap * dot(W, ncap);
       float tl = length(t);
       t = tl > 1e-4 ? t / tl : vel * rsqrt(max(dot(vel, vel), 1e-8));
@@ -300,7 +367,13 @@ void main(uint3 gid : SV_DispatchThreadID) {
       float vt = dot(vel, t);
       float3 side = vel - t * vt - ncap * vn;
       a += t * ((V - vt) * 2.0);
-      a -= side * 1.5;
+      a += (t * length(side) - side) * 1.5;
+      // (And a flake caught going faster than the stream sheds the excess.)
+      {
+        float sp = length(vel);
+        float vcap = 1.25 * V + 2.0;
+        if (sp > vcap) a -= vel * ((sp - vcap) / sp * 4.0);
+      }
       if (cap.w > 0.0) {
         // Drawn sideways into the ember grooves (never along its way, so a
         // stream across them isn't held back).
@@ -319,7 +392,7 @@ void main(uint3 gid : SV_DispatchThreadID) {
       // again (so the vortices' losses come back round).
       {
         float r = max(length(pos), 1e-3);
-        a -= pos / r * (jet2.w * 4.0 * saturate(Scap) * freew * smoothstep(4.0, 6.0, r));
+        a -= pos / r * (jet2.w * 4.0 * saturate(Scap) * freew * smoothstep(3.0, 6.0, r));
       }
       // A slow wander, so the ring isn't clockwork.
       float3 nq = pos * 0.22 + float3(0.0, 0.0, pb.w * 0.04);
@@ -349,6 +422,7 @@ void main(uint3 gid : SV_DispatchThreadID) {
     }
     vel += a * dt;
     pos += vel * dt;
+    if (bound && loft > 1.0 + 4.0 * hs) { bound = false; loft = 0.0; }   // flown off
 
     // Ricochet: a flake held by (or swinging in to) a magnet that strikes a
     // block bounces off it — Ricochet is how much of its speed into the face it
@@ -389,7 +463,7 @@ void main(uint3 gid : SV_DispatchThreadID) {
   }
 
   parts[base + 0u] = float4(pos, (float)captor);
-  parts[base + 1u] = float4(vel, bound ? 1.0 : 0.0);
+  parts[base + 1u] = float4(vel, bound ? 1.0 + loft : 0.0);
   parts[base + 2u] = float4(nrm, s2.w);
   parts[base + 3u] = s3;
   parts[base + 4u] = s4;
