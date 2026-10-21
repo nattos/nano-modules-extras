@@ -33,7 +33,11 @@
 //              a wobble; only a big excursion tears it loose. In flight, a
 //              pull that ramps up hard as it closes (the magneto envelope's
 //              eps/(d^2+eps)) swings it back in; striking a block it
-//              ricochets. The strained blocks hold hardest.
+//              ricochets. The strained blocks hold hardest. Over a face
+//              looking out of the structure and square to its block's spin
+//              axis (where a stream would only circle), the spring gives way
+//              to an updraft: the flakes vortex up off it until they fly off,
+//              and a soft gravity outside the structure arcs them back in.
 //   shell    — the thrown tail: released flakes are pushed onto a sphere
 //              around the structure (p_update), where p_shade shakes them at
 //              the tail's falling frequency (a render-only offset whose speed

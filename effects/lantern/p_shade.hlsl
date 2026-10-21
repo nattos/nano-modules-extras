@@ -99,7 +99,7 @@ void main(uint3 gid : SV_DispatchThreadID) {
   // Debug view Anchors: each flake pinned to a block's center, which always
   // projects inside that block — a check that the raster puts flakes where
   // the scene puts the blocks.
-  const bool anchors = shade.w > 5.5;
+  const bool anchors = shade.w > 5.5 && shade.w < 6.5;
   if (anchors) {
     p = boxes[(int)(id % (uint)max(ltn_box_count(), 1)) * LTN_BOX_ROWS].xyz;
     vel = float3(0.0, 0.0, 0.0);
@@ -115,7 +115,8 @@ void main(uint3 gid : SV_DispatchThreadID) {
   float3 rd = (p - ro) / t;
   // Behind a block? (Point test at its center: the flakes are a few pixels.)
   int2 ip = clamp(int2(px), int2(0, 0), int2(vp.xy) - 1);
-  if (!anchors && t > sceneTex.Load(int3(ip, 0)).a + 0.02) { ltn_cull(id); return; }
+  // (Debug view X-Ray, 7: the flakes behind the blocks too.)
+  if (!anchors && shade.w < 6.5 && t > sceneTex.Load(int3(ip, 0)).a + 0.02) { ltn_cull(id); return; }
 
   // --- Footprint: an ember. The disc's size in pixels (at least a hairline;
   // a smaller flake keeps its size as coverage), stretched from where it is

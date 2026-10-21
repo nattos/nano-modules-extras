@@ -488,6 +488,7 @@ struct State {
   float hold = 1.0f;
   float stick = 0.8f;
   float ricochet = 0.6f;
+  float vortex = 1.0f;
   float lanes = 0.7f;
   float fling = 1.0f;
   float shell_radius = 4.0f;
@@ -713,7 +714,9 @@ void module_init() {
           "pinching in the middle (*Hold* scales it), so it rides up over an "
           "edge under the load and springs back, and only a big excursion "
           "tears it loose. In flight the pull (*Stick*) swings it back in; "
-          "striking a block it ricochets (*Ricochet*). Strained blocks hold "
+          "striking a block it ricochets (*Ricochet*). Over a face square to "
+          "a block's spin axis the flakes VORTEX up off it, circling, until "
+          "they fly off (*Vortex*). Strained blocks hold "
           "hardest. *Lanes* draws it into the ember grooves. How deep the knob is in its "
           "sweep sets the rest: in the middle the lanes hug at *Standoff* and "
           "run at *Orbit Speed*; toward either end they widen to *Standoff "
@@ -764,6 +767,8 @@ void module_init() {
           .label("Stick", "Stck")
       .floatField("ricochet", 0.6f, 0.f, 1.f, state::PrimaryInput)
           .label("Ricochet", "Rico")
+      .floatField("vortex", 1.0f, 0.f, 4.f, state::PrimaryInput)
+          .label("Vortex", "Vrtx")
       .floatField("lanes", 0.7f, 0.f, 1.f, state::PrimaryInput)
           .label("Lanes", "Lane")
       .floatField("dust", 0.5f, 0.f, 2.f, state::PrimaryInput)
@@ -788,7 +793,7 @@ void module_init() {
       .group("debug", "Debug")
       .selectField("debug_view", 0, state::SecondaryInput,
                    {{"Off", 0}, {"Linear", 1}, {"Surfaces", 2}, {"In-scatter", 3},
-                    {"Transmittance", 4}, {"Flakes", 5}, {"Anchors", 6}})
+                    {"Transmittance", 4}, {"Flakes", 5}, {"Anchors", 6}, {"X-Ray", 7}})
           .label("Debug View", "Dbg")
       .textureField("tex_in", state::PrimaryInput)
       .textureField("tex_out", state::PrimaryOutput)
@@ -1120,6 +1125,7 @@ void on_state_patched(void* self, int n, const char* pb, const int* off,
     else if (state::pathIs(p, l, "sustain"))      s->sustain = state::patchFloat(i);
     else if (state::pathIs(p, l, "deadzone"))     s->deadzone = state::patchFloat(i);
     else if (state::pathIs(p, l, "ricochet"))     s->ricochet = state::patchFloat(i);
+    else if (state::pathIs(p, l, "vortex"))       s->vortex = state::patchFloat(i);
     else if (state::pathIs(p, l, "overshoot"))    s->overshoot = state::patchFloat(i);
     else if (state::pathIs(p, l, "sense"))        s->sense = state::patchFloat(i);
     else if (state::pathIs(p, l, "tail"))         s->tail = state::patchFloat(i);
@@ -1486,6 +1492,7 @@ void render(void* self, int vp_w, int vp_h) {
     pu.jet2[0] = 6.0f + 10.0f * S;
     pu.jet2[1] = s->local;
     pu.jet2[2] = s->ricochet;
+    pu.jet2[3] = s->vortex;
     pu.cap[0] = s->stick;
     pu.cap[1] = s->reach;
     pu.cap[2] = s->hold;

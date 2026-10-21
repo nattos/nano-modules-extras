@@ -60,6 +60,12 @@ float msc_free(float Scap, float m, float susc) {
   return sqrt(max(Scap, 0.0)) * max(m, 0.3) * susc;
 }
 
+// The axis flakes circulate block i about (r4.w: one of the two it does not
+// jut along, picked per block on the CPU).
+float3 ltn_block_axis(int i) {
+  return boxes[i * LTN_BOX_ROWS + 1 + clamp((int)boxes[i * LTN_BOX_ROWS + 4].w, 0, 2)].xyz;
+}
+
 // The circulation round block i: about its own axis r4.w (one of the two it
 // does not jut along, picked per block on the CPU), its sense set per block.
 // Unit direction; rho is the distance from that axis.
@@ -242,14 +248,25 @@ void main(uint3 gid : SV_DispatchThreadID) {
 
     if (bound && (Scap < 0.02 || g > 6.0 * hs + 0.3)) bound = false;   // torn loose
     // Captured: a free flake drawn in close enough to its lane is held by it.
-    if (!bound && captor >= 0 && Scap > 1e-4 && w > 0.15 && g < 1.5 * hs) bound = true;
+    if (!bound && captor >= 0 && Scap > 1e-4 && w > 0.15 && g < 3.0 * hs + 0.1) bound = true;
 
     float3 a = float3(0.0, 0.0, 0.0);
     if (bound) {
       // Its altitude: the spring.
       float vn = dot(vel, ncap);
       float hard = min(1.0 + (g / hs) * (g / hs), 3.0);
-      a -= ncap * (omega * omega * g * hard + 2.0 * 0.3 * omega * vn);
+      // Over a face square to its block's spin axis the stream only circles;
+      // there the field gives way to an UPDRAFT — the spring lets go and a
+      // lift takes over — so the flakes VORTEX up off the face, still
+      // circling, until they are high enough to tear loose and fly off.
+      float3 Ab = ltn_block_axis(captor);
+      // (Only off faces looking OUT of the structure: lifted off one inside
+      // the hollow, a flake would only vortex deeper in.)
+      float cap_w = smoothstep(0.6, 0.92, abs(dot(ncap, Ab))) * saturate(jet2.w) *
+                    smoothstep(0.0, 0.3, dot(ncap, pos) * rsqrt(max(dot(pos, pos), 1e-6)));
+      float lift = jet2.w * (1.5 + 0.18 * orbit.y);
+      a -= ncap * ((omega * omega * g * hard + 2.0 * 0.3 * omega * vn) * (1.0 - 0.92 * cap_w));
+      a += ncap * (lift * cap_w);
       // The field leads the turn: looking a moment ahead along its flight,
       // it supplies most of the push that keeps the flake level with its
       // lane as the lane bends (d(v.n)/dt = 0), so the spring only takes up
@@ -297,6 +314,13 @@ void main(uint3 gid : SV_DispatchThreadID) {
       float freew = 1.0 - saturate(2.0 * w);
       a += ltn_ring_accel(pos, vel, s4.z, s4.w) * (freew * (1.0 - 0.7 * R) * (1.0 - saturate(1.6 * jet.w)));
       a += ltn_jet_accel(pos, vel) * freew * (1.0 - R);
+      // Sustained, the structure draws its flakes home: a soft gravity that
+      // arcs a flake thrown off a block back in, comet-like, to be caught
+      // again (so the vortices' losses come back round).
+      {
+        float r = max(length(pos), 1e-3);
+        a -= pos / r * (jet2.w * 4.0 * saturate(Scap) * freew * smoothstep(4.0, 6.0, r));
+      }
       // A slow wander, so the ring isn't clockwork.
       float3 nq = pos * 0.22 + float3(0.0, 0.0, pb.w * 0.04);
       a += float3(nano_gnoise3(nq), nano_gnoise3(nq + float3(31.7, 0.0, 0.0)),
