@@ -58,6 +58,37 @@ float3 ltn_block_swirl(int i, float3 p, out float rho) {
   return W / max(rho, 1e-4);
 }
 
+// A bound flake's stream on block i at pos (n: the lane's normal there): its
+// direction — round the block's own axis, or as much as Local is short of 1
+// round the whole structure, in the flake's sense, along the lane — and the
+// distance rho from the axis it turns about.
+float3 ltn_stream_dir(int i, float3 pos, float3 n, float sgn, float3 vel, out float rho) {
+  float3 W = ltn_block_swirl(i, pos, rho);
+  float3 Wg = cross(egg_r2.xyz, pos);
+  float rg = length(Wg);
+  W = lerp(Wg / max(rg, 1e-4), W, jet2.y);
+  rho = lerp(rg, rho, jet2.y);
+  W *= rsqrt(max(dot(W, W), 1e-8)) * sgn;
+  float3 t = W - n * dot(W, n);
+  float tl = length(t);
+  return tl > 1e-4 ? t / tl : vel * rsqrt(max(dot(vel, vel), 1e-8));
+}
+
+// Its pace: slower toward the axis, as a turning body is, so a cap's center
+// doesn't spin; faster the closer its lane (up to 1.3x the stream's pace, the
+// highest 0.8x), so the streams hugging a face overtake those above them.
+float ltn_stream_pace(float pace, float lane, float boost, float rho) {
+  return orbit.y * pace * lerp(1.3, 0.8, lane) * (1.0 + 0.5 * boost) *
+         saturate(rho / lerp(1.5, 0.3, jet2.y));
+}
+
+// A lane's altitude over block i (magnetism m): the lane spread scaled by the
+// standoff, pulled in by a glint's band (see the main loop).
+float ltn_lane_alt(float lane, float m) {
+  float h = orbit.x * lerp(0.35, 2.2, lane) / (1.0 + 0.6 * max(m - 1.0, 0.0));
+  return 0.3 * h + 0.01;
+}
+
 void ltn_seed(uint id, out float4 s0, out float4 s1, out float4 s2, out float4 s3,
               out float4 s4) {
   float jr = ltn_pgauss(id, 10u), jz = ltn_pgauss(id, 20u);
@@ -97,41 +128,39 @@ float3 ltn_ring_accel(float3 pos, float3 vel, float jr, float jz) {
   return a;
 }
 
-// The sustained regime's jet: the flow of a SMOKE RING about the jet axis,
-// centered on the core (Biot-Savart over a ring filament, softened at its
-// core). Every streamline threads the hole — drawn in from a wide intake,
-// blown through the core as a fast bore, fanned out the far side — and loops
-// back round the outside to the intake, near ones tight and fast, far ones
-// wide and slow. A swirl about the axis turns the loops into helices, as
-// through a turbine. Flakes are dragged toward this flow.
-static const int LTN_JET_SEGS = 24;
-
-float3 ltn_jet_accel(float3 pos, float3 vel) {
+// The sustained regime's jet: a JET ENGINE, a torus of flow about the jet
+// axis through the core. Each flake circles its own loop in the plane through
+// that axis (an oval about a point Rc off the axis, D across and 2D along it,
+// D a little under Rc, spread a little per flake): drawn in from the left, converging on
+// the axis, blown through the narrow bore round the core, fanned out the
+// right and swept back round the outside shell to the intake — fastest
+// through the bore — with a turbine's swirl about the axis that differs
+// flake to flake. The flake is
+// dragged firmly to that flow and held to its loop, so the shell keeps its
+// size instead of the far loops wandering off.
+float3 ltn_jet_accel(float3 pos, float3 vel, float jit, float mix) {
   float3 J = jet.xyz;
-  float3 b1 = normalize(cross(J, float3(0.0, 0.0, 1.0)));
-  float3 b2 = cross(J, b1);
-  float R = 0.45 * ring.x;                  // the vortex ring's radius
-  float gam = 2.0 * R * jet2.x;             // circulation: jet2.x through the center
-  const float d2c = 0.36;                   // its core, squared (m^2)
-  float dth = 6.2831853 / float(LTN_JET_SEGS);
-  float cd = cos(dth), sd = sin(dth);
-  float c = 1.0, sn = 0.0;
-  float3 u = float3(0.0, 0.0, 0.0);
-  [loop] for (int k = 0; k < LTN_JET_SEGS; k++) {
-    float3 rpt = (b1 * c + b2 * sn) * R;
-    float3 dl = (b2 * c - b1 * sn) * (R * dth);
-    float3 r = pos - rpt;
-    float d2 = dot(r, r) + d2c;
-    u += cross(dl, r) / (d2 * sqrt(d2));
-    float cn = c * cd - sn * sd;
-    sn = sn * cd + c * sd;
-    c = cn;
-  }
-  u *= gam / (4.0 * 3.14159265);
   float s = dot(pos, J);
   float3 rp = pos - s * J;
-  u += cross(J, rp) * (0.35 * jet2.x / R * exp(-dot(rp, rp) / 9.0));
-  return (u - vel) * (1.5 * jet.w);
+  float rho = length(rp);
+  float3 er = rho > 1e-4 ? rp / rho : normalize(cross(J, float3(0.0, 0.0, 1.0)));
+  // (Loops stretched 2x along the axis, so it reads as a jet, not a fountain.)
+  const float k = 2.0;
+  float Rc = 0.55 * ring.x;
+  float D = min(0.45 * ring.x * (1.0 + 0.15 * clamp(jit, -2.0, 2.0)), 0.92 * Rc);
+  float2 w = float2(s / k, rho - Rc);
+  float dw = max(length(w), 1e-3);
+  float3 nw = normalize(J * (w.x / k) + er * w.y);            // out from the loop's center
+  float3 tw = normalize(J * (-w.y * k) + er * w.x);           // round it: +J through the bore
+  float U = jet2.x * lerp(0.55, 1.4, saturate(1.0 - (rho - (Rc - D)) / (2.0 * D)));
+  // (Each flake its own swirl, most through the bore, so the flakes that
+  // came in as a flat sheet leave in every direction round the axis and the
+  // shell fills.)
+  float bore = saturate(1.0 - (rho - (Rc - D)) / D);
+  float3 u = tw * U + cross(J, er) * (U * (0.15 + 0.9 * mix * bore));
+  float3 a = (u - vel) * (3.0 * jet.w);
+  a -= nw * ((dw - D) * 4.0 * jet.w);
+  return a;
 }
 
 [numthreads(64, 1, 1)]
@@ -174,6 +203,62 @@ void main(uint3 gid : SV_DispatchThreadID) {
     captor = -1;
   }
 
+  // The BITE: as the sustain rises, flakes may be snapped straight onto a
+  // block's lane, already streaming at its pace — the strongest magnets
+  // likeliest, on a face looking out of the structure — so streamlines show
+  // the moment the knob grabs instead of once flakes have drifted close. They
+  // go in sixes, strung one behind another along the stream: each a
+  // streamline drawn at once (as respawning on traced lines draws them),
+  // stretching as their paces part. A group of bound flakes is rarely moved.
+  if (bite.x > 0.0 && pb.z <= 0.0 && nbox > 0) {
+    const uint G = 6u;
+    uint gid = id / G, gk = id % G;
+    uint fr = (uint)pframe.y * 13u;
+    if (ltn_prand(gid, 1000u + fr) < bite.x * (bound ? 0.25 : 1.0)) {
+      int bi = -1;
+      float best = 0.0;
+      [unroll] for (uint c = 0u; c < 4u; c++) {
+        int i = min((int)(ltn_prand(gid, 1001u + fr + c) * float(nbox)), nbox - 1);
+        float m = boxes[i * LTN_BOX_ROWS + 4].z;
+        float sc = m * (0.5 + ltn_prand(gid, 1005u + fr + c));
+        if (m > 0.0 && sc > best) { best = sc; bi = i; }
+      }
+      if (bi >= 0) {
+        float4 r0 = boxes[bi * LTN_BOX_ROWS + 0];
+        float3 ax[3] = { boxes[bi * LTN_BOX_ROWS + 1].xyz, boxes[bi * LTN_BOX_ROWS + 2].xyz,
+                         boxes[bi * LTN_BOX_ROWS + 3].xyz };
+        float3 hw = float3(boxes[bi * LTN_BOX_ROWS + 1].w, boxes[bi * LTN_BOX_ROWS + 2].w,
+                           boxes[bi * LTN_BOX_ROWS + 3].w);
+        // A face, by its area, looking out of the structure if one comes up.
+        float3 area = float3(hw.y * hw.z, hw.x * hw.z, hw.x * hw.y);
+        int fa = 0;
+        float fs = 1.0;
+        [unroll] for (uint tr = 0u; tr < 3u; tr++) {
+          float u = ltn_prand(gid, 1010u + fr + tr) * (area.x + area.y + area.z);
+          fa = u < area.x ? 0 : (u < area.x + area.y ? 1 : 2);
+          fs = ltn_prand(gid, 1013u + fr + tr) < 0.5 ? -1.0 : 1.0;
+          if (dot(ax[fa] * fs, r0.xyz) > 0.0) break;
+        }
+        int f1 = (fa + 1) % 3, f2 = (fa + 2) % 3;
+        float3 nf = ax[fa] * fs;
+        float hl = ltn_lane_alt(lane, boxes[bi * LTN_BOX_ROWS + 4].z);
+        pos = r0.xyz + nf * (hw[fa] + hl) +
+              ax[f1] * (hw[f1] * 0.9 * (2.0 * ltn_prand(gid, 1016u + fr) - 1.0)) +
+              ax[f2] * (hw[f2] * 0.9 * (2.0 * ltn_prand(gid, 1017u + fr) - 1.0));
+        float rho;
+        float3 t = ltn_stream_dir(bi, pos, nf, sgn, nf, rho);
+        float V = ltn_stream_pace(pace, lane, max(boxes[bi * LTN_BOX_ROWS + 4].z - 1.0, 0.0), rho);
+        // (Strung along the stream, a spacing apart.)
+        pos += t * (0.1 * float(gk));
+        vel = t * V;
+        nrm = nf;
+        captor = bi;
+        bound = true;
+        loft = 0.0;
+      }
+    }
+  }
+
   int steps = (int)pa.w;
   float dt = pa.z;
   [loop] for (int k = 0; k < steps; k++) {
@@ -213,7 +298,7 @@ void main(uint3 gid : SV_DispatchThreadID) {
     // low lanes inside it; one lifted only toward the edges arched in between
     // them). Close — a few cm at full sustain — so the streams draw the
     // blocks' faces and outlines, with a hairline of air under them.
-    const float hl = 0.3 * h + 0.01;
+    const float hl = ltn_lane_alt(lane, mcap);
     float g = 0.0;
     if (captor >= 0) {
       dcap = ltn_box_sdf(captor, pos, ncap);
@@ -284,23 +369,8 @@ void main(uint3 gid : SV_DispatchThreadID) {
       // speed, not a steer: it keeps its momentum, and only slowly gives up
       // going any other way across the face.
       float rho;
-      float3 W = ltn_block_swirl(captor, pos, rho);
-      {
-        float3 Wg = cross(Z, pos);
-        float rg = length(Wg);
-        W = lerp(Wg / max(rg, 1e-4), W, jet2.y);
-        rho = lerp(rg, rho, jet2.y);
-        W *= rsqrt(max(dot(W, W), 1e-8)) * sgn;
-      }
-      float3 t = W - ncap * dot(W, ncap);
-      float tl = length(t);
-      t = tl > 1e-4 ? t / tl : vel * rsqrt(max(dot(vel, vel), 1e-8));
-      // Slower toward the axis, as a turning body is, so a cap's center
-      // doesn't spin; faster the closer its lane (up to 1.3x the stream's
-      // pace, the highest 0.8x), so the streams hugging a face overtake those
-      // above them.
-      float V = orbit.y * pace * lerp(1.3, 0.8, lane) * (1.0 + 0.5 * boost) *
-                saturate(rho / lerp(1.5, 0.3, jet2.y));
+      float3 t = ltn_stream_dir(captor, pos, ncap, sgn, vel, rho);
+      float V = ltn_stream_pace(pace, lane, boost, rho);
       float vt = dot(vel, t);
       float3 side = vel - t * vt - ncap * vn;
       a += t * ((V - vt) * 2.0);
@@ -323,7 +393,7 @@ void main(uint3 gid : SV_DispatchThreadID) {
     } else {
       float freew = 1.0 - saturate(2.0 * w);
       a += ltn_ring_accel(pos, vel, s4.z, s4.w) * (freew * (1.0 - 0.7 * R) * (1.0 - saturate(1.6 * jet.w)));
-      a += ltn_jet_accel(pos, vel) * freew * (1.0 - R);
+      a += ltn_jet_accel(pos, vel, s4.z, ltn_prand(id, 84u) * 2.0 - 1.0) * freew * (1.0 - R);
       // Sustained, the structure draws its flakes home: a soft gravity that
       // arcs a flake thrown off a block back in, comet-like, to be caught
       // again (so the vortices' losses come back round).

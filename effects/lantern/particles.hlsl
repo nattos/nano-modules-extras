@@ -11,8 +11,16 @@
 // THE MOTION is regimes blended by the knob:
 //   ring     — choked: ballistic orbits in a loose horizontal ring, under a
 //              soft nonlinear field that only bites well away from it.
-//   jet      — sustaining: free flakes ride a smoke-ring flow about the jet
-//              axis — drawn in, blown through the core, looped back round.
+//   jet      — sustaining: free flakes ride a JET ENGINE about the jet axis
+//              through the core: drawn in from the left, converging on the
+//              axis, blown through the bore round the core, fanned out the
+//              right into a shell and swept back round the outside — each on
+//              its own oval loop, held to it so the shell keeps its size, the
+//              bore's swirl different flake to flake so the shell fills all
+//              round. Passing the blocks, they get caught.
+//   bite     — as the sustain rises (the knob grabbing), flakes are snapped
+//              straight onto the blocks' lanes in strings of six, already
+//              streaming: streamlines the moment it bites.
 //   stream   — sustaining: blocks are magnets (stronger the further they
 //              strain out, and in a glint's band). A flake caught near one
 //              is BOUND to that block: steered (not pushed) at high speed

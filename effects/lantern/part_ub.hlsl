@@ -21,6 +21,7 @@ cbuffer Part : register(b4) {
   float4 prev_r;    // the previous frame's camera, as cam_r / cam_u / cam_f
   float4 prev_u;
   float4 prev_f;
+  float4 bite;      // chance this step that a flake is snapped onto a block's lane
 };
 
 #endif  // LANTERN_PART_UB_HLSL

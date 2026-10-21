@@ -124,8 +124,9 @@ struct PartUniforms {
   float pa[4], pb[4], ring[4], jet[4], jet2[4], cap[4], orbit[4], shell[4];
   float vibe[4], flake[4], grid[4], pframe[4], pview[4];
   float prev_r[4], prev_u[4], prev_f[4];
+  float bite[4];
 };
-static_assert(sizeof(PartUniforms) == 16 * 16, "PartUniforms layout mismatch");
+static_assert(sizeof(PartUniforms) == 17 * 16, "PartUniforms layout mismatch");
 
 struct Row { float v[4]; };
 
@@ -477,6 +478,7 @@ struct State {
   float jet = 0.6f;
   float jet_angle = 20.0f;
   float capture = 0.6f;
+  float bite = 0.5f;
   float reach = 0.5f;
   float standoff = 0.08f;
   float standoff_deep = 0.7f;
@@ -502,6 +504,8 @@ struct State {
   double sim_dt = 0.0;         // time the flakes haven't been stepped through
   float frame_dt = 1.0f / 60.0f;
   float pending_fling = 0.0f;  // a throw this frame (its charge)
+  float pending_bite = 0.0f;   // how far the sustain has risen since the flakes last stepped
+  float bite_prev_S = -1.0f;
   double vibe_phase = 0.0;
 
   // Accumulators.
@@ -749,6 +753,8 @@ void module_init() {
           .label("Jet Angle", "JAng")
       .floatField("capture", 0.6f, 0.f, 1.f, state::PrimaryInput)
           .label("Capture", "Capt")
+      .floatField("bite", 0.5f, 0.f, 1.f, state::PrimaryInput)
+          .label("Bite", "Bite")
       .floatField("reach", 0.5f, 0.05f, 2.f, state::PrimaryInput, nullptr, 0.f, "m")
           .label("Reach", "Rch")
       .floatField("standoff", 0.08f, 0.01f, 0.5f, state::PrimaryInput, nullptr, 0.f, "m")
@@ -1145,6 +1151,7 @@ void on_state_patched(void* self, int n, const char* pb, const int* off,
     else if (state::pathIs(p, l, "jet"))          s->jet = state::patchFloat(i);
     else if (state::pathIs(p, l, "jet_angle"))    s->jet_angle = state::patchFloat(i);
     else if (state::pathIs(p, l, "capture"))      s->capture = state::patchFloat(i);
+    else if (state::pathIs(p, l, "bite"))         s->bite = state::patchFloat(i);
     else if (state::pathIs(p, l, "reach"))        s->reach = state::patchFloat(i);
     else if (state::pathIs(p, l, "standoff"))     s->standoff = state::patchFloat(i);
     else if (state::pathIs(p, l, "orbit_speed"))  s->orbit_speed = state::patchFloat(i);
@@ -1426,6 +1433,12 @@ void render(void* self, int vp_w, int vp_h) {
   const float release = s->knob.release;
   const float S = std::fmin(1.5f, std::fmax(0.0f, s->sustain * s->knob.level +
                                                      s->overshoot * 2.5f * s->knob.bounce));
+  // The BITE: as the sustain rises (the knob coming in off the choke, its
+  // bounce), flakes are snapped straight onto the blocks' lanes, already
+  // streaming — the streamlines show the moment it grabs, not once the
+  // flakes have drifted near. Bite is the share snapped over a full rise.
+  if (s->bite_prev_S >= 0.0f) s->pending_bite += std::fmax(S - s->bite_prev_S, 0.0f);
+  s->bite_prev_S = S;
   // Each block's magnetism: the further it strains out the stronger (the
   // ember blocks), and stronger still in a glint's band.
   {
@@ -1508,6 +1521,7 @@ void render(void* self, int vp_w, int vp_h) {
       pu.orbit[1] = (s->speed_deep + (s->orbit_speed - s->speed_deep) * x) * (1.0f + 0.6f * over);
       pu.orbit[2] = 6.0f;
       pu.orbit[3] = 1.6f * s->capture;
+      pu.bite[0] = std::fmin(0.6f, s->bite * s->pending_bite);
     }
     pu.shell[0] = s->shell_radius;
     pu.shell[1] = 9.0f;
@@ -1620,6 +1634,7 @@ void render(void* self, int vp_w, int vp_h) {
     s->p_live = nflakes;
     s->sim_dt = 0.0;
     s->pending_fling = 0.0f;
+    s->pending_bite = 0.0f;
   } else {
     s->p_live = 0;
   }
