@@ -16,8 +16,11 @@
 //   stream   — sustaining: blocks are magnets (stronger the further they
 //              strain out, and in a glint's band). A flake caught near one
 //              is BOUND: steered (not pushed) along the blocks' surface at
-//              high speed, round the strata axis, in its own lane a little
-//              above it (lanes spread like the smoke lines over a wing),
+//              high speed, round the block it is over (about that block's
+//              axis nearest the strata axis, each block its own sense, so
+//              neighbors hand flakes across), in its own lane above it (lanes
+//              spread like the smoke lines over a wing; the deeper the knob
+//              is in its sweep, the wider and slower they run),
 //              settling into the ember grooves, filleting the creases between
 //              blocks and climbing over a block in its way. It is snapped
 //              back onto its lane each step — the magneto envelope's latch —

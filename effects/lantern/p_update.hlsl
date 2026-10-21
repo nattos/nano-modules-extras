@@ -33,6 +33,24 @@ float ltn_groove_offset(float3 p, out float mask) {
   return ph / 40.0;
 }
 
+// The circulation round block i: about its own axis nearest the strata axis
+// (so the streams run along its ember grooves), its sense set per block, so
+// neighbors turn against each other and hand flakes across. Unit direction;
+// rho is the distance from that axis.
+float3 ltn_block_swirl(int i, float3 p, float3 Z, out float rho) {
+  float4 r0 = boxes[i * LTN_BOX_ROWS + 0];
+  float3 a1 = boxes[i * LTN_BOX_ROWS + 1].xyz;
+  float3 a2 = boxes[i * LTN_BOX_ROWS + 2].xyz;
+  float3 a3 = boxes[i * LTN_BOX_ROWS + 3].xyz;
+  float d1 = dot(a1, Z), d2 = dot(a2, Z), d3 = dot(a3, Z);
+  float3 A = abs(d1) >= abs(d2) && abs(d1) >= abs(d3) ? a1 * sign(d1)
+           : (abs(d2) >= abs(d3) ? a2 * sign(d2) : a3 * sign(d3));
+  float sense = boxes[i * LTN_BOX_ROWS + 4].y < 0.5 ? -1.0 : 1.0;
+  float3 W = cross(A, p - r0.xyz) * sense;
+  rho = length(W);
+  return W / max(rho, 1e-4);
+}
+
 void ltn_seed(uint id, out float4 s0, out float4 s1, out float4 s2, out float4 s3,
               out float4 s4) {
   float jr = ltn_pgauss(id, 10u), jz = ltn_pgauss(id, 20u);
@@ -153,14 +171,15 @@ void main(uint3 gid : SV_DispatchThreadID) {
     // caught) scaled by the block's magnetism.
     float dmin = 1.0e9, d2nd = 1.0e9, mnear = 1.0, pull = 0.0;
     float3 nmin = float3(0.0, 0.0, 1.0), n2nd = nmin;
+    int inear = -1, i2nd = -1;
     const float h0 = orbit.x * lerp(0.35, 2.2, lane);
     [loop] for (int i = 0; i < nbox; i++) {
       float m = boxes[i * LTN_BOX_ROWS + 4].z;
       if (m <= 0.0) continue;    // not a magnet (a loose fragment): not streamed over
       float3 n;
       float d = ltn_box_sdf(i, pos, n);
-      if (d < dmin) { d2nd = dmin; n2nd = nmin; dmin = d; nmin = n; mnear = m; }
-      else if (d < d2nd) { d2nd = d; n2nd = n; }
+      if (d < dmin) { d2nd = dmin; n2nd = nmin; i2nd = inear; dmin = d; nmin = n; mnear = m; inear = i; }
+      else if (d < d2nd) { d2nd = d; n2nd = n; i2nd = i; }
       if (!bound && Scap > 1e-4) {
         float eps = cap.y * cap.y * m;
         float dl = max(d - h0, 0.0);
@@ -173,10 +192,9 @@ void main(uint3 gid : SV_DispatchThreadID) {
     float h = h0 / (1.0 + 0.6 * boost);
     // Where two blocks meet in a hollow, their normals blend over about a
     // lane's width: the crease becomes a fillet the streams can run along.
-    {
-      float kb = saturate(1.0 - (d2nd - dmin) / max(h, 0.05));
-      nmin = normalize(nmin + n2nd * (kb * kb));
-    }
+    float kb = saturate(1.0 - (d2nd - dmin) / max(h, 0.05));
+    kb *= kb;
+    nmin = normalize(nmin + n2nd * kb);
     float g = dmin - h;
 
     // Held: snapped back onto its lane each step, normal velocity killed —
@@ -184,11 +202,13 @@ void main(uint3 gid : SV_DispatchThreadID) {
     // asks nothing; round an edge it asks the centripetal v^2/lane, so the
     // inner lanes peel off sharp corners at speed while the outer ones hug.
     if (bound) {
-      float need = abs(g) / (dt * dt);
+      // (Outside its lane is what a turn too fast for the hold leaves it;
+      // inside is its lane having widened — it eases out to it.)
+      float need = max(g, 0.0) / (dt * dt);
       if (Scap < 0.02 || need > cap.z * sqrt(Scap) * max(mnear, 0.3)) {
         bound = false;
       } else {
-        pos -= nmin * g;
+        pos -= nmin * max(g, -4.0 * dt);
         vel -= nmin * dot(vel, nmin);
       }
     } else if (Scap > 1e-4 && saturate(Scap * susc * pull * orbit.w) > 0.15 &&
@@ -199,11 +219,26 @@ void main(uint3 gid : SV_DispatchThreadID) {
     }
 
     if (bound) {
-      // Streaming: along the surface, round the strata axis, settling into
-      // the ember grooves — steered, not pushed, so it turns hard.
-      float3 W = cross(Z, pos) * sgn;
-      float rho = length(W);              // distance from the strata axis
-      W /= max(rho, 1e-4);
+      // Streaming: along the surface, round the block it is over (the two
+      // nearest, blended across the crease between them) — or, as much as
+      // Local is short of 1, round the whole structure — settling into the
+      // ember grooves; steered, not pushed, so it turns hard.
+      float rho;
+      float3 W = inear >= 0 ? ltn_block_swirl(inear, pos, Z, rho) : cross(Z, pos);
+      if (inear < 0) { rho = length(W); W /= max(rho, 1e-4); }
+      if (i2nd >= 0 && kb > 0.0) {
+        float r2;
+        W = W + ltn_block_swirl(i2nd, pos, Z, r2) * kb;
+        rho = lerp(rho, r2, 0.5 * kb);
+        W *= rsqrt(max(dot(W, W), 1e-8));
+      }
+      {
+        float3 Wg = cross(Z, pos);
+        float rg = length(Wg);
+        W = lerp(Wg / max(rg, 1e-4), W, jet2.y);
+        rho = lerp(rg, rho, jet2.y);
+        W *= rsqrt(max(dot(W, W), 1e-8)) * sgn;
+      }
       float3 t = W - nmin * dot(W, nmin);
       float tl = length(t);
       if (tl < 0.3) {
@@ -216,7 +251,7 @@ void main(uint3 gid : SV_DispatchThreadID) {
       }
       t = tl > 1e-4 ? t / tl : vel * rsqrt(max(dot(vel, vel), 1e-8));
       // Slower toward the axis, as a turning body is, so the poles don't spin.
-      float V = orbit.y * pace * (1.0 + 0.5 * boost) * saturate(rho / 1.5);
+      float V = orbit.y * pace * (1.0 + 0.5 * boost) * saturate(rho / lerp(1.5, 0.3, jet2.y));
       float3 target = t * V;
       if (cap.w > 0.0) {
         float gm;

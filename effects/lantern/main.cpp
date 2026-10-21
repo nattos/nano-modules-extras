@@ -460,7 +460,7 @@ struct State {
   float bounce = 0.55f;
   float sense = 2.0f;
   float tail = 2.4f;           // s the thrown tail rings out over
-  float sustain = 0.6f;        // the level the knob's full position holds
+  float sustain = 1.0f;        // the level the knob's full position holds
   float overshoot = 1.0f;
   float glint_angle = 35.0f;
   float glint_gain = 1.5f;
@@ -479,6 +479,9 @@ struct State {
   float capture = 0.6f;
   float reach = 0.5f;
   float standoff = 0.08f;
+  float standoff_deep = 0.7f;
+  float speed_deep = 3.0f;
+  float local = 0.85f;
   float orbit_speed = 16.0f;
   float streak = 1.0f;
   float heat = 1.0f;
@@ -661,7 +664,7 @@ void module_init() {
       .floatField("sweep", 0.5f, 0.f, 1.f, state::PrimaryInput, nullptr, 0.f, nullptr,
                   "The knob. 0.5 is home: full sustain, no motion.").wireCombine("replace")
           .label("Sweep", "Sweep")
-      .floatField("sustain", 0.6f, 0.f, 1.f, state::PrimaryInput, nullptr, 0.f, nullptr,
+      .floatField("sustain", 1.0f, 0.f, 1.f, state::PrimaryInput, nullptr, 0.f, nullptr,
                   "How hard the blocks hold the flakes with the knob in the middle.")
           .label("Sustain", "Sus")
       .floatField("deadzone", 0.45f, 0.f, 0.95f, state::SecondaryInput, nullptr, 0.f, nullptr,
@@ -701,12 +704,15 @@ void module_init() {
           "*Ring Loose*, at *Ring Speed*. Sustained, *Jet* blows the free "
           "ones through the core along *Jet Angle* (0 is the screen's left "
           "to right), and the blocks catch them: *Capture* is the magnets' "
-          "pull, *Reach* how far it carries; a caught flake streams along "
-          "the blocks' surface round the structure, in a lane about "
-          "*Standoff* above it (lanes spread around that; closer the higher "
-          "the sustain), at *Orbit Speed* (faster too), held round the "
-          "edges as hard as *Hold* allows before it peels off, gathering "
-          "along the ember grooves as much as *Lanes* says. *Dust* is how much where they crowd darkens the "
+          "pull, *Reach* how far it carries; a caught flake streams round the "
+          "block it is over (*Local* 1; toward 0, round the whole structure) "
+          "in a lane above its surface, held round the edges as hard as "
+          "*Hold* allows before it peels off, gathering along the ember "
+          "grooves as much as *Lanes* says. How deep the knob is in its "
+          "sweep sets the rest: in the middle the lanes hug at *Standoff* and "
+          "run at *Orbit Speed*; toward either end they widen to *Standoff "
+          "Deep* and slow to *Speed Deep* while the magnets weaken, until the "
+          "choke lets them go. *Dust* is how much where they crowd darkens the "
           "light in the water.")
       .intField("flakes", 1200, 0, kMaxFlakes, state::SecondaryInput)
           .label("Flakes", "Flks")
@@ -740,6 +746,12 @@ void module_init() {
           .label("Standoff", "Stnd")
       .floatField("orbit_speed", 16.0f, 0.f, 40.f, state::PrimaryInput, nullptr, 0.f, "m/s")
           .label("Orbit Speed", "OSpd")
+      .floatField("standoff_deep", 0.7f, 0.01f, 3.f, state::PrimaryInput, nullptr, 0.f, "m")
+          .label("Standoff Deep", "StDp")
+      .floatField("speed_deep", 3.0f, 0.f, 40.f, state::PrimaryInput, nullptr, 0.f, "m/s")
+          .label("Speed Deep", "SpDp")
+      .floatField("local", 0.85f, 0.f, 1.f, state::PrimaryInput)
+          .label("Local", "Locl")
       .floatField("hold", 1.0f, 0.f, 4.f, state::PrimaryInput)
           .label("Hold", "Hold")
       .floatField("lanes", 0.7f, 0.f, 1.f, state::PrimaryInput)
@@ -1120,6 +1132,9 @@ void on_state_patched(void* self, int n, const char* pb, const int* off,
     else if (state::pathIs(p, l, "reach"))        s->reach = state::patchFloat(i);
     else if (state::pathIs(p, l, "standoff"))     s->standoff = state::patchFloat(i);
     else if (state::pathIs(p, l, "orbit_speed"))  s->orbit_speed = state::patchFloat(i);
+    else if (state::pathIs(p, l, "standoff_deep")) s->standoff_deep = state::patchFloat(i);
+    else if (state::pathIs(p, l, "speed_deep"))   s->speed_deep = state::patchFloat(i);
+    else if (state::pathIs(p, l, "local"))        s->local = state::patchFloat(i);
     else if (state::pathIs(p, l, "hold"))         s->hold = state::patchFloat(i);
     else if (state::pathIs(p, l, "lanes"))        s->lanes = state::patchFloat(i);
     else if (state::pathIs(p, l, "dust"))         s->dust = state::patchFloat(i);
@@ -1448,6 +1463,7 @@ void render(void* self, int vp_w, int vp_h) {
       pu.jet[3] = s->jet * std::fmin(S / 0.4f, 1.0f);
     }
     pu.jet2[0] = 6.0f + 10.0f * S;
+    pu.jet2[1] = s->local;
     pu.cap[0] = 40.0f;
     pu.cap[1] = s->reach;
     pu.cap[2] = 3000.0f * s->hold;
@@ -1455,8 +1471,12 @@ void render(void* self, int vp_w, int vp_h) {
     {
       const float x = std::fmin(S, 1.0f);
       const float over = std::fmax(S - 1.0f, 0.0f);
-      pu.orbit[0] = s->standoff * std::exp(1.79f * (1.0f - x)) * (1.0f - 0.5f * over);
-      pu.orbit[1] = s->orbit_speed * (0.25f + 0.75f * S);
+      // The depth of the sweep: in the middle the lanes hug at Standoff and
+      // run at Orbit Speed; toward either end they widen to Standoff Deep and
+      // slow to Speed Deep (and the pull and the hold weaken with S), until
+      // the choke lets them go. An overshoot goes past the middle's.
+      pu.orbit[0] = (s->standoff_deep + (s->standoff - s->standoff_deep) * x) * (1.0f - 0.5f * over);
+      pu.orbit[1] = (s->speed_deep + (s->orbit_speed - s->speed_deep) * x) * (1.0f + 0.6f * over);
       pu.orbit[2] = 6.0f;
       pu.orbit[3] = 1.6f * s->capture;
     }
