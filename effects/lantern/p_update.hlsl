@@ -207,12 +207,13 @@ void main(uint3 gid : SV_DispatchThreadID) {
     float boost = max(mcap - 1.0, 0.0);
     float h = h0 / (1.0 + 0.6 * boost);
     // The lane round the captor: the box's own offset at the lane's
-    // altitude (a little over h), so every edge is turned on a radius of that
-    // altitude — a round, convex loop that never comes nearer the block than
-    // its altitude, nor pinches in between the edges (a lane rounded INTO
-    // the block ran the low lanes inside it; one lifted only toward the edges
-    // arched in between them).
-    const float hl = 1.2 * h + 0.03;
+    // altitude, so every edge is turned on a radius of that altitude — a
+    // round, convex loop that never comes nearer the block than its altitude,
+    // nor pinches in between the edges (a lane rounded INTO the block ran the
+    // low lanes inside it; one lifted only toward the edges arched in between
+    // them). Close — a few cm at full sustain — so the streams draw the
+    // blocks' faces and outlines, with a hairline of air under them.
+    const float hl = 0.3 * h + 0.01;
     float g = 0.0;
     if (captor >= 0) {
       dcap = ltn_box_sdf(captor, pos, ncap);
