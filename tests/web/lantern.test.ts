@@ -169,6 +169,44 @@ describe('source.mesh.lantern backend parity', () => {
   jest.setTimeout(120000);
   afterAll(() => setBackend('puppeteer'));
 
+  it('both draw the flakes where the blocks are', async () => {
+    // The flakes go through a raster pass, whose clip space has its own y
+    // convention (spark_vs.hlsl) — got wrong, they draw mirrored about the
+    // frame's middle, away from the blocks they follow. The Anchors view pins
+    // each flake to a block's center, which always projects inside that
+    // block: nearly every dot must land on geometry (Surfaces view: lit),
+    // not on the black water.
+    const frame = async (view: number, flakes: number) => {
+      const out = await runGpuEffectTest({
+        module: 'source.mesh.lantern', bundle: 'nano', width: 320, height: 180,
+        params: [...STATIC, ['debug_view', view], ['flakes', flakes], ['flake_size', 2],
+                 ['distance', 45], ['albedo', 2]],
+        ticks: 1, renderEachTick: true,
+      });
+      expect(out.success).toBe(true);
+      return out;
+    };
+    for (const backend of ['puppeteer', 'metal'] as const) {
+      setBackend(backend);
+      const dots = await frame(6, 512);
+      const surf = await frame(2, 0);
+      let on = 0, off = 0;
+      dots.forEachPixel((c: any, x: number, y: number) => {
+        if (lum(c) < 60) return;
+        // Within a pixel of a surface counts (a dot's rim overhangs).
+        let hit = false;
+        for (let dy = -1; dy <= 1 && !hit; dy++)
+          for (let dx = -1; dx <= 1 && !hit; dx++) {
+            const q = surf.pixelAt(Math.min(319, Math.max(0, x + dx)), Math.min(179, Math.max(0, y + dy)));
+            if (lum(q) > 4) hit = true;
+          }
+        if (hit) on++; else off++;
+      });
+      expect(on).toBeGreaterThan(50);
+      expect(off / (on + off)).toBeLessThan(0.05);
+    }
+  });
+
   it('WebGPU and Metal agree', async () => {
     setBackend('puppeteer');
     const web = await render('lantern_parity_web');

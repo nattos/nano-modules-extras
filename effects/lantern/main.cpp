@@ -778,7 +778,7 @@ void module_init() {
       .group("debug", "Debug")
       .selectField("debug_view", 0, state::SecondaryInput,
                    {{"Off", 0}, {"Linear", 1}, {"Surfaces", 2}, {"In-scatter", 3},
-                    {"Transmittance", 4}, {"Flakes", 5}})
+                    {"Transmittance", 4}, {"Flakes", 5}, {"Anchors", 6}})
           .label("Debug View", "Dbg")
       .textureField("tex_in", state::PrimaryInput)
       .textureField("tex_out", state::PrimaryOutput)

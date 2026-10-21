@@ -35,6 +35,8 @@ SparkOut main(uint vid : SV_VertexID, uint iid : SV_InstanceID) {
   float2 ax = r1.xy;
   float2 tail = r0.xy - ax * len;
   float2 p = tail + ax * u + float2(-ax.y, ax.x) * v;
-  o.pos = float4(p.x * pview.z * 2.0 - 1.0, 1.0 - p.y * pview.w * 2.0, 0.0, 1.0);
+  // Clip space as DXC's SPIR-V means it (Vulkan: +y is DOWN the frame), which
+  // the translations to MSL and WGSL preserve: pixel row 0 is clip y = -1.
+  o.pos = float4(p.x * pview.z * 2.0 - 1.0, p.y * pview.w * 2.0 - 1.0, 0.0, 1.0);
   return o;
 }
