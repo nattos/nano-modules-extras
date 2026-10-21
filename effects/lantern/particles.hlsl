@@ -23,14 +23,14 @@
 //              spread like the smoke lines over a wing; the deeper the knob
 //              is in its sweep, the wider and slower they run),
 //              drawn sideways into the ember grooves, pushed (not steered)
-//              so it keeps its momentum. LATCHED like the magneto envelope's
-//              spheres: snapped back onto its lane each step for as long as
-//              that asks less than the magnet holds; off an edge, carried
-//              straight on, it asks more than a weak magnet holds, flies off,
-//              and a pull that ramps up hard as it closes (eps/(d^2+eps))
-//              swings it back to snap onto the next face — or bounce, coming
-//              in too fast. Pull and hold scale with v^2/lane: as sticky at
-//              any speed; the strained blocks hold hardest.
+//              so it keeps its momentum. Its ALTITUDE is held by a spring —
+//              slightly under-damped, hardening as it is pushed off its lane,
+//              soft deep in the sweep and nearly pinching in the middle — so
+//              it rides up over an edge under the load and springs back with
+//              a wobble; only a big excursion tears it loose. In flight, a
+//              pull that ramps up hard as it closes (the magneto envelope's
+//              eps/(d^2+eps)) swings it back in; striking a block it
+//              ricochets. The strained blocks hold hardest.
 //   shell    — the thrown tail: released flakes are pushed onto a sphere
 //              around the structure (p_update), where p_shade shakes them at
 //              the tail's falling frequency (a render-only offset whose speed

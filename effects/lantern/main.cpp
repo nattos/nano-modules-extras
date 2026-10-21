@@ -101,7 +101,7 @@ constexpr int kRRows = 4;        // LTN_R_ROWS
 constexpr int kGrid = 32;        // LTN_GRID
 constexpr float kGridExtent = 8.0f;   // m, half the presence grid's side
 constexpr float kSplat = 256.0f;      // fixed-point scale of a splat
-constexpr float kSubstep = 1.0f / 240.0f;
+constexpr float kSubstep = 1.0f / 360.0f;
 
 struct FrameUniforms {
   float cam_r[4], cam_u[4], cam_f[4], cam_p[4], vp[4];
@@ -487,6 +487,7 @@ struct State {
   float heat = 1.0f;
   float hold = 1.0f;
   float stick = 0.8f;
+  float ricochet = 0.6f;
   float lanes = 0.7f;
   float fling = 1.0f;
   float shell_radius = 4.0f;
@@ -707,12 +708,13 @@ void module_init() {
           "to right), and the blocks catch them: *Capture* is the magnets' "
           "pull, *Reach* how far it carries; a caught flake streams round the "
           "block that caught it (*Local* 1; toward 0, round the whole structure) "
-          "in a lane above its surface, keeping its momentum. It is LATCHED "
-          "on as long as the magnet holds (*Hold*); off an edge it flies on "
-          "and the pull (*Stick*) swings it back to snap onto the next face "
-          "or another block -- both scale with its speed, so it stays as "
-          "sticky however fast. Strained blocks hold hardest. *Lanes* draws "
-          "it into the ember grooves. How deep the knob is in its "
+          "in a lane above its surface, keeping its momentum, its altitude "
+          "held by a spring: soft and flexible deep in the sweep, nearly "
+          "pinching in the middle (*Hold* scales it), so it rides up over an "
+          "edge under the load and springs back, and only a big excursion "
+          "tears it loose. In flight the pull (*Stick*) swings it back in; "
+          "striking a block it ricochets (*Ricochet*). Strained blocks hold "
+          "hardest. *Lanes* draws it into the ember grooves. How deep the knob is in its "
           "sweep sets the rest: in the middle the lanes hug at *Standoff* and "
           "run at *Orbit Speed*; toward either end they widen to *Standoff "
           "Deep* and slow to *Speed Deep* while the magnets weaken, until the "
@@ -760,6 +762,8 @@ void module_init() {
           .label("Hold", "Hold")
       .floatField("stick", 0.8f, 0.f, 4.f, state::PrimaryInput)
           .label("Stick", "Stck")
+      .floatField("ricochet", 0.6f, 0.f, 1.f, state::PrimaryInput)
+          .label("Ricochet", "Rico")
       .floatField("lanes", 0.7f, 0.f, 1.f, state::PrimaryInput)
           .label("Lanes", "Lane")
       .floatField("dust", 0.5f, 0.f, 2.f, state::PrimaryInput)
@@ -1115,7 +1119,7 @@ void on_state_patched(void* self, int n, const char* pb, const int* off,
     else if (state::pathIs(p, l, "sweep"))        s->sweep = state::patchFloat(i);
     else if (state::pathIs(p, l, "sustain"))      s->sustain = state::patchFloat(i);
     else if (state::pathIs(p, l, "deadzone"))     s->deadzone = state::patchFloat(i);
-    else if (state::pathIs(p, l, "bounce"))       s->bounce = state::patchFloat(i);
+    else if (state::pathIs(p, l, "ricochet"))     s->ricochet = state::patchFloat(i);
     else if (state::pathIs(p, l, "overshoot"))    s->overshoot = state::patchFloat(i);
     else if (state::pathIs(p, l, "sense"))        s->sense = state::patchFloat(i);
     else if (state::pathIs(p, l, "tail"))         s->tail = state::patchFloat(i);
@@ -1143,6 +1147,7 @@ void on_state_patched(void* self, int n, const char* pb, const int* off,
     else if (state::pathIs(p, l, "local"))        s->local = state::patchFloat(i);
     else if (state::pathIs(p, l, "hold"))         s->hold = state::patchFloat(i);
     else if (state::pathIs(p, l, "stick"))        s->stick = state::patchFloat(i);
+    else if (state::pathIs(p, l, "bounce"))       s->bounce = state::patchFloat(i);
     else if (state::pathIs(p, l, "lanes"))        s->lanes = state::patchFloat(i);
     else if (state::pathIs(p, l, "dust"))         s->dust = state::patchFloat(i);
     else if (state::pathIs(p, l, "fling"))        s->fling = state::patchFloat(i);
@@ -1455,7 +1460,7 @@ void render(void* self, int vp_w, int vp_h) {
   int p_init_from = s->p_live;
   if (nflakes < s->p_live) p_init_from = nflakes;
   int steps = (int)std::ceil(s->sim_dt / kSubstep - 1e-6);
-  steps = steps < 0 ? 0 : (steps > 24 ? 24 : steps);
+  steps = steps < 0 ? 0 : (steps > 36 ? 36 : steps);
   if (nflakes > 0) {
     pu.pa[0] = (float)nflakes;
     pu.pa[1] = (float)p_init_from;
@@ -1480,6 +1485,7 @@ void render(void* self, int vp_w, int vp_h) {
     }
     pu.jet2[0] = 6.0f + 10.0f * S;
     pu.jet2[1] = s->local;
+    pu.jet2[2] = s->ricochet;
     pu.cap[0] = s->stick;
     pu.cap[1] = s->reach;
     pu.cap[2] = s->hold;

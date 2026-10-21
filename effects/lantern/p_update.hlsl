@@ -33,6 +33,12 @@ float ltn_groove_offset(float3 p, out float mask) {
   return ph / 40.0;
 }
 
+// What scales a magnet's pull on a flake in flight: the sustain, the block's
+// magnetism, the flake's susceptibility.
+float msc_free(float Scap, float m, float susc) {
+  return sqrt(max(Scap, 0.0)) * max(m, 0.3) * susc;
+}
+
 // The circulation round block i: about its own axis r4.w (one of the two it
 // does not jut along, picked per block on the CPU), its sense set per block.
 // Unit direction; rho is the distance from that axis.
@@ -167,15 +173,16 @@ void main(uint3 gid : SV_DispatchThreadID) {
     // about Reach is caught) scaled by the block's magnetism. And, for a
     // bound flake, its captor's own surface.
     const float h0 = orbit.x * lerp(0.35, 2.2, lane);
-    float pull = 0.0, dcap = 1.0e9;
+    float pull = 0.0, dcap = 1.0e9, dnear = 1.0e9;
     float3 ncap = float3(0.0, 0.0, 1.0);
-    int ibest = -1;
+    int ibest = -1, inear = -1;
     [loop] for (int i = 0; i < nbox; i++) {
       float m = boxes[i * LTN_BOX_ROWS + 4].z;
       if (m <= 0.0) continue;    // not a magnet (a loose fragment)
       float3 n;
       float d = ltn_box_sdf(i, pos, n);
       if (i == captor) { dcap = d; ncap = n; }
+      if (d < dnear) { dnear = d; inear = i; }
       if (!bound && Scap > 1e-4) {
         float eps = cap.y * cap.y * m;
         float dl = max(d - h0, 0.0);
@@ -195,33 +202,28 @@ void main(uint3 gid : SV_DispatchThreadID) {
     float h = h0 / (1.0 + 0.6 * boost);
     float g = dcap - h;
 
-    // The magnet's scale: what it takes to wrap the lane at the stream's
-    // speed (v^2/lane). Its pull and its hold are fractions of that (Stick,
-    // Hold), so it stays as sticky at any speed; the block's magnetism, the
-    // sustain and the flake's own susceptibility scale both.
-    const float Vc = orbit.y;
-    const float aneed = Vc * Vc / max(h, 0.04);
-    const float msc = sqrt(max(Scap, 0.0)) * max(mcap, 0.3) * susc;
+    // The magnet: how stiffly a bound flake is held at its lane's altitude —
+    // a spring, slightly under-damped and hardening as it is pushed off its
+    // lane, so it rides up over an edge under the load and springs back with
+    // a little wobble. Soft and flexible deep in the sweep, nearly pinching in
+    // the middle (stiffer still on an overshoot, a strained block, a glint's
+    // band); scaled by Hold. Only a big excursion breaks it free.
+    const float x = saturate(pb.x);
+    const float omega = cap.z * lerp(5.0, 70.0, x * x) * (1.0 + 0.6 * max(pb.x - 1.0, 0.0)) *
+                        sqrt(max(mcap, 0.3)) * lerp(0.75, 1.25, susc - 0.5);
     const float w = bound ? 1.0 : saturate(Scap * susc * pull * orbit.w);
+    const float hs = max(h, 0.05);
 
-    // LATCHED (the magneto envelope's latch): snapped back onto its lane round
-    // its captor each step, its normal velocity killed — for as long as that
-    // asks less than the magnet holds. Along a face it asks nothing; off an
-    // edge, carried straight on by its own momentum, it asks about v^2/2lane
-    // — more than a weak magnet holds, so it flies off and the pull arcs it
-    // back to snap onto the next face, or into another block's.
-    if (bound) {
-      float need = max(g, 0.0) / (dt * dt);
-      if (Scap < 0.02 || need > cap.z * aneed * msc) {
-        bound = false;
-      } else {
-        pos -= ncap * max(g, -4.0 * dt);
-        vel -= ncap * dot(vel, ncap);
-      }
-    }
+    if (bound && (Scap < 0.02 || g > 6.0 * hs + 0.3)) bound = false;   // torn loose
+    // Captured: a free flake drawn in close enough to its lane is held by it.
+    if (!bound && captor >= 0 && Scap > 1e-4 && w > 0.15 && g < 1.5 * hs) bound = true;
 
     float3 a = float3(0.0, 0.0, 0.0);
     if (bound) {
+      // Its altitude: the spring.
+      float vn = dot(vel, ncap);
+      float hard = min(1.0 + (g / hs) * (g / hs), 8.0);
+      a -= ncap * (omega * omega * g * hard + 2.0 * 0.12 * omega * vn);
       // Streaming round its captor, about the block's own axis (one of the
       // two it does not jut along, set per block) — or, as much as Local is
       // short of 1, round the whole structure. A push toward the stream's
@@ -243,8 +245,9 @@ void main(uint3 gid : SV_DispatchThreadID) {
       // doesn't spin.
       float V = orbit.y * pace * (1.0 + 0.5 * boost) * saturate(rho / lerp(1.5, 0.3, jet2.y));
       float vt = dot(vel, t);
-      a += t * ((V - vt) * 3.0);
-      a -= (vel - t * vt) * 4.0;
+      float3 side = vel - t * vt - ncap * vn;
+      a += t * ((V - vt) * 2.0);
+      a -= side * 1.5;
       if (cap.w > 0.0) {
         // Drawn sideways into the ember grooves (never along its way, so a
         // stream across them isn't held back).
@@ -273,12 +276,10 @@ void main(uint3 gid : SV_DispatchThreadID) {
       }
       // In flight near a magnet: a pull toward its lane that is weak a lane
       // or two out and ramps up hard as it closes (the magneto envelope's
-      // eps/(d^2+eps)), so a flake swings in and SNAPS on; driven under the
-      // lane (by the jet, say) it is pushed back out.
-      if (w > 1e-3 && captor >= 0) {
+      // eps/(d^2+eps)), so a flake swings in and is caught.
+      if (w > 1e-3 && captor >= 0 && g > 0.0) {
         float eps = (0.6 * h + 0.05) * (0.6 * h + 0.05);
-        if (g > 0.0) a -= ncap * (cap.x * aneed * msc * w * eps / (g * g + eps));
-        else if (g < -h) a += ncap * (200.0 * saturate(-g / max(h, 0.05) - 1.0));
+        a -= ncap * (cap.x * omega * omega * hs * msc_free(Scap, mcap, susc) * w * eps / (g * g + eps));
       }
       // Off a surface a stream's speed bleeds slowly toward what the free
       // flow carries: released, it flies on almost ballistically.
@@ -287,23 +288,26 @@ void main(uint3 gid : SV_DispatchThreadID) {
       if (sp > vmax) a -= vel * ((sp - vmax) / sp * 0.5);
     }
     vel += a * dt;
+    pos += vel * dt;
 
-    // Arriving: crossing onto its lane, a flake latches — snapped on, normal
-    // velocity killed — unless it comes in too fast, when it bounces off
-    // (and the pull brings it back for another try).
-    if (!bound && captor >= 0 && Scap > 1e-4 && w > 0.15) {
-      float vn = dot(vel, ncap);
-      if (g + vn * dt <= 0.0 && g > -h) {
-        if (-vn < 0.5 * Vc + 2.0) {
-          bound = true;
-          pos -= ncap * g;
-          vel -= ncap * vn;
-        } else {
-          vel -= ncap * (vn * 1.4);
+    // Ricochet: a flake held by (or swinging in to) a magnet that strikes a
+    // block bounces off it — Ricochet is how much of its speed into the face it
+    // keeps — scattered a little. (Free flakes, the jet's, pass through.)
+    if (inear >= 0 && (bound || w > 0.15)) {
+      float3 nb;
+      float db = ltn_box_sdf(inear, pos, nb);
+      const float rad = 0.01;
+      if (db < rad) {
+        pos += nb * (rad - db);
+        float vn = dot(vel, nb);
+        if (vn < 0.0) {
+          float3 kick = ltn_prand_dir(id, 90u + (uint)k + (uint)pb.w * 7u);
+          kick -= nb * dot(kick, nb);
+          vel -= nb * (vn * (1.0 + jet2.z));
+          vel += kick * (-vn * 0.35 * jet2.z);
         }
       }
     }
-    pos += vel * dt;
 
     // Tumble — faster the faster it flies; a bound flake settles toward the
     // surface's orientation, so a stream's flakes glint together.
