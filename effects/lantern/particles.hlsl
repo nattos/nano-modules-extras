@@ -23,8 +23,11 @@
 //              spread like the smoke lines over a wing; the deeper the knob
 //              is in its sweep, the wider and slower they run),
 //              drawn sideways into the ember grooves, pushed (not steered)
-//              so it keeps its momentum. Its ALTITUDE is held by a spring —
-//              slightly under-damped, hardening as it is pushed off its lane,
+//              so it keeps its momentum. Its lane is a SOFT box round the
+//              block (edges rounded over a blend radius, bulging out a little),
+//              and the field leads each turn, supplying most of the push that
+//              keeps it level as the lane bends. Its ALTITUDE is held by a
+//              spring for the rest — damped, hardening as it is pushed off,
 //              soft deep in the sweep and nearly pinching in the middle — so
 //              it rides up over an edge under the load and springs back with
 //              a wobble; only a big excursion tears it loose. In flight, a

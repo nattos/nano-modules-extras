@@ -33,6 +33,27 @@ float ltn_groove_offset(float3 p, out float mask) {
   return ph / 40.0;
 }
 
+// A soft box: the log-sum-exp of the distances past box i's three slabs
+// (blended over k), so its edges and corners are rounded over about k and
+// bulge a little outward rather than cutting in; flat faces read as the box's.
+// The normal is the matching smooth blend of the face normals.
+float ltn_box_soft(int i, float3 p, float k, out float3 n) {
+  float4 r0 = boxes[i * LTN_BOX_ROWS + 0];
+  float4 r1 = boxes[i * LTN_BOX_ROWS + 1];
+  float4 r2 = boxes[i * LTN_BOX_ROWS + 2];
+  float4 r3 = boxes[i * LTN_BOX_ROWS + 3];
+  float3 o = p - r0.xyz;
+  float3 lq = float3(dot(o, r1.xyz), dot(o, r2.xyz), dot(o, r3.xyz));
+  float3 q = abs(lq) - float3(r1.w, r2.w, r3.w);
+  float qm = max(q.x, max(q.y, q.z));
+  float3 e = exp((q - qm) / k);
+  float se = e.x + e.y + e.z;
+  float3 wgt = e / se;
+  float3 s = select(lq < 0.0, -1.0, 1.0);
+  n = normalize(r1.xyz * (wgt.x * s.x) + r2.xyz * (wgt.y * s.y) + r3.xyz * (wgt.z * s.z));
+  return qm + k * log(se);
+}
+
 // What scales a magnet's pull on a flake in flight: the sustain, the block's
 // magnetism, the flake's susceptibility.
 float msc_free(float Scap, float m, float susc) {
@@ -181,7 +202,7 @@ void main(uint3 gid : SV_DispatchThreadID) {
       if (m <= 0.0) continue;    // not a magnet (a loose fragment)
       float3 n;
       float d = ltn_box_sdf(i, pos, n);
-      if (i == captor) { dcap = d; ncap = n; }
+      if (i == captor) dcap = d;
       if (d < dnear) { dnear = d; inear = i; }
       if (!bound && Scap > 1e-4) {
         float eps = cap.y * cap.y * m;
@@ -192,15 +213,20 @@ void main(uint3 gid : SV_DispatchThreadID) {
       }
     }
     if (bound && dcap > 1.0e8) bound = false;
-    if (!bound) {
-      captor = ibest;
-      if (ibest >= 0) dcap = ltn_box_sdf(ibest, pos, ncap);
-    }
+    if (!bound) captor = ibest;
     // A glint's band pulls the lanes in closer and drives them faster.
     float mcap = captor >= 0 ? boxes[captor * LTN_BOX_ROWS + 4].z : 1.0;
     float boost = max(mcap - 1.0, 0.0);
     float h = h0 / (1.0 + 0.6 * boost);
-    float g = dcap - h;
+    // The lane: a SOFT box round the captor (rounding its edges over about
+    // `kr`, bulging a little out from them), so a stream turns an edge in a
+    // gentle arc instead of a lane-tight hairpin.
+    const float kr = 0.12 + 0.6 * h;
+    float g = 0.0;
+    if (captor >= 0) {
+      dcap = ltn_box_soft(captor, pos, kr, ncap);
+      g = dcap - h;
+    }
 
     // The magnet: how stiffly a bound flake is held at its lane's altitude —
     // a spring, slightly under-damped and hardening as it is pushed off its
@@ -222,8 +248,18 @@ void main(uint3 gid : SV_DispatchThreadID) {
     if (bound) {
       // Its altitude: the spring.
       float vn = dot(vel, ncap);
-      float hard = min(1.0 + (g / hs) * (g / hs), 8.0);
-      a -= ncap * (omega * omega * g * hard + 2.0 * 0.12 * omega * vn);
+      float hard = min(1.0 + (g / hs) * (g / hs), 3.0);
+      a -= ncap * (omega * omega * g * hard + 2.0 * 0.3 * omega * vn);
+      // The field leads the turn: looking a moment ahead along its flight,
+      // it supplies most of the push that keeps the flake level with its
+      // lane as the lane bends (d(v.n)/dt = 0), so the spring only takes up
+      // the rest — stiff, but it never has to whip a flake back.
+      {
+        float la = max(2.0 * dt, 0.004);
+        float3 nf;
+        ltn_box_soft(captor, pos + vel * la, kr, nf);
+        a -= ncap * (0.8 * dot(vel, nf - ncap) / la);
+      }
       // Streaming round its captor, about the block's own axis (one of the
       // two it does not jut along, set per block) — or, as much as Local is
       // short of 1, round the whole structure. A push toward the stream's
