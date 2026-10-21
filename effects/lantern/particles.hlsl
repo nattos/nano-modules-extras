@@ -15,18 +15,18 @@
 //              axis — drawn in, blown through the core, looped back round.
 //   stream   — sustaining: blocks are magnets (stronger the further they
 //              strain out, and in a glint's band). A flake caught near one
-//              is BOUND: steered (not pushed) along the blocks' surface at
-//              high speed, round the block it is over (about that block's
-//              axis nearest the strata axis, each block its own sense, so
-//              neighbors hand flakes across), in its own lane above it (lanes
+//              is BOUND to that block: steered (not pushed) at high speed
+//              round its own rounded shell, about an axis picked per block
+//              (one it does not jut along, its own sense) — across the outer
+//              face and through the seams of a flush block, the whole loop
+//              round a jutting one — in its own lane above it (lanes
 //              spread like the smoke lines over a wing; the deeper the knob
 //              is in its sweep, the wider and slower they run),
-//              settling into the ember grooves, filleting the creases between
-//              blocks and climbing over a block in its way. It is snapped
+//              drawn sideways into the ember grooves. It is snapped
 //              back onto its lane each step — the magneto envelope's latch —
 //              for as long as that asks less than the magnet holds: round an
 //              edge it asks v^2/lane, so inner lanes peel off sharp corners
-//              while outer ones hug.
+//              (often into the next block's pull) while outer ones wrap round.
 //   shell    — the thrown tail: released flakes are pushed onto a sphere
 //              around the structure (p_update), where p_shade shakes them at
 //              the tail's falling frequency (a render-only offset whose speed
@@ -42,7 +42,7 @@ static const int LTN_P_ROWS = 5;     // state rows per flake (p_update)
 static const int LTN_R_ROWS = 4;     // render rows per flake (p_shade -> spark)
 static const int LTN_GRID = 32;      // presence grid, per axis (LTN_GRID in main.cpp)
 
-// State rows: s0 (pos, -1), s1 (vel, bound 0/1),
+// State rows: s0 (pos, captor box or -1), s1 (vel, bound 0/1),
 //             s2 (flake normal, tumble rate), s3 (tumble axis, susceptibility),
 //             s4 (disc radius m, kind, ring jitter r, ring jitter z).
 

@@ -33,20 +33,14 @@ float ltn_groove_offset(float3 p, out float mask) {
   return ph / 40.0;
 }
 
-// The circulation round block i: about its own axis nearest the strata axis
-// (so the streams run along its ember grooves), its sense set per block, so
-// neighbors turn against each other and hand flakes across. Unit direction;
-// rho is the distance from that axis.
-float3 ltn_block_swirl(int i, float3 p, float3 Z, out float rho) {
+// The circulation round block i: about its own axis r4.w (one of the two it
+// does not jut along, picked per block on the CPU), its sense set per block.
+// Unit direction; rho is the distance from that axis.
+float3 ltn_block_swirl(int i, float3 p, out float rho) {
   float4 r0 = boxes[i * LTN_BOX_ROWS + 0];
-  float3 a1 = boxes[i * LTN_BOX_ROWS + 1].xyz;
-  float3 a2 = boxes[i * LTN_BOX_ROWS + 2].xyz;
-  float3 a3 = boxes[i * LTN_BOX_ROWS + 3].xyz;
-  float d1 = dot(a1, Z), d2 = dot(a2, Z), d3 = dot(a3, Z);
-  float3 A = abs(d1) >= abs(d2) && abs(d1) >= abs(d3) ? a1 * sign(d1)
-           : (abs(d2) >= abs(d3) ? a2 * sign(d2) : a3 * sign(d3));
-  float sense = boxes[i * LTN_BOX_ROWS + 4].y < 0.5 ? -1.0 : 1.0;
-  float3 W = cross(A, p - r0.xyz) * sense;
+  float4 r4 = boxes[i * LTN_BOX_ROWS + 4];
+  float3 A = boxes[i * LTN_BOX_ROWS + 1 + clamp((int)r4.w, 0, 2)].xyz;
+  float3 W = cross(A, p - r0.xyz) * (r4.y < 0.5 ? -1.0 : 1.0);
   rho = length(W);
   return W / max(rho, 1e-4);
 }
@@ -141,8 +135,10 @@ void main(uint3 gid : SV_DispatchThreadID) {
   }
   float3 pos = s0.xyz, vel = s1.xyz, nrm = s2.xyz;
   bool bound = s1.w > 0.5;
+  int captor = (int)s0.w;
   float susc = s3.w;
   int nbox = ltn_box_count();
+  if (captor >= nbox) { captor = -1; bound = false; }
 
   const float S = pb.x, R = pb.y;
   const float Scap = S * (1.0 - R) * (1.0 - R);
@@ -160,78 +156,76 @@ void main(uint3 gid : SV_DispatchThreadID) {
     float3 er = r > 1e-3 ? pos / r : ltn_prand_dir(id, 60u);
     vel += er * (shell.z * pb.z * (0.7 + 0.6 * ltn_prand(id, 61u)));
     bound = false;
+    captor = -1;
   }
 
   int steps = (int)pa.w;
   float dt = pa.z;
   [loop] for (int k = 0; k < steps; k++) {
-    // The blocks' surface as one (the nearest box), and the strongest magnet:
-    // a squared Lorentzian of the gap to its lane (the magneto envelope's
-    // falloff, sharpened so only a flake that comes within about Reach is
-    // caught) scaled by the block's magnetism.
-    float dmin = 1.0e9, d2nd = 1.0e9, mnear = 1.0, pull = 0.0;
-    float3 nmin = float3(0.0, 0.0, 1.0), n2nd = nmin;
-    int inear = -1, i2nd = -1;
+    // The strongest magnet: a squared Lorentzian of the gap to its lane (the
+    // magneto envelope's falloff, sharpened so only a flake that comes within
+    // about Reach is caught) scaled by the block's magnetism. And, for a
+    // bound flake, its captor's own surface.
     const float h0 = orbit.x * lerp(0.35, 2.2, lane);
+    float pull = 0.0, dcap = 1.0e9;
+    float3 ncap = float3(0.0, 0.0, 1.0);
+    int ibest = -1;
     [loop] for (int i = 0; i < nbox; i++) {
       float m = boxes[i * LTN_BOX_ROWS + 4].z;
-      if (m <= 0.0) continue;    // not a magnet (a loose fragment): not streamed over
+      if (m <= 0.0) continue;    // not a magnet (a loose fragment)
       float3 n;
       float d = ltn_box_sdf(i, pos, n);
-      if (d < dmin) { d2nd = dmin; n2nd = nmin; i2nd = inear; dmin = d; nmin = n; mnear = m; inear = i; }
-      else if (d < d2nd) { d2nd = d; n2nd = n; i2nd = i; }
+      if (i == captor) { dcap = d; ncap = n; }
       if (!bound && Scap > 1e-4) {
         float eps = cap.y * cap.y * m;
         float dl = max(d - h0, 0.0);
         float lz = eps / (dl * dl + eps);
-        pull = max(pull, m * lz * lz);
+        float pi = m * lz * lz;
+        if (pi > pull) { pull = pi; ibest = i; }
       }
     }
+    if (bound && dcap > 1.0e8) bound = false;
+    if (!bound) {
+      captor = ibest;
+      if (ibest >= 0) dcap = ltn_box_sdf(ibest, pos, ncap);
+    }
     // A glint's band pulls the lanes in closer and drives them faster.
-    float boost = max(mnear - 1.0, 0.0);
+    float mcap = captor >= 0 ? boxes[captor * LTN_BOX_ROWS + 4].z : 1.0;
+    float boost = max(mcap - 1.0, 0.0);
     float h = h0 / (1.0 + 0.6 * boost);
-    // Where two blocks meet in a hollow, their normals blend over about a
-    // lane's width: the crease becomes a fillet the streams can run along.
-    float kb = saturate(1.0 - (d2nd - dmin) / max(h, 0.05));
-    kb *= kb;
-    nmin = normalize(nmin + n2nd * kb);
-    float g = dmin - h;
+    float g = dcap - h;
 
-    // Held: snapped back onto its lane each step, normal velocity killed —
-    // for as long as that asks less than the magnet holds. Along a face it
-    // asks nothing; round an edge it asks the centripetal v^2/lane, so the
-    // inner lanes peel off sharp corners at speed while the outer ones hug.
+    // Held: snapped back onto its lane round its captor each step, normal
+    // velocity killed — for as long as that asks less than the magnet holds.
+    // Along a face it asks nothing; round an edge it asks the centripetal
+    // v^2/lane, so the inner lanes peel off sharp edges at speed (often into
+    // the next block's pull) while the outer ones wrap round.
     if (bound) {
       // (Outside its lane is what a turn too fast for the hold leaves it;
       // inside is its lane having widened — it eases out to it.)
       float need = max(g, 0.0) / (dt * dt);
-      if (Scap < 0.02 || need > cap.z * sqrt(Scap) * max(mnear, 0.3)) {
+      if (Scap < 0.02 || need > cap.z * sqrt(Scap) * max(mcap, 0.3)) {
         bound = false;
       } else {
-        pos -= nmin * max(g, -4.0 * dt);
-        vel -= nmin * dot(vel, nmin);
+        pos -= ncap * max(g, -4.0 * dt);
+        vel -= ncap * dot(vel, ncap);
       }
-    } else if (Scap > 1e-4 && saturate(Scap * susc * pull * orbit.w) > 0.15 &&
-               abs(g) < 0.05 + abs(dot(vel, nmin)) * dt) {
+    } else if (captor >= 0 && Scap > 1e-4 && saturate(Scap * susc * pull * orbit.w) > 0.15 &&
+               abs(g) < 0.05 + abs(dot(vel, ncap)) * dt) {
       bound = true;
-      pos -= nmin * g;
-      vel -= nmin * dot(vel, nmin);
+      pos -= ncap * g;
+      vel -= ncap * dot(vel, ncap);
     }
 
     if (bound) {
-      // Streaming: along the surface, round the block it is over (the two
-      // nearest, blended across the crease between them) — or, as much as
-      // Local is short of 1, round the whole structure — settling into the
-      // ember grooves; steered, not pushed, so it turns hard.
+      // Streaming round its captor, about the block's own axis (one of the
+      // two it does not jut along, set per block) — or, as much as Local is
+      // short of 1, round the whole structure — steered, not pushed, so it
+      // turns hard. On a block flush with its neighbors the loop crosses the
+      // outer face and dives through the seams; round a jutting one it shows
+      // whole.
       float rho;
-      float3 W = inear >= 0 ? ltn_block_swirl(inear, pos, Z, rho) : cross(Z, pos);
-      if (inear < 0) { rho = length(W); W /= max(rho, 1e-4); }
-      if (i2nd >= 0 && kb > 0.0) {
-        float r2;
-        W = W + ltn_block_swirl(i2nd, pos, Z, r2) * kb;
-        rho = lerp(rho, r2, 0.5 * kb);
-        W *= rsqrt(max(dot(W, W), 1e-8));
-      }
+      float3 W = ltn_block_swirl(captor, pos, rho);
       {
         float3 Wg = cross(Z, pos);
         float rg = length(Wg);
@@ -239,24 +233,20 @@ void main(uint3 gid : SV_DispatchThreadID) {
         rho = lerp(rg, rho, jet2.y);
         W *= rsqrt(max(dot(W, W), 1e-8)) * sgn;
       }
-      float3 t = W - nmin * dot(W, nmin);
+      float3 t = W - ncap * dot(W, ncap);
       float tl = length(t);
-      if (tl < 0.3) {
-        // Its way is blocked head-on: it climbs over, along the strata axis,
-        // the way it was already heading (or, lane by lane, either way).
-        float3 Zt = Z - nmin * dot(Z, nmin);
-        float zs = dot(vel, Zt);
-        t = Zt * (abs(zs) > 0.1 ? sign(zs) : (lane < 0.5 ? -1.0 : 1.0)) + t;
-        tl = length(t);
-      }
       t = tl > 1e-4 ? t / tl : vel * rsqrt(max(dot(vel, vel), 1e-8));
-      // Slower toward the axis, as a turning body is, so the poles don't spin.
+      // Slower toward the axis, as a turning body is, so a cap's center
+      // doesn't spin.
       float V = orbit.y * pace * (1.0 + 0.5 * boost) * saturate(rho / lerp(1.5, 0.3, jet2.y));
       float3 target = t * V;
       if (cap.w > 0.0) {
+        // Drawn sideways into the ember grooves (never along its way, so a
+        // stream across them isn't held back).
         float gm;
         float off = ltn_groove_offset(pos, gm);
-        float3 Zt = Z - nmin * dot(Z, nmin);
+        float3 Zt = Z - ncap * dot(Z, ncap);
+        Zt -= t * dot(Zt, t);
         target -= Zt * (off * 30.0 * cap.w * lerp(0.4, 1.0, gm));
       }
       vel = lerp(vel, target, 1.0 - exp(-dt * 40.0));
@@ -280,10 +270,10 @@ void main(uint3 gid : SV_DispatchThreadID) {
         a -= (vel - er * vr) * (0.4 * R);
       }
       // Drawn toward its lane by a nearby magnet, thrown back out from under it.
-      if (w > 1e-3) {
-        float vn = dot(vel, nmin);
-        a += nmin * (g > 0.0 ? -cap.x * w : cap.x * 40.0 * w * saturate(-g / 0.1));
-        a -= nmin * (vn * 4.0 * w);
+      if (w > 1e-3 && captor >= 0) {
+        float vn = dot(vel, ncap);
+        a += ncap * (g > 0.0 ? -cap.x * w : cap.x * 40.0 * w * saturate(-g / 0.1));
+        a -= ncap * (vn * 4.0 * w);
       }
       // Off a surface the streams' speed bleeds away to what the free flow
       // carries, quickly but not at once (a released stream flies on).
@@ -300,7 +290,7 @@ void main(uint3 gid : SV_DispatchThreadID) {
     float3 ax = s3.xyz;
     float cs = cos(spin), sn = sin(spin);
     nrm = nrm * cs + cross(ax, nrm) * sn + ax * dot(ax, nrm) * (1.0 - cs);
-    if (bound) nrm = lerp(nrm, nmin * (dot(nrm, nmin) < 0.0 ? -1.0 : 1.0), 0.02);
+    if (bound) nrm = lerp(nrm, ncap * (dot(nrm, ncap) < 0.0 ? -1.0 : 1.0), 0.02);
     nrm = normalize(nrm);
   }
 
@@ -310,9 +300,10 @@ void main(uint3 gid : SV_DispatchThreadID) {
     ltn_seed(id, a0, a1, a2, a3, a4);
     pos = a0.xyz; vel = a1.xyz; nrm = a2.xyz;
     bound = false;
+    captor = -1;
   }
 
-  parts[base + 0u] = float4(pos, -1.0);
+  parts[base + 0u] = float4(pos, (float)captor);
   parts[base + 1u] = float4(vel, bound ? 1.0 : 0.0);
   parts[base + 2u] = float4(nrm, s2.w);
   parts[base + 3u] = s3;

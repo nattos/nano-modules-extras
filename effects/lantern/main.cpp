@@ -705,7 +705,7 @@ void module_init() {
           "ones through the core along *Jet Angle* (0 is the screen's left "
           "to right), and the blocks catch them: *Capture* is the magnets' "
           "pull, *Reach* how far it carries; a caught flake streams round the "
-          "block it is over (*Local* 1; toward 0, round the whole structure) "
+          "block that caught it (*Local* 1; toward 0, round the whole structure) "
           "in a lane above its surface, held round the edges as hard as "
           "*Hold* allows before it peels off, gathering along the ember "
           "grooves as much as *Lanes* says. How deep the knob is in its "
@@ -1202,7 +1202,16 @@ M3 poseBlocks(State* s, int& count) {
     r[1] = {{ax.x, ax.y, ax.z, half.x}};
     r[2] = {{ay.x, ay.y, ay.z, half.y}};
     r[3] = {{az.x, az.y, az.z, half.z}};
-    r[4] = {{b.stone ? 1.0f : 0.0f, b.seed, 0.0f, b.fragment ? 1.0f : 0.0f}};
+    // .w: the axis flakes circulate this block about — one of the two it
+    // does not jut along, picked per block (-1: a loose fragment).
+    float circ = -1.0f;
+    if (!b.fragment) {
+      const float ax = std::fabs(b.axis.x), ay = std::fabs(b.axis.y), az = std::fabs(b.axis.z);
+      const int jut = (ax >= ay && ax >= az) ? 0 : (ay >= az ? 1 : 2);
+      const float pick = b.seed * 7.31f - std::floor(b.seed * 7.31f);
+      circ = (float)((jut + (pick < 0.5f ? 1 : 2)) % 3);
+    }
+    r[4] = {{b.stone ? 1.0f : 0.0f, b.seed, 0.0f, circ}};
     count++;
   }
   return egg;
@@ -1429,7 +1438,7 @@ void render(void* self, int vp_w, int vp_h) {
       }
       // (The loose fragments are no magnets: flakes held round so small a
       // box only spin in place.)
-      r[4].v[2] = r[4].v[3] > 0.5f ? 0.0f
+      r[4].v[2] = r[4].v[3] < 0.0f ? 0.0f
                 : std::fmax(0.0f, (0.35f + r[0].v[3]) * (1.0f + s->glint_gain * e));
     }
   }
