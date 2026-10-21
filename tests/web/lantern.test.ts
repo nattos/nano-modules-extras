@@ -126,6 +126,33 @@ forEachBackend((backend) => {
       expect(meanLum(lit) - meanLum(dark)).toBeGreaterThan(3);
     });
 
+    it('draws the flakes: specks over black in the Flakes view, and they fly', async () => {
+      // The Flakes debug view is the spark layer alone. Seeded on the ring,
+      // a few hundred flakes land as specks; a few frames later they have
+      // moved.
+      const flakes = async (ticks: number, name: string) => {
+        const out = await runGpuEffectTest({
+          module: 'source.mesh.lantern', bundle: 'nano', width: 320, height: 180,
+          params: [...STATIC, ['debug_view', 5], ['flake_size', 3], ['sparkle', 4]],
+          ticks, renderEachTick: true, dumpName: name,
+        });
+        expect(out.success).toBe(true);
+        expect(out.gpuErrors).toEqual([]);
+        return out;
+      };
+      const a = await flakes(2, `lantern_${backend}_flakes_a`);
+      let lit = 0;
+      a.forEachPixel((c: any) => { if (lum(c) > 12) lit++; });
+      expect(lit).toBeGreaterThan(40);
+      expect(lit).toBeLessThan(320 * 180 * 0.2);
+      const b = await flakes(20, `lantern_${backend}_flakes_b`);
+      let moved = 0;
+      a.forEachPixel((c: any, x: number, y: number) => {
+        if (Math.abs(lum(c) - lum(b.pixelAt(x, y))) > 12) moved++;
+      });
+      expect(moved).toBeGreaterThan(20);
+    });
+
     it('opacity 0 passes the input through', async () => {
       const out = await runGpuEffectTest({
         module: 'source.mesh.lantern', bundle: 'nano', width: 32, height: 32,

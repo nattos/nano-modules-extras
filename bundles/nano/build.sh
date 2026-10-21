@@ -146,6 +146,9 @@ echo "  plume shaders compiled (SPV: shell + bake + compose + march + prefill + 
 #   fog       — water + halo, equiangular march about the core (half res).
 #   blur      — depth-aware separable blur of the march's in-scatter.
 #   composite — depth-aware upsample + AgX.
+#   p_update / p_resolve / p_shade — the mica flakes: sim + presence grid, shading.
+#   spark_vs / spark_fs / spark_mv_fs — the flakes' EWA splats (and motion vectors).
+#   motion    — the blocks' motion vectors (render_outputs).
 # The passthrough reuses plume's compiled prefill SPV.
 compile_shaders_compute_var_spv lantern shadow
 compile_shaders_compute_var_spv lantern escape
@@ -155,7 +158,27 @@ compile_shaders_compute_var_spv lantern scene
 compile_shaders_compute_var_spv lantern fog
 compile_shaders_compute_var_spv lantern blur
 compile_shaders_compute_var_spv lantern composite
+compile_shaders_compute_var_spv lantern p_update
+compile_shaders_compute_var_spv lantern p_resolve
+compile_shaders_compute_var_spv lantern p_shade
+compile_shaders_compute_var_spv lantern motion
+dxc -T vs_6_0 -E main -spirv -fspv-target-env=vulkan1.1 \
+  "${NANO_SHADER_INCLUDES[@]}" \
+  $NANO_EFFECTS_ROOT/lantern/spark_vs.hlsl -Fo "$TMP_DIR/lantern_spark_vs.spv"
+dxc -T ps_6_0 -E main -spirv -fspv-target-env=vulkan1.1 \
+  "${NANO_SHADER_INCLUDES[@]}" \
+  $NANO_EFFECTS_ROOT/lantern/spark_fs.hlsl -Fo "$TMP_DIR/lantern_spark_fs.spv"
+dxc -T ps_6_0 -E main -spirv -fspv-target-env=vulkan1.1 \
+  "${NANO_SHADER_INCLUDES[@]}" \
+  $NANO_EFFECTS_ROOT/lantern/spark_mv_fs.hlsl -Fo "$TMP_DIR/lantern_spark_mv_fs.spv"
 "$PYTHON" "$NANO_SDK/scripts/_emit_spv_header.py" "$TMP_DIR/lantern_shaders.h" \
+  "lantern_p_update=$TMP_DIR/lantern_p_update.spv" \
+  "lantern_p_resolve=$TMP_DIR/lantern_p_resolve.spv" \
+  "lantern_p_shade=$TMP_DIR/lantern_p_shade.spv" \
+  "lantern_motion=$TMP_DIR/lantern_motion.spv" \
+  "lantern_spark_vs=$TMP_DIR/lantern_spark_vs.spv" \
+  "lantern_spark_fs=$TMP_DIR/lantern_spark_fs.spv" \
+  "lantern_spark_mv_fs=$TMP_DIR/lantern_spark_mv_fs.spv" \
   "lantern_shadow=$TMP_DIR/lantern_shadow.spv" \
   "lantern_escape=$TMP_DIR/lantern_escape.spv" \
   "lantern_escape_reduce=$TMP_DIR/lantern_escape_reduce.spv" \
@@ -165,7 +188,7 @@ compile_shaders_compute_var_spv lantern composite
   "lantern_blur=$TMP_DIR/lantern_blur.spv" \
   "lantern_composite=$TMP_DIR/lantern_composite.spv" \
   "lantern_prefill=$TMP_DIR/plume_prefill.spv"
-echo "  lantern shaders compiled (SPV: shadow + escape + escape_reduce + vis + scene + fog + blur + composite + prefill reuse)"
+echo "  lantern shaders compiled (SPV: shadow + escape + escape_reduce + vis + scene + fog + blur + composite + flakes + motion + prefill reuse)"
 
 # helio_field — simulated sun on the sdf_field rail: 2D MHD-lite (fluid +
 # magnetic potential) on an oct map, shell ridges derived from the live

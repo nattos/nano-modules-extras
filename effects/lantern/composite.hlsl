@@ -13,6 +13,7 @@ Texture2D<float4>   fogI     : register(t3);
 Texture2D<float4>   fogT     : register(t4);
 Texture2D<float4>   bgTex    : register(t5);
 RWTexture2D<float4> outTex   : register(u6);
+Texture2D<float4>   sparkTex : register(t7);   // the flakes (spark_fs): radiance x cov, cov
 
 // AgX (Blender's base transform), minimal fit: inset matrix, log2 encoding
 // over [-12.47, 4.03] EV, a polynomial sigmoid, outset matrix. The result is
@@ -78,7 +79,15 @@ void main(uint3 gid : SV_DispatchThreadID) {
   float3 surface = hit ? scene.rgb : float3(0.0002, 0.0004, 0.0016);
   float3 c = I + T * surface;
   int dbg = (int)shade.w;
-  if (dbg == 0) {
+  // The flakes, over what's behind them (their own water in front is already
+  // folded into what they carry).
+  if (dust.w > 0.5) {
+    float4 sp = sparkTex.Load(int3(int2(gid.xy), 0));
+    c = c * (1.0 - saturate(sp.a)) + sp.rgb;
+    // Debug: the flakes alone, their coverage a faint gray under them.
+    if (dbg == 5) c = sp.rgb + 0.02 * saturate(sp.a);
+  }
+  if (dbg == 0 || dbg == 5) {
     c = ltn_agx(c * grade.x, grade.w);
   } else {
     // Debug views: LINEAR values (times exposure), sRGB-encoded, no tonemap —

@@ -58,6 +58,8 @@ cbuffer Frame : register(b0) {
   float4 heart;     // the heart's emission (rgb radiance), 0
   float4 air;       // the air wall: view depth its edge starts, ends; amount, 0
   float4 surf;      // shell glow, chip amount, albedo scale, 0
+  float4 dust;      // flake dust: extinction per (flake/m^3), scatter albedo,
+                    //   presence grid half extent (m), spark layer on (0/1)
   float4 lsamp[LTN_MAX_SAMPLES];  // core light sample positions (world)
 };
 

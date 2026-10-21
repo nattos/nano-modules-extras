@@ -29,6 +29,21 @@
  *   blur (x2) — depth-aware separable blur of the march's dithered in-scatter.
  *   composite — depth-aware upsample, AgX, dither, over the input.
  *
+ * And the FLAKES (particles.hlsl): ~1000 specks of mica, grit and silt,
+ * simulated (p_update), splatted into a presence grid the fog reads as dust
+ * (p_resolve), shaded (p_shade) and drawn as EWA splats into a spark layer
+ * (spark_vs/fs) the composite lays over the scene. They are played by the
+ * SWEEP — one knob (sweep_knob.h, as three_planes' rig and Side Racks ride
+ * it): its level SUSTAINS (blocks capture flakes into tight fast orbits, a
+ * jet blows the free ones through the core), its bounce OVERSHOOTS, a glint
+ * (three_planes_glints.h) sweeps a slanted band of extra magnetism across the
+ * screen, the choke lets them go ballistic in a loose ring, and a throw FLINGS
+ * them onto a sphere where the tail shakes them as it rings out.
+ *
+ * With render_outputs read downstream, the blocks' and the flakes' motion
+ * vectors go out on its motion leaf (motion.hlsl + the spark raster) for a
+ * motion blur to streak.
+ *
  * Units are the scene's: metres, Blender axes (Z up), the structure's center
  * at the origin, and Cycles light units (calibrated below), so the scene's
  * light powers and densities carry over unchanged.
@@ -40,6 +55,9 @@
 
 #include <cmath>
 #include <cstdint>
+
+#include <sketch/sweep_knob.h>
+#include <sketch/three_planes_glints.h>
 
 #include "layout_ref.h"
 #include "lantern_shaders.h"
@@ -76,6 +94,15 @@ constexpr int kFogSteps = 64;
 constexpr int kEscRes = 256;     // LTN_ESC_RES
 constexpr int kEscLow = 64;      // LTN_ESC_LOW
 
+// The flakes (particles.hlsl).
+constexpr int kMaxFlakes = 4096;
+constexpr int kPRows = 5;        // LTN_P_ROWS
+constexpr int kRRows = 4;        // LTN_R_ROWS
+constexpr int kGrid = 32;        // LTN_GRID
+constexpr float kGridExtent = 8.0f;   // m, half the presence grid's side
+constexpr float kSplat = 256.0f;      // fixed-point scale of a splat
+constexpr float kSubstep = 1.0f / 240.0f;
+
 struct FrameUniforms {
   float cam_r[4], cam_u[4], cam_f[4], cam_p[4], vp[4];
   float core_p[4], core_i[4], amb_d[4], amb_e[4], rim_d[4], rim_e[4];
@@ -87,9 +114,18 @@ struct FrameUniforms {
   float heart[4];
   float air[4];
   float surf[4];
+  float dust[4];
   float lsamp[kSamples][4];
 };
-static_assert(sizeof(FrameUniforms) == 37 * 16, "FrameUniforms layout mismatch");
+static_assert(sizeof(FrameUniforms) == 38 * 16, "FrameUniforms layout mismatch");
+
+// Mirrors `cbuffer Part` (part_ub.hlsl), row for row.
+struct PartUniforms {
+  float pa[4], pb[4], ring[4], jet[4], jet2[4], cap[4], orbit[4], shell[4];
+  float vibe[4], flake[4], grid[4], pframe[4], pview[4];
+  float prev_r[4], prev_u[4], prev_f[4];
+};
+static_assert(sizeof(PartUniforms) == 16 * 16, "PartUniforms layout mismatch");
 
 struct Row { float v[4]; };
 
@@ -347,6 +383,8 @@ int buildProcedural(Block* out, int seed) {
 
 static gpu::ComputePSO s_pso_shadow, s_pso_escape, s_pso_reduce, s_pso_vis, s_pso_scene,
     s_pso_fog, s_pso_blur, s_pso_comp, s_pso_prefill;
+static gpu::ComputePSO s_pso_p_update, s_pso_p_resolve, s_pso_p_shade, s_pso_motion;
+static gpu::RenderPSO s_pso_spark, s_pso_spark_mv;
 
 struct BlurUniforms { float dir_x, dir_y, spacing, _pad; };
 
@@ -362,6 +400,18 @@ struct State {
   int block_count = 0;
   int built_layout = -1;
   Row rows[kMaxBoxes * kBoxRows];
+
+  // The flakes on the GPU: state (kPRows a flake), the presence grid's
+  // counts + running average, render records (kRRows a flake).
+  gpu::Buffer ub_part, p_state, p_grid, p_accum, p_recs, prev_box_buf;
+  gpu::Texture presence, presence_zero, spark, motion_tex;
+  int spark_w = 0, spark_h = 0, motion_w = 0, motion_h = 0;
+  int p_live = 0;            // flakes the state buffer holds
+  // Last frame's poses, for motion vectors.
+  Row prev_rows[kMaxBoxes * kBoxRows];
+  int prev_count = -1, prev_layout = -1;
+  float prev_cam[3][4] = {};
+  bool prev_cam_valid = false;
 
   // Params.
   int layout = 0;
@@ -403,6 +453,48 @@ struct State {
   float albedo = 1.0f;
   float opacity = 1.0f;
   int debug_view = 0;
+
+  // The sweep.
+  float sweep = sweep_knob::kSweepCenter;
+  float deadzone = 0.45f;
+  float bounce = 0.55f;
+  float sense = 2.0f;
+  float tail = 2.4f;           // s the thrown tail rings out over
+  float sustain = 0.6f;        // the level the knob's full position holds
+  float overshoot = 1.0f;
+  float glint_angle = 35.0f;
+  float glint_gain = 1.5f;
+  float glint_width = 0.12f;
+  // The flakes.
+  int flakes = 1200;
+  float flake_size = 1.5f;
+  float mica = 0.3f;
+  float sparkle = 1.5f;
+  float tumble = 1.0f;
+  float ring_radius = 4.2f;
+  float ring_loose = 0.6f;
+  float ring_speed = 1.0f;
+  float jet = 0.6f;
+  float jet_angle = 20.0f;
+  float capture = 0.6f;
+  float reach = 0.5f;
+  float standoff = 0.08f;
+  float orbit_speed = 4.0f;
+  float hold = 1.0f;
+  float lanes = 0.7f;
+  float fling = 1.0f;
+  float shell_radius = 4.0f;
+  float vibe = 0.06f;
+  float vibe_hz = 16.0f;
+  float vibe_spread = 0.25f;
+  float dust = 0.5f;
+
+  sweep_knob::Knob knob;
+  three_planes_glints::Core glint_core;
+  double sim_dt = 0.0;         // time the flakes haven't been stepped through
+  float frame_dt = 1.0f / 60.0f;
+  float pending_fling = 0.0f;  // a throw this frame (its charge)
+  double vibe_phase = 0.0;
 
   // Accumulators.
   double time = 0.0;
@@ -548,13 +640,130 @@ void module_init() {
           .label("Shell Glow", "SGlw")
       .floatField("opacity", 1.0f, 0.f, 1.f, state::PrimaryInput)
           .label("Opacity", "Opac")
+      .group("sweep", "Sweep")
+        .groupHelp(
+          "One knob plays the flakes, like a strummed string. **Sweep** is "
+          "the knob: 0.5 is home. Across the middle (*Deadzone*) the flakes "
+          "SUSTAIN at *Sustain*: the blocks become magnets that catch them "
+          "into fast, tight orbits, and a jet blows the free ones through the "
+          "core. Toward either end the sustain fades, and at the end (the "
+          "choke) they let go into loose ballistic orbits around a ring. "
+          "Sweep back in fast and it *Overshoots* -- tighter and faster for "
+          "a moment. Each pass through the middle sends a GLINT across the "
+          "screen, a slanted band (*Glint Angle*, *Glint Width*) that makes "
+          "the blocks under it stronger magnets (*Glint Gain*). And a hard "
+          "pass through the middle that goes on to the choke THROWS: the "
+          "flakes are flung onto a sphere around the structure and shaken "
+          "there while the tail rings out over *Tail* seconds -- stop short "
+          "of the choke and nothing is thrown (a muted string).")
+      .floatField("sweep", 0.5f, 0.f, 1.f, state::PrimaryInput, nullptr, 0.f, nullptr,
+                  "The knob. 0.5 is home: full sustain, no motion.").wireCombine("replace")
+          .label("Sweep", "Sweep")
+      .floatField("sustain", 0.6f, 0.f, 1.f, state::PrimaryInput, nullptr, 0.f, nullptr,
+                  "How hard the blocks hold the flakes with the knob in the middle.")
+          .label("Sustain", "Sus")
+      .floatField("deadzone", 0.45f, 0.f, 0.95f, state::SecondaryInput, nullptr, 0.f, nullptr,
+                  "Fraction of each half of the knob that stays at full sustain.")
+          .label("Deadzone", "DZ")
+      .floatField("bounce", 0.55f, 0.f, 1.f, state::SecondaryInput, nullptr, 0.f, nullptr,
+                  "How far ahead of the knob a fast return runs.")
+          .label("Bounce", "Bnc")
+      .floatField("overshoot", 1.0f, 0.f, 4.f, state::PrimaryInput, nullptr, 0.f, nullptr,
+                  "How much of that lead pushes the sustain past its level.")
+          .label("Overshoot", "Over")
+      .floatField("sense", 2.0f, 0.1f, 8.f, state::SecondaryInput, nullptr, 0.f, nullptr,
+                  "Knob ranges per second that count as a full-speed sweep.")
+          .label("Sensitivity", "Sens")
+      .floatField("tail", 2.4f, 0.2f, 8.f, state::PrimaryInput, nullptr, 0.f, "s",
+                  "How long a throw's tail rings out.")
+          .label("Tail", "Tail")
+      .floatField("glint_angle", 35.0f, -90.f, 90.f, state::SecondaryInput, nullptr, 0.f, "deg",
+                  "Which way the glints cross the screen; 0 left to right.")
+          .label("Glint Angle", "GAng")
+      .floatField("glint_gain", 1.5f, 0.f, 4.f, state::PrimaryInput, nullptr, 0.f, nullptr,
+                  "How much stronger a glint makes the magnets under it.")
+          .label("Glint Gain", "GGain")
+      .floatField("glint_width", 0.12f, 0.02f, 0.5f, state::SecondaryInput, nullptr, 0.f, nullptr,
+                  "A glint's half-width, as a fraction of the screen it crosses.")
+          .label("Glint Width", "GWid")
+      .group("flakes", "Flakes")
+        .groupHelp(
+          "The specks of mica, grit and silt flying around the structure. "
+          "*Flakes* is how many (0 turns them off); *Size* scales the "
+          "poster's 4-13 mm flakes; *Mica* is the share that are polished "
+          "and glint, the rest are dark grit and dull silt that show against "
+          "the glow; *Sparkle* scales how bright they shine and *Tumble* how "
+          "fast they turn. Choked, they orbit a ring *Ring Radius* out, "
+          "*Ring Loose*, at *Ring Speed*. Sustained, *Jet* blows the free "
+          "ones through the core along *Jet Angle* (0 is the screen's left "
+          "to right), and the blocks catch them: *Capture* is the magnets' "
+          "pull, *Reach* how far it carries, *Standoff* how far above the "
+          "surface a held flake orbits at full sustain (further when it's "
+          "low), *Orbit Speed* how fast, *Hold* how hard round the edges "
+          "before it flies off, *Lanes* how strongly they gather along the "
+          "ember grooves. *Dust* is how much where they crowd darkens the "
+          "light in the water.")
+      .intField("flakes", 1200, 0, kMaxFlakes, state::SecondaryInput)
+          .label("Flakes", "Flks")
+      .floatField("flake_size", 1.5f, 0.25f, 4.f, state::PrimaryInput)
+          .label("Size", "Size")
+      .floatField("mica", 0.3f, 0.f, 1.f, state::PrimaryInput)
+          .label("Mica", "Mica")
+      .floatField("sparkle", 1.5f, 0.f, 4.f, state::PrimaryInput)
+          .label("Sparkle", "Sprk")
+      .floatField("tumble", 1.0f, 0.f, 4.f, state::PrimaryInput)
+          .label("Tumble", "Tmbl")
+      .floatField("ring_radius", 4.2f, 1.f, 8.f, state::PrimaryInput, nullptr, 0.f, "m")
+          .label("Ring Radius", "RRad")
+      .floatField("ring_loose", 0.6f, 0.f, 1.f, state::PrimaryInput)
+          .label("Ring Loose", "RLse")
+      .floatField("ring_speed", 1.0f, 0.f, 4.f, state::PrimaryInput, nullptr, 0.f, "m/s")
+          .label("Ring Speed", "RSpd")
+      .floatField("jet", 0.6f, 0.f, 1.f, state::PrimaryInput)
+          .label("Jet", "Jet")
+      .floatField("jet_angle", 20.0f, -180.f, 180.f, state::SecondaryInput, nullptr, 0.f, "deg")
+          .label("Jet Angle", "JAng")
+      .floatField("capture", 0.6f, 0.f, 1.f, state::PrimaryInput)
+          .label("Capture", "Capt")
+      .floatField("reach", 0.5f, 0.05f, 2.f, state::PrimaryInput, nullptr, 0.f, "m")
+          .label("Reach", "Rch")
+      .floatField("standoff", 0.08f, 0.01f, 0.5f, state::PrimaryInput, nullptr, 0.f, "m")
+          .label("Standoff", "Stnd")
+      .floatField("orbit_speed", 4.0f, 0.f, 12.f, state::PrimaryInput, nullptr, 0.f, "m/s")
+          .label("Orbit Speed", "OSpd")
+      .floatField("hold", 1.0f, 0.f, 4.f, state::PrimaryInput)
+          .label("Hold", "Hold")
+      .floatField("lanes", 0.7f, 0.f, 1.f, state::PrimaryInput)
+          .label("Lanes", "Lane")
+      .floatField("dust", 0.5f, 0.f, 2.f, state::PrimaryInput)
+          .label("Dust", "Dust")
+      .group("tail", "Throw")
+        .groupHelp(
+          "What a throw does. *Fling* is how hard the flakes are blown out "
+          "onto a sphere *Shell Radius* around the structure; while the tail "
+          "rings out they shake there -- *Shake* far, starting at *Shake Hz* "
+          "and slowing as the tail dies, all in step unless *Shake Spread* "
+          "detunes them. Wire a motion blur after this effect to streak it.")
+      .floatField("fling", 1.0f, 0.f, 4.f, state::PrimaryInput)
+          .label("Fling", "Flng")
+      .floatField("shell_radius", 4.0f, 2.f, 10.f, state::PrimaryInput, nullptr, 0.f, "m")
+          .label("Shell Radius", "SRad")
+      .floatField("vibe", 0.06f, 0.f, 0.5f, state::PrimaryInput, nullptr, 0.f, "m")
+          .label("Shake", "Shk")
+      .floatField("vibe_hz", 16.0f, 0.5f, 60.f, state::PrimaryInput, nullptr, 0.f, "Hz")
+          .label("Shake Hz", "ShHz")
+      .floatField("vibe_spread", 0.25f, 0.f, 1.f, state::PrimaryInput)
+          .label("Shake Spread", "ShSp")
       .group("debug", "Debug")
       .selectField("debug_view", 0, state::SecondaryInput,
                    {{"Off", 0}, {"Linear", 1}, {"Surfaces", 2}, {"In-scatter", 3},
-                    {"Transmittance", 4}})
+                    {"Transmittance", 4}, {"Flakes", 5}})
           .label("Debug View", "Dbg")
       .textureField("tex_in", state::PrimaryInput)
-      .textureField("tex_out", state::PrimaryOutput);
+      .textureField("tex_out", state::PrimaryOutput)
+      // Motion vectors (blocks + flakes) on the render_outputs motion leaf,
+      // made only when something downstream reads it.
+      .renderOutputs(state::PrimaryOutput);
   schema.capability(state::Capability::Generator);
   state::init("source.mesh.lantern", {1, 0, 0}, schema);
 
@@ -577,6 +786,16 @@ void module_init() {
   state::registerShaderSPV("lantern_composite", LANTERN_COMPOSITE_SPV,
                            LANTERN_COMPOSITE_SPV_SIZE);
   state::registerShaderSPV("lantern_prefill", LANTERN_PREFILL_SPV, LANTERN_PREFILL_SPV_SIZE);
+  state::registerShaderSPV("lantern_p_update", LANTERN_P_UPDATE_SPV, LANTERN_P_UPDATE_SPV_SIZE);
+  state::registerShaderSPV("lantern_p_resolve", LANTERN_P_RESOLVE_SPV, LANTERN_P_RESOLVE_SPV_SIZE,
+                           "rgba16float", "write");
+  state::registerShaderSPV("lantern_p_shade", LANTERN_P_SHADE_SPV, LANTERN_P_SHADE_SPV_SIZE);
+  state::registerShaderSPV("lantern_motion", LANTERN_MOTION_SPV, LANTERN_MOTION_SPV_SIZE,
+                           "rgba16float", "write");
+  state::registerShaderSPV("lantern_spark_vs", LANTERN_SPARK_VS_SPV, LANTERN_SPARK_VS_SPV_SIZE);
+  state::registerShaderSPV("lantern_spark_fs", LANTERN_SPARK_FS_SPV, LANTERN_SPARK_FS_SPV_SIZE);
+  state::registerShaderSPV("lantern_spark_mv_fs", LANTERN_SPARK_MV_FS_SPV,
+                           LANTERN_SPARK_MV_FS_SPV_SIZE);
   auto cs_shadow = gpu::Device::createShaderModuleByName("lantern_shadow");
   auto cs_escape = gpu::Device::createShaderModuleByName("lantern_escape");
   auto cs_reduce = gpu::Device::createShaderModuleByName("lantern_escape_reduce");
@@ -586,7 +805,16 @@ void module_init() {
   auto cs_blur = gpu::Device::createShaderModuleByName("lantern_blur");
   auto cs_comp = gpu::Device::createShaderModuleByName("lantern_composite");
   auto cs_prefill = gpu::Device::createShaderModuleByName("lantern_prefill");
+  auto cs_p_update = gpu::Device::createShaderModuleByName("lantern_p_update");
+  auto cs_p_resolve = gpu::Device::createShaderModuleByName("lantern_p_resolve");
+  auto cs_p_shade = gpu::Device::createShaderModuleByName("lantern_p_shade");
+  auto cs_motion = gpu::Device::createShaderModuleByName("lantern_motion");
+  auto vs_spark = gpu::Device::createShaderModuleByName("lantern_spark_vs");
+  auto fs_spark = gpu::Device::createShaderModuleByName("lantern_spark_fs");
+  auto fs_spark_mv = gpu::Device::createShaderModuleByName("lantern_spark_mv_fs");
   if (!cs_shadow || !cs_escape || !cs_reduce || !cs_vis || !cs_scene || !cs_fog || !cs_blur || !cs_comp || !cs_prefill) return;
+  if (!cs_p_update || !cs_p_resolve || !cs_p_shade || !cs_motion || !vs_spark || !fs_spark ||
+      !fs_spark_mv) return;
 
   s_pso_shadow = gpu::Device::createComputePSO(cs_shadow, "main", gpu::Bindings()
       .uniform(0)
@@ -623,7 +851,8 @@ void module_init() {
       .storageTex2d(5, gpu::TextureFormat::RGBA16F)
       .tex2d(6)
       .tex2d(7)
-      .sampler(8));
+      .sampler(8)
+      .tex3d(9));
   s_pso_blur = gpu::Device::createComputePSO(cs_blur, "main", gpu::Bindings()
       .uniform(0)
       .storage(1)
@@ -637,10 +866,44 @@ void module_init() {
       .tex2d(3)
       .tex2d(4)
       .tex2d(5)
-      .storageTex2d(6));
+      .storageTex2d(6)
+      .tex2d(7));
   s_pso_prefill = gpu::Device::createComputePSO(cs_prefill, "main", gpu::Bindings()
       .tex2d(0)
       .storageTex2d(1));
+  s_pso_p_update = gpu::Device::createComputePSO(cs_p_update, "main", gpu::Bindings()
+      .uniform(0)
+      .storage(1)
+      .storageRW(2)
+      .storageRW(3)
+      .uniform(4));
+  s_pso_p_resolve = gpu::Device::createComputePSO(cs_p_resolve, "main", gpu::Bindings()
+      .storageRW(3)
+      .uniform(4)
+      .storageRW(5)
+      .storageTex3d(6, gpu::TextureFormat::RGBA16F));
+  s_pso_p_shade = gpu::Device::createComputePSO(cs_p_shade, "main", gpu::Bindings()
+      .uniform(0)
+      .storage(1)
+      .storage(2)
+      .uniform(4)
+      .tex2d(5)
+      .tex2d(6)
+      .storageRW(7));
+  s_pso_motion = gpu::Device::createComputePSO(cs_motion, "main", gpu::Bindings()
+      .uniform(0)
+      .storage(1)
+      .storage(2)
+      .tex2d(3)
+      .uniform(4)
+      .storageTex2d(5, gpu::TextureFormat::RGBA16F));
+  s_pso_spark = gpu::Device::createInstancedRenderPSO(vs_spark, "main", fs_spark, "main",
+      gpu::TextureFormat::RGBA16F, gpu::Bindings().uniform(4).storage(7),
+      gpu::Device::BlendMode::Additive);
+  s_pso_spark_mv = gpu::Device::createInstancedRenderPSOMRT(vs_spark, "main", fs_spark_mv, "main",
+      {gpu::TextureFormat::RGBA16F, gpu::TextureFormat::RGBA16F},
+      gpu::Bindings().uniform(4).storage(7),
+      {gpu::Device::BlendMode::Additive, gpu::Device::BlendMode::AlphaOver});
   state::log("lantern: module initialized");
 }
 
@@ -660,6 +923,25 @@ void* create() {
   s->vis_f = gpu::Device::createTexture(kEscRes, kEscRes, gpu::TextureFormat::RGBA16F);
   s->vis_d = gpu::Device::createTexture(kEscRes, kEscRes, gpu::TextureFormat::RGBA16F);
   s->samp = gpu::Device::createSampler(gpu::FilterMode::Linear, gpu::AddressMode::ClampToEdge);
+  s->ub_part = gpu::Device::createBuffer(sizeof(PartUniforms), gpu::BufferUsage::Uniform);
+  s->p_state = gpu::Device::createBuffer((long long)16 * kPRows * kMaxFlakes,
+                                         gpu::BufferUsage::Storage);
+  s->p_recs = gpu::Device::createBuffer((long long)16 * kRRows * kMaxFlakes,
+                                        gpu::BufferUsage::Storage);
+  s->p_grid = gpu::Device::createBuffer((long long)4 * kGrid * kGrid * kGrid,
+                                        gpu::BufferUsage::Storage);
+  s->p_accum = gpu::Device::createBuffer((long long)4 * kGrid * kGrid * kGrid,
+                                         gpu::BufferUsage::Storage);
+  s->prev_box_buf = gpu::Device::createBuffer((long long)16 * 4 * kMaxBoxes,
+                                              gpu::BufferUsage::Storage);
+  s->presence = gpu::Device::createTexture3D(kGrid, kGrid, kGrid, gpu::TextureFormat::RGBA16F);
+  s->presence_zero = gpu::Device::createTexture3D(1, 1, 1, gpu::TextureFormat::RGBA16F);
+  {
+    // Storage buffers start undefined: the grid's counts and average start at 0.
+    static uint32_t zeros[kGrid * kGrid * kGrid] = {};
+    if (s->p_grid.valid()) s->p_grid.write(zeros, kGrid * kGrid * kGrid);
+    if (s->p_accum.valid()) s->p_accum.write(zeros, kGrid * kGrid * kGrid);
+  }
   return s;
 }
 
@@ -681,6 +963,16 @@ void destroy(void* self) {
   s->esc_low.release();
   s->vis_f.release();
   s->vis_d.release();
+  s->ub_part.release();
+  s->p_state.release();
+  s->p_recs.release();
+  s->p_grid.release();
+  s->p_accum.release();
+  s->prev_box_buf.release();
+  s->presence.release();
+  s->presence_zero.release();
+  s->spark.release();
+  s->motion_tex.release();
   delete s;
 }
 
@@ -692,7 +984,12 @@ void init(void* self) {
                    s->vis_d.valid() && s_pso_escape.valid() && s_pso_reduce.valid() &&
                    s_pso_vis.valid() && s_pso_shadow.valid() && s_pso_scene.valid() && s_pso_fog.valid() &&
                    s_pso_blur.valid() && s_pso_comp.valid() && s_pso_prefill.valid() &&
-                   s->ub_blur_h.valid() && s->ub_blur_v.valid();
+                   s->ub_blur_h.valid() && s->ub_blur_v.valid() &&
+                   s->ub_part.valid() && s->p_state.valid() && s->p_recs.valid() &&
+                   s->p_grid.valid() && s->p_accum.valid() && s->prev_box_buf.valid() &&
+                   s->presence.valid() && s->presence_zero.valid() &&
+                   s_pso_p_update.valid() && s_pso_p_resolve.valid() && s_pso_p_shade.valid() &&
+                   s_pso_motion.valid() && s_pso_spark.valid() && s_pso_spark_mv.valid();
 }
 
 void tick(void* self, double dt) {
@@ -711,6 +1008,31 @@ void tick(void* self, double dt) {
   if (s->wander_phase > 4096.0 * kTau) s->wander_phase -= 4096.0 * kTau;
   if (s->drift_phase > 4096.0) s->drift_phase -= 4096.0;
   if (s->time > 4096.0) s->time -= 4096.0;
+
+  // The sweep: level, bounce, throw (sweep_knob.h); the glints it launches.
+  sweep_knob::Params kp;
+  kp.sweep = s->sweep;
+  kp.sense = s->sense;
+  kp.deadzone = s->deadzone;
+  kp.bounce = s->bounce;
+  kp.ring_time = s->tail;
+  s->knob.tick(kp, (float)dt);
+  if (s->knob.fresh_throw) s->pending_fling = std::fmax(s->pending_fling, s->knob.release);
+  three_planes_glints::Params gp;
+  gp.sweep = s->sweep;
+  gp.band = s->deadzone;
+  gp.fling = s->knob.release;
+  gp.sling = 0.0f;   // a throw holds them in the frame, it doesn't carry them off
+  gp.lead = s->glint_width * 1.5f;
+  gp.trail = s->glint_width * 4.0f;
+  s->glint_core.tick(gp, (float)dt);
+  // The tail's shake: one phase for every flake, its frequency falling as
+  // the tail rings out.
+  const double hz = s->vibe_hz * (0.12 + 0.88 * s->knob.release);
+  s->vibe_phase = std::fmod(s->vibe_phase + kTau * hz * dt, kTau * 4096.0);
+  s->sim_dt += dt;
+  if (s->sim_dt > 0.1) s->sim_dt = 0.1;
+  if (dt > 0.0) s->frame_dt = (float)dt;
 }
 
 void on_state_patched(void* self, int n, const char* pb, const int* off,
@@ -763,6 +1085,38 @@ void on_state_patched(void* self, int n, const char* pb, const int* off,
     else if (state::pathIs(p, l, "albedo"))       s->albedo = state::patchFloat(i);
     else if (state::pathIs(p, l, "opacity"))      s->opacity = state::patchFloat(i);
     else if (state::pathIs(p, l, "debug_view"))   s->debug_view = state::patchInt(i);
+    else if (state::pathIs(p, l, "sweep"))        s->sweep = state::patchFloat(i);
+    else if (state::pathIs(p, l, "sustain"))      s->sustain = state::patchFloat(i);
+    else if (state::pathIs(p, l, "deadzone"))     s->deadzone = state::patchFloat(i);
+    else if (state::pathIs(p, l, "bounce"))       s->bounce = state::patchFloat(i);
+    else if (state::pathIs(p, l, "overshoot"))    s->overshoot = state::patchFloat(i);
+    else if (state::pathIs(p, l, "sense"))        s->sense = state::patchFloat(i);
+    else if (state::pathIs(p, l, "tail"))         s->tail = state::patchFloat(i);
+    else if (state::pathIs(p, l, "glint_angle"))  s->glint_angle = state::patchFloat(i);
+    else if (state::pathIs(p, l, "glint_gain"))   s->glint_gain = state::patchFloat(i);
+    else if (state::pathIs(p, l, "glint_width"))  s->glint_width = state::patchFloat(i);
+    else if (state::pathIs(p, l, "flakes"))       s->flakes = state::patchInt(i);
+    else if (state::pathIs(p, l, "flake_size"))   s->flake_size = state::patchFloat(i);
+    else if (state::pathIs(p, l, "mica"))         s->mica = state::patchFloat(i);
+    else if (state::pathIs(p, l, "sparkle"))      s->sparkle = state::patchFloat(i);
+    else if (state::pathIs(p, l, "tumble"))       s->tumble = state::patchFloat(i);
+    else if (state::pathIs(p, l, "ring_radius"))  s->ring_radius = state::patchFloat(i);
+    else if (state::pathIs(p, l, "ring_loose"))   s->ring_loose = state::patchFloat(i);
+    else if (state::pathIs(p, l, "ring_speed"))   s->ring_speed = state::patchFloat(i);
+    else if (state::pathIs(p, l, "jet"))          s->jet = state::patchFloat(i);
+    else if (state::pathIs(p, l, "jet_angle"))    s->jet_angle = state::patchFloat(i);
+    else if (state::pathIs(p, l, "capture"))      s->capture = state::patchFloat(i);
+    else if (state::pathIs(p, l, "reach"))        s->reach = state::patchFloat(i);
+    else if (state::pathIs(p, l, "standoff"))     s->standoff = state::patchFloat(i);
+    else if (state::pathIs(p, l, "orbit_speed"))  s->orbit_speed = state::patchFloat(i);
+    else if (state::pathIs(p, l, "hold"))         s->hold = state::patchFloat(i);
+    else if (state::pathIs(p, l, "lanes"))        s->lanes = state::patchFloat(i);
+    else if (state::pathIs(p, l, "dust"))         s->dust = state::patchFloat(i);
+    else if (state::pathIs(p, l, "fling"))        s->fling = state::patchFloat(i);
+    else if (state::pathIs(p, l, "shell_radius")) s->shell_radius = state::patchFloat(i);
+    else if (state::pathIs(p, l, "vibe"))         s->vibe = state::patchFloat(i);
+    else if (state::pathIs(p, l, "vibe_hz"))      s->vibe_hz = state::patchFloat(i);
+    else if (state::pathIs(p, l, "vibe_spread"))  s->vibe_spread = state::patchFloat(i);
   }
 }
 
@@ -875,7 +1229,6 @@ void render(void* self, int vp_w, int vp_h) {
   // --- Scene: blocks, the core and its light samples ---
   int count = 0;
   const M3 egg = poseBlocks(s, count);
-  s->box_buf.write(s->rows, count * kBoxRows);
 
   const float wp = (float)s->wander_phase;
   const V3 wander_local = v3(std::sin(wp), std::sin(1.31f * wp + 1.0f),
@@ -1009,6 +1362,119 @@ void render(void* self, int vp_w, int vp_h) {
     const V3 o = v3(rr * std::cos(ph), rr * std::sin(ph), zz) * (0.7f * s->core_radius);
     u.lsamp[k][0] = core.x + o.x; u.lsamp[k][1] = core.y + o.y; u.lsamp[k][2] = core.z + o.z;
   }
+  const int nflakes = s->flakes < 0 ? 0 : (s->flakes > kMaxFlakes ? kMaxFlakes : s->flakes);
+  const bool want_motion = state::isOutputConnected("render_outputs");
+  u.dust[0] = nflakes > 0 ? 0.012f * s->dust : 0.0f;
+  u.dust[1] = 0.6f;
+  u.dust[2] = kGridExtent;
+  u.dust[3] = nflakes > 0 ? 1.0f : 0.0f;
+
+  // --- The sweep, as the flakes feel it.
+  const float release = s->knob.release;
+  const float S = std::fmin(1.5f, std::fmax(0.0f, s->sustain * s->knob.level +
+                                                     s->overshoot * 2.5f * s->knob.bounce));
+  // Each block's magnetism: the further it strains out the stronger (the
+  // ember blocks), and stronger still in a glint's band.
+  {
+    const float aspect = (float)vp_w / (float)vp_h;
+    const float ga = s->glint_angle * kDeg;
+    const float gc = std::cos(ga), gs = std::sin(ga);
+    const float reach = std::fabs(aspect * gc) + std::fabs(gs);
+    const V3 cpos = v3(u.cam_r[3], u.cam_u[3], u.cam_f[3]);
+    const V3 cr = v3(u.cam_r[0], u.cam_r[1], u.cam_r[2]);
+    const V3 cu = v3(u.cam_u[0], u.cam_u[1], u.cam_u[2]);
+    const V3 cf = v3(u.cam_f[0], u.cam_f[1], u.cam_f[2]);
+    for (int i = 0; i < count; i++) {
+      Row* r = &s->rows[i * kBoxRows];
+      float e = 0.0f;
+      const V3 rel = v3(r[0].v[0], r[0].v[1], r[0].v[2]) - cpos;
+      const float w = dot(rel, cf);
+      if (w > 0.05f) {
+        const float nx = dot(rel, cr) / w * 2.0f * u.cam_p[0] * u.cam_p[1];
+        const float ny = dot(rel, cu) / w * 2.0f * u.cam_p[0] * u.cam_p[2];
+        const float sn = 0.5f * ((nx * aspect * gc + ny * gs) / reach + 1.0f);
+        for (int g = 0; g < three_planes_glints::kMaxLive; g++) {
+          const auto& gl = s->glint_core.glints[g];
+          if (!gl.live) continue;
+          const float x = (sn - gl.pos) / std::fmax(1e-3f, s->glint_width * gl.drawWidth());
+          const float wk = (x + 1.5f) / 1.8f;
+          e += gl.drawGain() * (std::exp(-x * x) - 0.5f * gl.drawShade() * std::exp(-wk * wk));
+        }
+      }
+      r[4].v[2] = std::fmax(0.0f, (0.35f + r[0].v[3]) * (1.0f + s->glint_gain * e));
+    }
+  }
+  s->box_buf.write(s->rows, count * kBoxRows);
+
+  PartUniforms pu = {};
+  int p_init_from = s->p_live;
+  if (nflakes < s->p_live) p_init_from = nflakes;
+  int steps = (int)std::ceil(s->sim_dt / kSubstep - 1e-6);
+  steps = steps < 0 ? 0 : (steps > 24 ? 24 : steps);
+  if (nflakes > 0) {
+    pu.pa[0] = (float)nflakes;
+    pu.pa[1] = (float)p_init_from;
+    pu.pa[2] = steps > 0 ? (float)(s->sim_dt / steps) : 0.0f;
+    pu.pa[3] = (float)steps;
+    pu.pb[0] = S;
+    pu.pb[1] = release;
+    pu.pb[2] = s->pending_fling;
+    pu.pb[3] = (float)s->time;
+    pu.ring[0] = s->ring_radius;
+    pu.ring[1] = s->ring_loose;
+    pu.ring[2] = s->ring_speed;
+    pu.ring[3] = 0.6f;
+    {
+      // The jet's axis: the camera's right turned about the vertical.
+      const float ja = s->jet_angle * kDeg;
+      const V3 cr = normalize(v3(u.cam_r[0], u.cam_r[1], 0.0f));
+      const V3 cb = v3(-cr.y, cr.x, 0.0f);
+      const V3 J = normalize(cr * std::cos(ja) + cb * std::sin(ja));
+      pu.jet[0] = J.x; pu.jet[1] = J.y; pu.jet[2] = J.z;
+      pu.jet[3] = s->jet * std::fmin(S / 0.4f, 1.0f);
+    }
+    pu.jet2[0] = 3.0f + 4.0f * S;
+    pu.cap[0] = 40.0f;
+    pu.cap[1] = s->reach;
+    pu.cap[2] = 250.0f * s->hold;
+    pu.cap[3] = s->lanes;
+    {
+      const float x = std::fmin(S, 1.0f);
+      const float over = std::fmax(S - 1.0f, 0.0f);
+      pu.orbit[0] = s->standoff * std::exp(1.79f * (1.0f - x)) * (1.0f - 0.5f * over);
+      pu.orbit[1] = s->orbit_speed * (0.15f + 0.85f * S);
+      pu.orbit[2] = 6.0f;
+      pu.orbit[3] = 1.6f * s->capture;
+    }
+    pu.shell[0] = s->shell_radius;
+    pu.shell[1] = 9.0f;
+    pu.shell[2] = 7.0f * s->fling;
+    pu.vibe[0] = s->vibe * release;
+    pu.vibe[1] = (float)s->vibe_phase;
+    pu.vibe[2] = s->vibe_spread;
+    pu.vibe[3] = (float)(kTau * s->vibe_hz * (0.12 + 0.88 * release));
+    pu.flake[0] = s->flake_size;
+    pu.flake[1] = s->mica;
+    pu.flake[2] = s->tumble;
+    pu.flake[3] = s->sparkle;
+    pu.grid[0] = kGridExtent;
+    pu.grid[1] = (float)kGrid;
+    pu.grid[2] = 1.0f - std::exp(-(float)s->sim_dt / 0.4f);
+    pu.grid[3] = kSplat;
+  }
+  pu.pframe[0] = s->frame_dt;
+  pu.pframe[1] = (float)s->frame;
+  pu.pframe[2] = (want_motion && s->prev_cam_valid) ? 1.0f : 0.0f;
+  pu.pview[0] = (float)vp_w; pu.pview[1] = (float)vp_h;
+  pu.pview[2] = 1.0f / vp_w; pu.pview[3] = 1.0f / vp_h;
+  {
+    const float* cur[3] = {u.cam_r, u.cam_u, u.cam_f};
+    float* prv[3] = {pu.prev_r, pu.prev_u, pu.prev_f};
+    for (int k = 0; k < 3; k++)
+      for (int c = 0; c < 4; c++) prv[k][c] = s->prev_cam_valid ? s->prev_cam[k][c] : cur[k][c];
+  }
+  s->ub_part.writeOne(pu);
+
   s->ub_frame.writeOne(u);
   s->frame++;
 
@@ -1063,6 +1529,35 @@ void render(void* self, int vp_w, int vp_h) {
     cp.dispatch((vp_w + 7) / 8, (vp_h + 7) / 8);
     cp.end();
   }
+  // The flakes move, and leave their presence for the fog.
+  if (nflakes > 0) {
+    {
+      auto cp = gpu::ComputePass::begin();
+      cp.setPSO(s_pso_p_update);
+      cp.setBuffer(s->ub_frame, 0);
+      cp.setBuffer(s->box_buf, 1);
+      cp.setBuffer(s->p_state, 2);
+      cp.setBuffer(s->p_grid, 3);
+      cp.setBuffer(s->ub_part, 4);
+      cp.dispatch((nflakes + 63) / 64, 1);
+      cp.end();
+    }
+    {
+      auto cp = gpu::ComputePass::begin();
+      cp.setPSO(s_pso_p_resolve);
+      cp.setBuffer(s->p_grid, 3);
+      cp.setBuffer(s->ub_part, 4);
+      cp.setBuffer(s->p_accum, 5);
+      cp.setTexture(s->presence, 6, 1);
+      cp.dispatch(kGrid / 4, kGrid / 4, kGrid / 4);
+      cp.end();
+    }
+    s->p_live = nflakes;
+    s->sim_dt = 0.0;
+    s->pending_fling = 0.0f;
+  } else {
+    s->p_live = 0;
+  }
   {
     auto cp = gpu::ComputePass::begin();
     cp.setPSO(s_pso_fog);
@@ -1075,6 +1570,7 @@ void render(void* self, int vp_w, int vp_h) {
     cp.setTexture(s->vis_f, 6, 0);
     cp.setTexture(s->vis_d, 7, 0);
     cp.setSampler(s->samp, 8);
+    cp.setTexture(nflakes > 0 ? s->presence : s->presence_zero, 9, 0);
     cp.dispatch((half_w + 7) / 8, (half_h + 7) / 8);
     cp.end();
   }
@@ -1089,6 +1585,69 @@ void render(void* self, int vp_w, int vp_h) {
     cp.dispatch((half_w + 7) / 8, (half_h + 7) / 8);
     cp.end();
   }
+  // The blocks' motion vectors, when a motion blur downstream reads them.
+  if (want_motion) {
+    if (!s->motion_tex.valid() || s->motion_w != vp_w || s->motion_h != vp_h) {
+      s->motion_tex.release();
+      s->motion_tex = gpu::Device::createTexture(vp_w, vp_h, gpu::TextureFormat::RGBA16F);
+      s->motion_w = vp_w;
+      s->motion_h = vp_h;
+      if (s->motion_tex.valid()) state::setGpuTexture("render_outputs/motion", s->motion_tex.id);
+    }
+    // Last frame's poses (this frame's when the blocks were rebuilt).
+    static Row prev4[kMaxBoxes * 4];
+    const bool same = s->prev_count == count && s->prev_layout == s->layout;
+    const Row* src = same ? s->prev_rows : s->rows;
+    for (int i = 0; i < count; i++)
+      for (int k = 0; k < 4; k++) prev4[i * 4 + k] = src[i * kBoxRows + k];
+    s->prev_box_buf.write(prev4, count * 4);
+    if (s->motion_tex.valid()) {
+      auto cp = gpu::ComputePass::begin();
+      cp.setPSO(s_pso_motion);
+      cp.setBuffer(s->ub_frame, 0);
+      cp.setBuffer(s->box_buf, 1);
+      cp.setBuffer(s->prev_box_buf, 2);
+      cp.setTexture(s->scene_tex, 3, 0);
+      cp.setBuffer(s->ub_part, 4);
+      cp.setTexture(s->motion_tex, 5, 1);
+      cp.dispatch((vp_w + 7) / 8, (vp_h + 7) / 8);
+      cp.end();
+    }
+  }
+  // The flakes: shaded, then splatted into the spark layer (and over the
+  // blocks' motion).
+  if (nflakes > 0) {
+    if (!s->spark.valid() || s->spark_w != vp_w || s->spark_h != vp_h) {
+      s->spark.release();
+      s->spark = gpu::Device::createTexture(vp_w, vp_h, gpu::TextureFormat::RGBA16F);
+      s->spark_w = vp_w;
+      s->spark_h = vp_h;
+    }
+    {
+      auto cp = gpu::ComputePass::begin();
+      cp.setPSO(s_pso_p_shade);
+      cp.setBuffer(s->ub_frame, 0);
+      cp.setBuffer(s->box_buf, 1);
+      cp.setBuffer(s->p_state, 2);
+      cp.setBuffer(s->ub_part, 4);
+      cp.setTexture(s->atlas, 5, 0);
+      cp.setTexture(s->scene_tex, 6, 0);
+      cp.setBuffer(s->p_recs, 7);
+      cp.dispatch((nflakes + 63) / 64, 1);
+      cp.end();
+    }
+    if (s->spark.valid()) {
+      const bool mv = want_motion && s->motion_tex.valid();
+      auto rp = mv ? gpu::RenderPass::beginMRT({{s->spark, 0.0f, 0.0f, 0.0f, 0.0f, false},
+                                                {s->motion_tex, 0.0f, 0.0f, 0.0f, 0.0f, true}})
+                   : gpu::RenderPass::begin(s->spark, 0.0f, 0.0f, 0.0f, 0.0f);
+      rp.setPSO(mv ? s_pso_spark_mv : s_pso_spark);
+      rp.setBuffer(s->ub_part, 4);
+      rp.setBuffer(s->p_recs, 7);
+      rp.draw(6, nflakes);
+      rp.end();
+    }
+  }
   {
     auto cp = gpu::ComputePass::begin();
     cp.setPSO(s_pso_comp);
@@ -1099,10 +1658,22 @@ void render(void* self, int vp_w, int vp_h) {
     cp.setTexture(s->fog_t, 4, 0);
     cp.setTexture(in.valid() ? in : s->zero_tex, 5, 0);
     cp.setTexture(out, 6, 1);
+    cp.setTexture(nflakes > 0 && s->spark.valid() ? s->spark : s->zero_tex, 7, 0);
     cp.dispatch((vp_w + 7) / 8, (vp_h + 7) / 8);
     cp.end();
   }
   gpu::Device::submit();
+
+  // This frame's poses, for next frame's motion.
+  for (int i = 0; i < count * kBoxRows; i++) s->prev_rows[i] = s->rows[i];
+  s->prev_count = count;
+  s->prev_layout = s->layout;
+  for (int c = 0; c < 4; c++) {
+    s->prev_cam[0][c] = u.cam_r[c];
+    s->prev_cam[1][c] = u.cam_u[c];
+    s->prev_cam[2][c] = u.cam_f[c];
+  }
+  s->prev_cam_valid = true;
 }
 
 }  // namespace lantern

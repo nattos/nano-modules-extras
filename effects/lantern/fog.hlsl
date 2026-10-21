@@ -26,6 +26,7 @@ RWTexture2D<float4> fogT     : register(u5);
 Texture2D<float4>   visF     : register(t6);
 Texture2D<float4>   visD     : register(t7);
 SamplerState        samp     : register(s8);
+Texture3D<float4>   presence : register(t9);   // the flakes, per m^3 (p_resolve)
 
 // Lit fraction of the core at r, given an escaped fraction F and the mean
 // depth D of what blocked the rest: water in front of the blockers sees it all.
@@ -119,14 +120,21 @@ void main(uint3 gid : SV_DispatchThreadID) {
                                         float3(0.0, 0.0, halo_p.z), 3, 0.6);
       float dh = ltn_halo_density(p, wn);
       float fa = ltn_air_f(t, cv);   // the air wall thins both media
-      float3 sig_t = (water_t.rgb + dh * halo_alb) * fa;
+      // The flakes' dust: where they crowd, the water is a little murkier.
+      float dd = 0.0;
+      if (dust.x > 0.0) {
+        float3 g = (p + dust.z) / (2.0 * dust.z);
+        if (all(g > 0.0) && all(g < 1.0)) dd = dust.x * presence.SampleLevel(samp, g, 0.0).r;
+      }
+      float3 sig_t = (water_t.rgb + dh * halo_alb) * fa + dd;
 
       float3 dl = p - core_p.xyz;
       float r2 = dot(dl, dl);
       float cosv = dot(dl * rsqrt(max(r2, 1e-6)), -rd);
       float3 Lc = ltn_core_irr_vol(r2) * ltn_fog_vis(dl, sqrt(r2));
       float3 src = (water_s.rgb * (Lc * ltn_hg(water_s.w, cosv) + amb_w) +
-                    dh * halo_alb * (Lc * ltn_hg(halo_p.x, cosv) + amb_h)) * fa;
+                    dh * halo_alb * (Lc * ltn_hg(halo_p.x, cosv) + amb_h)) * fa +
+                   dd * dust.y * float3(1.0, 0.93, 0.82) * (Lc * ltn_hg(0.35, cosv) + amb_h);
 
       float3 seg = exp(-sig_t * dt);
       I += T * src * (1.0 - seg) / max(sig_t, 1e-6);
