@@ -106,7 +106,7 @@ float3 ltn_jet_accel(float3 pos, float3 vel) {
   float s = dot(pos, J);
   float3 rp = pos - s * J;
   u += cross(J, rp) * (0.35 * jet2.x / R * exp(-dot(rp, rp) / 9.0));
-  return (u - vel) * (2.5 * jet.w);
+  return (u - vel) * (4.0 * jet.w);
 }
 
 [numthreads(64, 1, 1)]
@@ -122,148 +122,150 @@ void main(uint3 gid : SV_DispatchThreadID) {
     s3 = parts[base + 3u]; s4 = parts[base + 4u];
   }
   float3 pos = s0.xyz, vel = s1.xyz, nrm = s2.xyz;
-  int captor = (int)s0.w;
-  bool latched = s1.w > 0.5;
+  bool bound = s1.w > 0.5;
   float susc = s3.w;
   int nbox = ltn_box_count();
-  if (captor >= nbox) { captor = -1; latched = false; }
 
   const float S = pb.x, R = pb.y;
   const float Scap = S * (1.0 - R) * (1.0 - R);
-  const float h = orbit.x;
-  const float3 Z = egg_r2.xyz;     // the strata axis: blocks are orbited about it
+  const float3 Z = egg_r2.xyz;     // the strata axis: the streams run round it
+  // Each flake's lane: how far above the surface it streams (a spread of
+  // lanes, like the smoke lines over a wing), its direction (a few run
+  // against the rest) and its pace.
+  const float lane = ltn_prand(id, 80u);
+  const float sgn = ltn_prand(id, 81u) < 0.2 ? -1.0 : 1.0;
+  const float pace = 0.8 + 0.4 * ltn_prand(id, 82u);
 
   // The throw: everything lets go and is blown out from the center.
   if (pb.z > 0.0) {
     float r = length(pos);
     float3 er = r > 1e-3 ? pos / r : ltn_prand_dir(id, 60u);
     vel += er * (shell.z * pb.z * (0.7 + 0.6 * ltn_prand(id, 61u)));
-    captor = -1;
-    latched = false;
+    bound = false;
   }
 
   int steps = (int)pa.w;
   float dt = pa.z;
   [loop] for (int k = 0; k < steps; k++) {
-    // Which magnet has it: the strongest pull, a squared Lorentzian of the
-    // gap to its shell (the magneto envelope's falloff, sharpened so only a
-    // flake that comes within about Reach is caught) scaled by its
-    // magnetism; the current one gets a hysteresis edge so near-ties don't
-    // flicker.
-    float pull = 0.0;
-    if (Scap > 1e-4 && !latched) {
-      int best = -1;
-      float bp = 0.0;
-      [loop] for (int i = 0; i < nbox; i++) {
-        float m = boxes[i * LTN_BOX_ROWS + 4].z;
-        if (m <= 0.0) continue;
-        float3 n;
-        float d = ltn_box_sdf(i, pos, n);
+    // The blocks' surface as one (the nearest box), and the strongest magnet:
+    // a squared Lorentzian of the gap to its lane (the magneto envelope's
+    // falloff, sharpened so only a flake that comes within about Reach is
+    // caught) scaled by the block's magnetism.
+    float dmin = 1.0e9, d2nd = 1.0e9, mnear = 1.0, pull = 0.0;
+    float3 nmin = float3(0.0, 0.0, 1.0), n2nd = nmin;
+    const float h0 = orbit.x * lerp(0.35, 2.2, lane);
+    [loop] for (int i = 0; i < nbox; i++) {
+      float m = boxes[i * LTN_BOX_ROWS + 4].z;
+      if (m <= 0.0) continue;    // not a magnet (a loose fragment): not streamed over
+      float3 n;
+      float d = ltn_box_sdf(i, pos, n);
+      if (d < dmin) { d2nd = dmin; n2nd = nmin; dmin = d; nmin = n; mnear = m; }
+      else if (d < d2nd) { d2nd = d; n2nd = n; }
+      if (!bound && Scap > 1e-4) {
         float eps = cap.y * cap.y * m;
-        float dl = max(d - h, 0.0);
+        float dl = max(d - h0, 0.0);
         float lz = eps / (dl * dl + eps);
-        float pi = m * lz * lz * (i == captor ? 1.35 : 1.0);
-        if (pi > bp) { bp = pi; best = i; }
+        pull = max(pull, m * lz * lz);
       }
-      captor = best;
-      pull = bp;
     }
-    float w = latched ? 1.0 : saturate(Scap * susc * pull * orbit.w);
-    float freew = latched ? 0.0 : 1.0 - saturate(2.0 * w);
+    // A glint's band pulls the lanes in closer and drives them faster.
+    float boost = max(mnear - 1.0, 0.0);
+    float h = h0 / (1.0 + 0.6 * boost);
+    // Where two blocks meet in a hollow, their normals blend over about a
+    // lane's width: the crease becomes a fillet the streams can run along.
+    {
+      float kb = saturate(1.0 - (d2nd - dmin) / max(h, 0.05));
+      nmin = normalize(nmin + n2nd * (kb * kb));
+    }
+    float g = dmin - h;
 
-    float3 a = float3(0.0, 0.0, 0.0);
-    a += ltn_ring_accel(pos, vel, s4.z, s4.w) * (freew * (1.0 - 0.7 * R) * (1.0 - saturate(1.6 * jet.w)));
-    a += ltn_jet_accel(pos, vel) * freew * (1.0 - R);
-    // A slow wander, so the ring isn't clockwork.
-    float3 nq = pos * 0.22 + float3(0.0, 0.0, pb.w * 0.04);
-    a += float3(nano_gnoise3(nq), nano_gnoise3(nq + float3(31.7, 0.0, 0.0)),
-                nano_gnoise3(nq + float3(0.0, 47.3, 0.0))) * (0.2 * freew);
-
-    // The tail: onto a sphere around the structure.
-    if (R > 0.0) {
-      float r = max(length(pos), 1e-3);
-      float3 er = pos / r;
-      float rs = shell.x * (1.0 + 0.08 * s4.z);
-      float vr = dot(vel, er);
-      a += er * (-shell.y * (r - rs) - 1.2 * sqrt(shell.y) * vr) * R;
-      a -= (vel - er * vr) * (0.4 * R);
+    // Held: snapped back onto its lane each step, normal velocity killed —
+    // for as long as that asks less than the magnet holds. Along a face it
+    // asks nothing; round an edge it asks the centripetal v^2/lane, so the
+    // inner lanes peel off sharp corners at speed while the outer ones hug.
+    if (bound) {
+      float need = abs(g) / (dt * dt);
+      if (Scap < 0.02 || need > cap.z * sqrt(Scap) * max(mnear, 0.3)) {
+        bound = false;
+      } else {
+        pos -= nmin * g;
+        vel -= nmin * dot(vel, nmin);
+      }
+    } else if (Scap > 1e-4 && saturate(Scap * susc * pull * orbit.w) > 0.15 &&
+               abs(g) < 0.05 + abs(dot(vel, nmin)) * dt) {
+      bound = true;
+      pos -= nmin * g;
+      vel -= nmin * dot(vel, nmin);
     }
 
-    float3 bn = float3(0.0, 0.0, 1.0);
-    float m = 0.0, dl = 0.0;
-    if (captor >= 0 && w > 1e-3) {
-      float d = ltn_box_sdf(captor, pos, bn);
-      dl = d - h;
-      float4 b0 = boxes[captor * LTN_BOX_ROWS + 0];
-      float4 b4 = boxes[captor * LTN_BOX_ROWS + 4];
-      m = b4.z;
-      float sgn = b4.y < 0.5 ? -1.0 : 1.0;
-      float vn = dot(vel, bn);
-      if (!latched) {
-        // Drawn onto the shell from outside, thrown back out from inside it;
-        // the normal motion damped so a fast arrival bounces once or twice.
-        a += bn * (dl > 0.0 ? -cap.x * w : cap.x * 40.0 * w * saturate(-dl / 0.1));
-        a -= bn * (vn * 4.0 * w);
-        // Curling in: a magnetic deflection about the strata axis.
-        a += cross(vel, Z) * (orbit.z * w * sgn);
+    if (bound) {
+      // Streaming: along the surface, round the strata axis, settling into
+      // the ember grooves — steered, not pushed, so it turns hard.
+      float3 W = cross(Z, pos) * sgn;
+      float rho = length(W);              // distance from the strata axis
+      W /= max(rho, 1e-4);
+      float3 t = W - nmin * dot(W, nmin);
+      float tl = length(t);
+      if (tl < 0.3) {
+        // Its way is blocked head-on: it climbs over, along the strata axis,
+        // the way it was already heading (or, lane by lane, either way).
+        float3 Zt = Z - nmin * dot(Z, nmin);
+        float zs = dot(vel, Zt);
+        t = Zt * (abs(zs) > 0.1 ? sign(zs) : (lane < 0.5 ? -1.0 : 1.0)) + t;
+        tl = length(t);
       }
-      // Around the block, about the strata axis, along its contour.
-      float3 tt = cross(Z, bn);
-      if (dot(tt, tt) < 0.04) tt = cross(Z, pos - b0.xyz);
-      tt -= bn * dot(tt, bn);
-      float tl = length(tt);
-      if (tl > 1e-4) {
-        float3 t = tt / tl * sgn;
-        a += t * ((orbit.y * sqrt(m) - dot(vel, t)) * (latched ? 6.0 : 3.0 * w));
-      }
-      // In lanes along the ember grooves.
+      t = tl > 1e-4 ? t / tl : vel * rsqrt(max(dot(vel, vel), 1e-8));
+      // Slower toward the axis, as a turning body is, so the poles don't spin.
+      float V = orbit.y * pace * (1.0 + 0.5 * boost) * saturate(rho / 1.5);
+      float3 target = t * V;
       if (cap.w > 0.0) {
         float gm;
         float off = ltn_groove_offset(pos, gm);
-        float3 Zt = Z - bn * dot(Z, bn);
-        float lw = cap.w * w * lerp(0.35, 1.0, gm) * (b4.x > 0.5 ? 1.0 : 0.5);
-        a -= Zt * (off * 600.0 + dot(vel, Zt) * 12.0) * lw;
+        float3 Zt = Z - nmin * dot(Z, nmin);
+        target -= Zt * (off * 30.0 * cap.w * lerp(0.4, 1.0, gm));
       }
+      vel = lerp(vel, target, 1.0 - exp(-dt * 40.0));
+    } else {
+      float w = saturate(Scap * susc * pull * orbit.w);
+      float freew = 1.0 - saturate(2.0 * w);
+      float3 a = float3(0.0, 0.0, 0.0);
+      a += ltn_ring_accel(pos, vel, s4.z, s4.w) * (freew * (1.0 - 0.7 * R) * (1.0 - saturate(1.6 * jet.w)));
+      a += ltn_jet_accel(pos, vel) * freew * (1.0 - R);
+      // A slow wander, so the ring isn't clockwork.
+      float3 nq = pos * 0.22 + float3(0.0, 0.0, pb.w * 0.04);
+      a += float3(nano_gnoise3(nq), nano_gnoise3(nq + float3(31.7, 0.0, 0.0)),
+                  nano_gnoise3(nq + float3(0.0, 47.3, 0.0))) * (0.2 * freew * (1.0 - jet.w));
+      // The tail: onto a sphere around the structure.
+      if (R > 0.0) {
+        float r = max(length(pos), 1e-3);
+        float3 er = pos / r;
+        float rs = shell.x * (1.0 + 0.08 * s4.z);
+        float vr = dot(vel, er);
+        a += er * (-shell.y * (r - rs) - 1.2 * sqrt(shell.y) * vr) * R;
+        a -= (vel - er * vr) * (0.4 * R);
+      }
+      // Drawn toward its lane by a nearby magnet, thrown back out from under it.
+      if (w > 1e-3) {
+        float vn = dot(vel, nmin);
+        a += nmin * (g > 0.0 ? -cap.x * w : cap.x * 40.0 * w * saturate(-g / 0.1));
+        a -= nmin * (vn * 4.0 * w);
+      }
+      // Off a surface the streams' speed bleeds away to what the free flow
+      // carries, quickly but not at once (a released stream flies on).
+      float sp = length(vel);
+      float vmax = max(ring.z * 2.0, jet2.x * jet.w * 1.5);
+      if (sp > vmax) a -= vel * ((sp - vmax) / sp * 1.6);
+      vel += a * dt;
     }
-
-    vel += a * dt;
     pos += vel * dt;
 
-    // The latch. Held, it snaps back onto the shell each step with its normal
-    // velocity killed — for as long as that snap asks less than the magnet
-    // holds: on a flat face it asks nothing, round an edge of the shell it
-    // asks the centripetal v^2/standoff, so a fast flake flies off sharp
-    // corners while a slow one hugs them.
-    if (captor >= 0 && Scap > 1e-4) {
-      float3 n;
-      float d = ltn_box_sdf(captor, pos, n);
-      float g = d - h;
-      float vn = dot(vel, n);
-      if (latched) {
-        float need = abs(g) / (dt * dt);
-        float hold = cap.z * Scap * susc * m;
-        if (need > hold) {
-          latched = false;
-        } else {
-          pos -= n * g;
-          vel -= n * vn;
-        }
-      } else if (w > 0.15 && abs(g) < 0.02 + abs(vn) * dt && abs(vn) < 2.0 + 4.0 * Scap) {
-        latched = true;
-        pos -= n * g;
-        vel -= n * vn;
-      }
-    } else {
-      latched = false;
-    }
-
-    // Tumble — faster the faster it flies; a latched flake settles toward its
-    // face's orientation, so a face's flakes glint together.
+    // Tumble — faster the faster it flies; a bound flake settles toward the
+    // surface's orientation, so a stream's flakes glint together.
     float spin = s2.w * flake.z * (2.0 + 1.5 * length(vel)) * dt;
     float3 ax = s3.xyz;
     float cs = cos(spin), sn = sin(spin);
     nrm = nrm * cs + cross(ax, nrm) * sn + ax * dot(ax, nrm) * (1.0 - cs);
-    if (latched) nrm = lerp(nrm, bn * (dot(nrm, bn) < 0.0 ? -1.0 : 1.0), 0.02);
+    if (bound) nrm = lerp(nrm, nmin * (dot(nrm, nmin) < 0.0 ? -1.0 : 1.0), 0.02);
     nrm = normalize(nrm);
   }
 
@@ -272,12 +274,11 @@ void main(uint3 gid : SV_DispatchThreadID) {
     float4 a0, a1, a2, a3, a4;
     ltn_seed(id, a0, a1, a2, a3, a4);
     pos = a0.xyz; vel = a1.xyz; nrm = a2.xyz;
-    captor = -1;
-    latched = false;
+    bound = false;
   }
 
-  parts[base + 0u] = float4(pos, (float)captor);
-  parts[base + 1u] = float4(vel, latched ? 1.0 : 0.0);
+  parts[base + 0u] = float4(pos, -1.0);
+  parts[base + 1u] = float4(vel, bound ? 1.0 : 0.0);
   parts[base + 2u] = float4(nrm, s2.w);
   parts[base + 3u] = s3;
   parts[base + 4u] = s4;

@@ -4,9 +4,9 @@
 // it against the scene's depth, lights it as a tiny flat disc — polished mica
 // (the poster's metallic, roughness 0.12), near-black grit or dull silt —
 // attenuates it by the water and halo in front, and writes what the spark
-// raster needs: its center, the inverse covariance of its projected disc
-// (an EWA splat — a sub-pixel flake keeps its size as coverage), its
-// radiance, and its screen motion for the motion-vector output.
+// raster needs: an ember capsule (its head, the way back to its tail, its
+// width — a sub-pixel flake keeps its size as coverage), its radiance, and
+// its screen motion for the motion-vector output.
 
 #include "particles.hlsl"
 
@@ -108,25 +108,25 @@ void main(uint3 gid : SV_DispatchThreadID) {
   int2 ip = clamp(int2(px), int2(0, 0), int2(vp.xy) - 1);
   if (t > sceneTex.Load(int3(ip, 0)).a + 0.02) { ltn_cull(id); return; }
 
-  // --- Footprint: the disc's two radii projected to pixels.
+  // --- Footprint: an ember. The disc's size in pixels (at least a hairline;
+  // a smaller flake keeps its size as coverage), stretched from where it is
+  // back along where it came from over `streak` frames, tapering to its tail.
   float3 n = normalize(s2.xyz);
-  float3 tu = normalize(cross(n, abs(n.z) < 0.9 ? float3(0.0, 0.0, 1.0) : float3(1.0, 0.0, 0.0)));
-  float3 tv = cross(n, tu);
-  float rf = s4.x * flake.x;
-  float kx = vp.x * cam_p.x * cam_p.y / w, ky = -vp.y * cam_p.x * cam_p.z / w;
-  float2 a2 = float2(dot(tu, cam_r.xyz) * kx, dot(tu, cam_u.xyz) * ky) * rf;
-  float2 b2 = float2(dot(tv, cam_r.xyz) * kx, dot(tv, cam_u.xyz) * ky) * rf;
-  // A disc of radius rho has variance rho^2/4 along each of its axes; the
-  // pixel's own footprint is added so a sub-pixel disc is a smooth blob
-  // whose coverage integrates to its true projected area.
-  float sxx = 0.25 * (a2.x * a2.x + b2.x * b2.x) + 0.1;
-  float syy = 0.25 * (a2.y * a2.y + b2.y * b2.y) + 0.1;
-  float sxy = 0.25 * (a2.x * a2.y + b2.x * b2.y);
-  float det = sxx * syy - sxy * sxy;
-  float area = LTN_PI * abs(a2.x * b2.y - a2.y * b2.x);
-  float norm = area / (2.0 * LTN_PI * sqrt(det));
-  float lmax = 0.5 * (sxx + syy) + sqrt(0.25 * (sxx - syy) * (sxx - syy) + sxy * sxy);
-  float extent = clamp(3.0 * sqrt(lmax), 1.0, 24.0);
+  float kpx = vp.y * cam_p.x * cam_p.z / w;          // pixels per metre here
+  float wt = s4.x * flake.x * kpx;                    // true half-width, px
+  float wd = max(wt, 0.55);
+  float peak = min(1.0, (wt * wt) / (wd * wd));
+  float2 tail = px;
+  if (pframe.w > 0.0) {
+    float3 back = p - (vel * pframe.x + vibd) * pframe.w;
+    float2 tpx;
+    float tw;
+    if (ltn_project(cam_r, cam_u, cam_f, back, tpx, tw)) tail = tpx;
+  }
+  float2 dpx = px - tail;
+  float len = length(dpx);
+  if (len > 256.0) { dpx *= 256.0 / len; len = 256.0; }
+  float2 axis = len > 1e-3 ? dpx / len : float2(1.0, 0.0);
 
   // --- Shading.
   float3 v = -rd;
@@ -165,6 +165,9 @@ void main(uint3 gid : SV_DispatchThreadID) {
     L += ltn_fl_light(nf, v, l, E, saturate(r2 + 0.5 * kick_p.w / d), f0, diff, trans);
   }
   L *= flake.w * surf.z;
+  // Heat: a fast flake glows like a spark off a grinder, in the core's color.
+  float hs = saturate(length(vel) / 16.0);
+  L += float3(egg_r0.w, egg_r1.w, egg_r2.w) * (shell.w * 6.0 * hs * hs * flake.w);
   float3 T = ltn_fl_trans(ro, rd, t);
 
   // --- Motion this frame (pixels): where it was, through last frame's camera.
@@ -181,7 +184,7 @@ void main(uint3 gid : SV_DispatchThreadID) {
   // through, so a flake deep in the haze darkens it less.
   float Tm = dot(T, float3(0.2126, 0.7152, 0.0722));
   recs[b + 0u] = float4(px, t, Tm);
-  recs[b + 1u] = float4(syy / det, -sxy / det, sxx / det, norm);
-  recs[b + 2u] = float4(L * T / max(Tm, 1e-4), extent);
+  recs[b + 1u] = float4(axis, len, wd);
+  recs[b + 2u] = float4(L * T / max(Tm, 1e-4), peak);
   recs[b + 3u] = float4(mv * pview.zw, 0.0, 0.0);
 }

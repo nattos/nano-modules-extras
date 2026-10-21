@@ -8,5 +8,5 @@
 float4 main(SparkOut i) : SV_Target0 {
   float c = ltn_spark_cov(i);
   if (c < 1e-4) discard;
-  return float4(i.col.rgb, c * i.ctr.z);
+  return float4(i.col.rgb, c * i.shp.w);
 }

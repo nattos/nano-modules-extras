@@ -12,11 +12,11 @@ cbuffer Part : register(b4) {
   float4 jet2;      // bore speed (m/s), 0, 0, 0
   float4 cap;       // capture accel, capture range (m), hold accel, lane strength
   float4 orbit;     // standoff now (m), orbit speed now (m/s), curl (rad/s), capture
-  float4 shell;     // radius, stiffness, fling speed, 0
+  float4 shell;     // radius, stiffness, fling speed, heat
   float4 vibe;      // amplitude now (m), phase (rad), spread, angular freq (rad/s)
   float4 flake;     // size scale, mica share, tumble, sparkle gain
   float4 grid;      // half extent (m), res, EMA blend, splat scale
-  float4 pframe;    // frame dt, frame index, motion on, 0
+  float4 pframe;    // frame dt, frame index, motion on, streak (frames)
   float4 pview;     // W, H, 1/W, 1/H
   float4 prev_r;    // the previous frame's camera, as cam_r / cam_u / cam_f
   float4 prev_u;

@@ -14,7 +14,7 @@ SparkMrt main(SparkOut i) {
   float c = ltn_spark_cov(i);
   if (c < 1e-4) discard;
   SparkMrt o;
-  o.spark = float4(i.col.rgb, c * i.ctr.z);
+  o.spark = float4(i.col.rgb, c * i.shp.w);
   o.motion = float4(i.mv, 0.0, c);
   return o;
 }

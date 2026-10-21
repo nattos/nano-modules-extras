@@ -3,29 +3,31 @@
 // ~1000 flakes of mica, grit and silt (the poster's dust, part_dust.py) flying
 // around the structure, driven by the sweep knob (main.cpp). Every flake is
 // simulated (p_update), splatted into a coarse PRESENCE grid the fog reads as
-// dust (p_resolve), shaded per flake (p_shade) and drawn as an EWA splat of
-// its projected disc into an HDR layer the composite lays over the scene
-// (spark_vs / spark_fs) — sub-pixel flakes carry their size as coverage, so
-// they never pop between pixels.
+// dust (p_resolve), shaded per flake (p_shade) and drawn as an EMBER — a
+// hard-edged capsule from where it is back along where it came from, tapering
+// and dimming to its tail, a sub-pixel flake keeping its size as coverage —
+// into an HDR layer the composite lays over the scene (spark_vs / spark_fs).
 //
 // THE MOTION is regimes blended by the knob:
 //   ring     — choked: ballistic orbits in a loose horizontal ring, under a
 //              soft nonlinear field that only bites well away from it.
-//   jet      — sustaining: free flakes are drawn into a funnel on one side,
-//              blown through the core and fanned out of the other.
-//   capture  — sustaining: each block is a magnet (stronger the further it
-//              strains out, and in a glint's band). A flake near one is
-//              pulled onto a shell `standoff` above its surface and LATCHED
-//              there (the magneto envelope's latch: snapped onto the shell,
-//              its normal velocity killed) while it is driven around the
-//              block in lanes that follow the stone's ember grooves. It holds
-//              as long as the shell's curvature asks less than the magnet's
-//              hold — round a sharp edge too fast and it flies off, often
-//              into the next block's field.
+//   jet      — sustaining: free flakes ride a smoke-ring flow about the jet
+//              axis — drawn in, blown through the core, looped back round.
+//   stream   — sustaining: blocks are magnets (stronger the further they
+//              strain out, and in a glint's band). A flake caught near one
+//              is BOUND: steered (not pushed) along the blocks' surface at
+//              high speed, round the strata axis, in its own lane a little
+//              above it (lanes spread like the smoke lines over a wing),
+//              settling into the ember grooves, filleting the creases between
+//              blocks and climbing over a block in its way. It is snapped
+//              back onto its lane each step — the magneto envelope's latch —
+//              for as long as that asks less than the magnet holds: round an
+//              edge it asks v^2/lane, so inner lanes peel off sharp corners
+//              while outer ones hug.
 //   shell    — the thrown tail: released flakes are pushed onto a sphere
 //              around the structure (p_update), where p_shade shakes them at
 //              the tail's falling frequency (a render-only offset whose speed
-//              becomes motion vectors, so a motion blur streaks it).
+//              becomes the ember's length and the motion vectors).
 
 #ifndef LANTERN_PARTICLES_HLSL
 #define LANTERN_PARTICLES_HLSL
@@ -37,7 +39,7 @@ static const int LTN_P_ROWS = 5;     // state rows per flake (p_update)
 static const int LTN_R_ROWS = 4;     // render rows per flake (p_shade -> spark)
 static const int LTN_GRID = 32;      // presence grid, per axis (LTN_GRID in main.cpp)
 
-// State rows: s0 (pos, captor box or -1), s1 (vel, latched 0/1),
+// State rows: s0 (pos, -1), s1 (vel, bound 0/1),
 //             s2 (flake normal, tumble rate), s3 (tumble axis, susceptibility),
 //             s4 (disc radius m, kind, ring jitter r, ring jitter z).
 

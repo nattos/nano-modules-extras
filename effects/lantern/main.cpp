@@ -467,7 +467,7 @@ struct State {
   float glint_width = 0.12f;
   // The flakes.
   int flakes = 1200;
-  float flake_size = 1.5f;
+  float flake_size = 1.0f;
   float mica = 0.3f;
   float sparkle = 1.5f;
   float tumble = 1.0f;
@@ -479,7 +479,9 @@ struct State {
   float capture = 0.6f;
   float reach = 0.5f;
   float standoff = 0.08f;
-  float orbit_speed = 4.0f;
+  float orbit_speed = 16.0f;
+  float streak = 1.0f;
+  float heat = 1.0f;
   float hold = 1.0f;
   float lanes = 0.7f;
   float fling = 1.0f;
@@ -693,19 +695,22 @@ void module_init() {
           "poster's 4-13 mm flakes; *Mica* is the share that are polished "
           "and glint, the rest are dark grit and dull silt that show against "
           "the glow; *Sparkle* scales how bright they shine and *Tumble* how "
-          "fast they turn. Choked, they orbit a ring *Ring Radius* out, "
+          "fast they turn; *Streak* stretches each into an ember along its "
+          "flight (in frames of travel, 0 a dot) and *Heat* is how hot a fast "
+          "one glows. Choked, they orbit a ring *Ring Radius* out, "
           "*Ring Loose*, at *Ring Speed*. Sustained, *Jet* blows the free "
           "ones through the core along *Jet Angle* (0 is the screen's left "
           "to right), and the blocks catch them: *Capture* is the magnets' "
-          "pull, *Reach* how far it carries, *Standoff* how far above the "
-          "surface a held flake orbits at full sustain (further when it's "
-          "low), *Orbit Speed* how fast, *Hold* how hard round the edges "
-          "before it flies off, *Lanes* how strongly they gather along the "
-          "ember grooves. *Dust* is how much where they crowd darkens the "
+          "pull, *Reach* how far it carries; a caught flake streams along "
+          "the blocks' surface round the structure, in a lane about "
+          "*Standoff* above it (lanes spread around that; closer the higher "
+          "the sustain), at *Orbit Speed* (faster too), held round the "
+          "edges as hard as *Hold* allows before it peels off, gathering "
+          "along the ember grooves as much as *Lanes* says. *Dust* is how much where they crowd darkens the "
           "light in the water.")
       .intField("flakes", 1200, 0, kMaxFlakes, state::SecondaryInput)
           .label("Flakes", "Flks")
-      .floatField("flake_size", 1.5f, 0.25f, 4.f, state::PrimaryInput)
+      .floatField("flake_size", 1.0f, 0.25f, 4.f, state::PrimaryInput)
           .label("Size", "Size")
       .floatField("mica", 0.3f, 0.f, 1.f, state::PrimaryInput)
           .label("Mica", "Mica")
@@ -713,6 +718,10 @@ void module_init() {
           .label("Sparkle", "Sprk")
       .floatField("tumble", 1.0f, 0.f, 4.f, state::PrimaryInput)
           .label("Tumble", "Tmbl")
+      .floatField("streak", 1.0f, 0.f, 4.f, state::PrimaryInput)
+          .label("Streak", "Strk")
+      .floatField("heat", 1.0f, 0.f, 4.f, state::PrimaryInput)
+          .label("Heat", "Heat")
       .floatField("ring_radius", 4.2f, 1.f, 8.f, state::PrimaryInput, nullptr, 0.f, "m")
           .label("Ring Radius", "RRad")
       .floatField("ring_loose", 0.6f, 0.f, 1.f, state::PrimaryInput)
@@ -729,7 +738,7 @@ void module_init() {
           .label("Reach", "Rch")
       .floatField("standoff", 0.08f, 0.01f, 0.5f, state::PrimaryInput, nullptr, 0.f, "m")
           .label("Standoff", "Stnd")
-      .floatField("orbit_speed", 4.0f, 0.f, 12.f, state::PrimaryInput, nullptr, 0.f, "m/s")
+      .floatField("orbit_speed", 16.0f, 0.f, 40.f, state::PrimaryInput, nullptr, 0.f, "m/s")
           .label("Orbit Speed", "OSpd")
       .floatField("hold", 1.0f, 0.f, 4.f, state::PrimaryInput)
           .label("Hold", "Hold")
@@ -1100,6 +1109,8 @@ void on_state_patched(void* self, int n, const char* pb, const int* off,
     else if (state::pathIs(p, l, "mica"))         s->mica = state::patchFloat(i);
     else if (state::pathIs(p, l, "sparkle"))      s->sparkle = state::patchFloat(i);
     else if (state::pathIs(p, l, "tumble"))       s->tumble = state::patchFloat(i);
+    else if (state::pathIs(p, l, "streak"))       s->streak = state::patchFloat(i);
+    else if (state::pathIs(p, l, "heat"))         s->heat = state::patchFloat(i);
     else if (state::pathIs(p, l, "ring_radius"))  s->ring_radius = state::patchFloat(i);
     else if (state::pathIs(p, l, "ring_loose"))   s->ring_loose = state::patchFloat(i);
     else if (state::pathIs(p, l, "ring_speed"))   s->ring_speed = state::patchFloat(i);
@@ -1176,7 +1187,7 @@ M3 poseBlocks(State* s, int& count) {
     r[1] = {{ax.x, ax.y, ax.z, half.x}};
     r[2] = {{ay.x, ay.y, ay.z, half.y}};
     r[3] = {{az.x, az.y, az.z, half.z}};
-    r[4] = {{b.stone ? 1.0f : 0.0f, b.seed, 0.0f, 0.0f}};
+    r[4] = {{b.stone ? 1.0f : 0.0f, b.seed, 0.0f, b.fragment ? 1.0f : 0.0f}};
     count++;
   }
   return egg;
@@ -1401,7 +1412,10 @@ void render(void* self, int vp_w, int vp_h) {
           e += gl.drawGain() * (std::exp(-x * x) - 0.5f * gl.drawShade() * std::exp(-wk * wk));
         }
       }
-      r[4].v[2] = std::fmax(0.0f, (0.35f + r[0].v[3]) * (1.0f + s->glint_gain * e));
+      // (The loose fragments are no magnets: flakes held round so small a
+      // box only spin in place.)
+      r[4].v[2] = r[4].v[3] > 0.5f ? 0.0f
+                : std::fmax(0.0f, (0.35f + r[0].v[3]) * (1.0f + s->glint_gain * e));
     }
   }
   s->box_buf.write(s->rows, count * kBoxRows);
@@ -1433,22 +1447,23 @@ void render(void* self, int vp_w, int vp_h) {
       pu.jet[0] = J.x; pu.jet[1] = J.y; pu.jet[2] = J.z;
       pu.jet[3] = s->jet * std::fmin(S / 0.4f, 1.0f);
     }
-    pu.jet2[0] = 3.0f + 4.0f * S;
+    pu.jet2[0] = 6.0f + 10.0f * S;
     pu.cap[0] = 40.0f;
     pu.cap[1] = s->reach;
-    pu.cap[2] = 250.0f * s->hold;
+    pu.cap[2] = 3000.0f * s->hold;
     pu.cap[3] = s->lanes;
     {
       const float x = std::fmin(S, 1.0f);
       const float over = std::fmax(S - 1.0f, 0.0f);
       pu.orbit[0] = s->standoff * std::exp(1.79f * (1.0f - x)) * (1.0f - 0.5f * over);
-      pu.orbit[1] = s->orbit_speed * (0.15f + 0.85f * S);
+      pu.orbit[1] = s->orbit_speed * (0.25f + 0.75f * S);
       pu.orbit[2] = 6.0f;
       pu.orbit[3] = 1.6f * s->capture;
     }
     pu.shell[0] = s->shell_radius;
     pu.shell[1] = 9.0f;
     pu.shell[2] = 7.0f * s->fling;
+    pu.shell[3] = s->heat;
     pu.vibe[0] = s->vibe * release;
     pu.vibe[1] = (float)s->vibe_phase;
     pu.vibe[2] = s->vibe_spread;
@@ -1465,6 +1480,7 @@ void render(void* self, int vp_w, int vp_h) {
   pu.pframe[0] = s->frame_dt;
   pu.pframe[1] = (float)s->frame;
   pu.pframe[2] = (want_motion && s->prev_cam_valid) ? 1.0f : 0.0f;
+  pu.pframe[3] = s->streak;
   pu.pview[0] = (float)vp_w; pu.pview[1] = (float)vp_h;
   pu.pview[2] = 1.0f / vp_w; pu.pview[3] = 1.0f / vp_h;
   {
