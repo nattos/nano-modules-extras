@@ -227,8 +227,8 @@ void main(uint3 gid : SV_DispatchThreadID) {
     // about Reach is caught) scaled by the block's magnetism. And, for a
     // bound flake, its captor's own surface.
     const float h0 = orbit.x * lerp(0.35, 2.2, lane);
-    float pull = 0.0, dcap = 1.0e9, dnear = 1.0e9, dnb = 1.0e9;
-    float3 ncap = float3(0.0, 0.0, 1.0), nnb = float3(0.0, 0.0, 1.0);
+    float pull = 0.0, dcap = 1.0e9, dnear = 1.0e9;
+    float3 ncap = float3(0.0, 0.0, 1.0);
     int ibest = -1, inear = -1;
     [loop] for (int i = 0; i < nbox; i++) {
       float m = boxes[i * LTN_BOX_ROWS + 4].z;
@@ -236,7 +236,6 @@ void main(uint3 gid : SV_DispatchThreadID) {
       float3 n;
       float d = ltn_box_sdf(i, pos, n);
       if (i == captor) dcap = d;
-      else if (d < dnb) { dnb = d; nnb = n; }
       if (d < dnear) { dnear = d; inear = i; }
       if (!bound && Scap > 1e-4) {
         float eps = cap.y * cap.y * m;
@@ -256,24 +255,10 @@ void main(uint3 gid : SV_DispatchThreadID) {
     // a stream turns one in a gentle arc instead of a lane-tight hairpin.
     const float lift = 0.05 + 0.25 * h;
     const float ramp = 2.0 * (h + lift);
-    float g = 0.0, own = 1.0;
-    float3 nown = ncap;
+    float g = 0.0;
     if (captor >= 0) {
       dcap = ltn_lane_field(captor, pos, lift, ramp, ncap);
       g = dcap - h - loft;
-      nown = ncap;
-      // The air gap holds off its captor's neighbors too: where another block
-      // stands in the lane (a flush neighbor, one jutting past it), the lane
-      // steps up over it — a smooth union of the two — so the stream rides
-      // over the neighbor instead of jamming against it.
-      const float hn = 0.7 * h + 0.02, kn = 0.06;
-      float gn = dnb - hn;
-      float hh = saturate(0.5 + 0.5 * (gn - g) / kn);
-      own = hh;
-      g = lerp(gn, g, hh) - kn * hh * (1.0 - hh);
-      float3 nb2 = lerp(nnb, ncap, hh);
-      // (Squeezed between two facing walls the normals cancel: keep its own.)
-      if (dot(nb2, nb2) > 1e-4) ncap = normalize(nb2);
     }
 
     // The magnet: how stiffly a bound flake is held at its lane's altitude —
@@ -314,13 +299,8 @@ void main(uint3 gid : SV_DispatchThreadID) {
         float3 n0, nf;
         ltn_lane_field(captor, pl, lift, ramp, n0);
         ltn_lane_field(captor, pl + vt3 * la, lift, ramp, nf);
-        a -= ncap * (0.8 * own * dot(vt3, nf - n0) / la);
+        a -= ncap * (0.8 * dot(vt3, nf - n0) / la);
       }
-      // A magnet's push on a moving charge does no work: it bends the flight,
-      // never brakes or spurs it. So the field's altitude forces act across
-      // the flake's way only (a slow flake, settling, is held as before), and
-      // each edge it turns costs it no speed — its pace is the stream's alone.
-      a -= vel * (dot(a, vel) / (dot(vel, vel) + 4.0));
       // Over a face square to its block's spin axis the stream only circles;
       // there an UPDRAFT lifts its lane — steadily, the spring still holding
       // the flake to it — so the flakes VORTEX up off the face, still
@@ -351,13 +331,6 @@ void main(uint3 gid : SV_DispatchThreadID) {
         rho = lerp(rg, rho, jet2.y);
         W *= rsqrt(max(dot(W, W), 1e-8)) * sgn;
       }
-      // (Up and over a neighbor in its way: where its lane rides a neighbor,
-      // the stream leans away from its own block, so one heading straight at
-      // a wall climbs it rather than stalling there.)
-      {
-        float wt = length(W - ncap * dot(W, ncap));
-        W += nown * (1.5 * (1.0 - own) * saturate(1.0 - 2.0 * wt));
-      }
       float3 t = W - ncap * dot(W, ncap);
       float tl = length(t);
       t = tl > 1e-4 ? t / tl : vel * rsqrt(max(dot(vel, vel), 1e-8));
@@ -367,7 +340,7 @@ void main(uint3 gid : SV_DispatchThreadID) {
       float vt = dot(vel, t);
       float3 side = vel - t * vt - ncap * vn;
       a += t * ((V - vt) * 2.0);
-      a += (t * length(side) - side) * 1.5;
+      a -= side * 1.5;
       // (And a flake caught going faster than the stream sheds the excess.)
       {
         float sp = length(vel);
@@ -427,9 +400,13 @@ void main(uint3 gid : SV_DispatchThreadID) {
     // Ricochet: a flake held by (or swinging in to) a magnet that strikes a
     // block bounces off it — Ricochet is how much of its speed into the face it
     // keeps — scattered a little. (Free flakes, the jet's, pass through.)
-    if (inear >= 0 && (bound || w > 0.15)) {
+    // (A bound flake answers to its captor alone: it slips through a
+    // neighbor its lane runs into, out of sight a moment, rather than
+    // jamming against it.)
+    int irc = bound ? captor : inear;
+    if (irc >= 0 && (bound || w > 0.15)) {
       float3 nb;
-      float db = ltn_box_sdf(inear, pos, nb);
+      float db = ltn_box_sdf(irc, pos, nb);
       const float rad = 0.01;
       if (db < rad) {
         pos += nb * (rad - db);

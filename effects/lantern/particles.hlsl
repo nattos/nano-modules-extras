@@ -25,18 +25,16 @@
 //              drawn sideways into the ember grooves, pushed (not steered)
 //              so it keeps its momentum. Its lane keeps an AIR GAP: never
 //              nearer the block than its altitude, lifted toward each edge so
-//              it turns the edge in a gentle arc, and stepping up over any
-//              neighbor standing in its way. The field leads each turn,
-//              supplying most of the push that keeps it level as the lane
-//              bends. Its ALTITUDE is held by a spring for the rest — damped,
-//              hardening as it is pushed off, soft deep in the sweep and
-//              nearly pinching in the middle — so it rides up over an edge
-//              under the load and springs back with a wobble; only a big
-//              excursion tears it loose. Like a magnet's on a moving charge,
-//              these pushes bend its flight but never brake it. In flight, a
-//              pull that ramps up hard as it closes (the magneto envelope's
-//              eps/(d^2+eps)) swings it back in; striking a block it
-//              ricochets. The strained blocks hold hardest. Over a face
+//              it turns the edge in a gentle arc (a neighbor in its way it
+//              slips through, out of sight a moment). The field leads each
+//              turn, supplying most of the push that keeps it level as the
+//              lane bends. Its ALTITUDE is held by a spring for the rest —
+//              damped, hardening as it is pushed off, soft deep in the sweep
+//              and nearly pinching in the middle — so it rides up over an
+//              edge under the load and springs back with a wobble; only a big
+//              excursion tears it loose. In flight, a pull that ramps up hard
+//              as it closes (the magneto envelope's eps/(d^2+eps)) swings it
+//              back in; striking its block it ricochets. The strained blocks hold hardest. Over a face
 //              looking out of the structure and square to its block's spin
 //              axis (where a stream would only circle), an updraft lifts its
 //              lane: the flakes vortex up off it until they fly off, and a
