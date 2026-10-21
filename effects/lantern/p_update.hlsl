@@ -34,51 +34,6 @@ float ltn_groove_offset(float3 p, out float mask) {
   return ph / 40.0;
 }
 
-// A flake's LANE round box i, as a distance-like field whose level set at the
-// lane's altitude h is the lane: the box's true distance, less a LIFT that
-// rises toward each edge (over `ramp`, reaching `lift` at the edge and all
-// round it). So a lane rides at h over a face, climbs a little as it nears an
-// edge and wraps round it on a radius of h + lift — a gentle turn that never
-// comes closer to the block than h (a rounding that cut the corner would run
-// the low lanes into the block, flattening them all onto its surface). The
-// normal is the field's gradient (smooth: the true distance is, outside).
-float ltn_lane_field(int i, float3 p, float lift, float ramp, out float3 n) {
-  float4 r0 = boxes[i * LTN_BOX_ROWS + 0];
-  float4 r1 = boxes[i * LTN_BOX_ROWS + 1];
-  float4 r2 = boxes[i * LTN_BOX_ROWS + 2];
-  float4 r3 = boxes[i * LTN_BOX_ROWS + 3];
-  float3 o = p - r0.xyz;
-  float3 lq = float3(dot(o, r1.xyz), dot(o, r2.xyz), dot(o, r3.xyz));
-  float3 q = abs(lq) - float3(r1.w, r2.w, r3.w);
-  float3 sg = select(lq < 0.0, -1.0, 1.0);
-  // The true distance and its gradient (local).
-  float3 op = max(q, 0.0);
-  float lo = length(op);
-  float d;
-  float3 gd;
-  if (lo > 1e-6) {
-    d = lo;
-    gd = op / lo;
-  } else {
-    d = max(q.x, max(q.y, q.z));
-    gd = (q.x >= q.y && q.x >= q.z) ? float3(1.0, 0.0, 0.0)
-       : (q.y >= q.z ? float3(0.0, 1.0, 0.0) : float3(0.0, 0.0, 1.0));
-  }
-  // How near an edge: per slab, 0 a ramp in from its plane, 1 at it and past;
-  // an edge is two slabs both near, S any of the three edges.
-  float3 t = saturate((q + ramp) / ramp);
-  float3 sm = t * t * (3.0 - 2.0 * t);
-  float3 dsm = 6.0 * t * (1.0 - t) / ramp;
-  float pxy = sm.x * sm.y, pyz = sm.y * sm.z, pzx = sm.z * sm.x;
-  float S = 1.0 - (1.0 - pxy) * (1.0 - pyz) * (1.0 - pzx);
-  float3 dS = float3(sm.y * (1.0 - pyz) * (1.0 - pzx) + sm.z * (1.0 - pxy) * (1.0 - pyz),
-                     sm.x * (1.0 - pyz) * (1.0 - pzx) + sm.z * (1.0 - pxy) * (1.0 - pzx),
-                     sm.y * (1.0 - pxy) * (1.0 - pzx) + sm.x * (1.0 - pxy) * (1.0 - pyz)) * dsm;
-  float3 gl = (gd - lift * dS) * sg;
-  n = normalize(r1.xyz * gl.x + r2.xyz * gl.y + r3.xyz * gl.z);
-  return d - lift * S;
-}
-
 // What scales a magnet's pull on a flake in flight: the sustain, the block's
 // magnetism, the flake's susceptibility.
 float msc_free(float Scap, float m, float susc) {
@@ -251,14 +206,17 @@ void main(uint3 gid : SV_DispatchThreadID) {
     float mcap = captor >= 0 ? boxes[captor * LTN_BOX_ROWS + 4].z : 1.0;
     float boost = max(mcap - 1.0, 0.0);
     float h = h0 / (1.0 + 0.6 * boost);
-    // The lane round the captor (ltn_lane_field): lifted toward the edges so
-    // a stream turns one in a gentle arc instead of a lane-tight hairpin.
-    const float lift = 0.05 + 0.25 * h;
-    const float ramp = 2.0 * (h + lift);
+    // The lane round the captor: the box's own offset at the lane's
+    // altitude (a little over h), so every edge is turned on a radius of that
+    // altitude — a round, convex loop that never comes nearer the block than
+    // its altitude, nor pinches in between the edges (a lane rounded INTO
+    // the block ran the low lanes inside it; one lifted only toward the edges
+    // arched in between them).
+    const float hl = 1.2 * h + 0.03;
     float g = 0.0;
     if (captor >= 0) {
-      dcap = ltn_lane_field(captor, pos, lift, ramp, ncap);
-      g = dcap - h - loft;
+      dcap = ltn_box_sdf(captor, pos, ncap);
+      g = dcap - hl - loft;
     }
 
     // The magnet: how stiffly a bound flake is held at its lane's altitude —
@@ -268,7 +226,7 @@ void main(uint3 gid : SV_DispatchThreadID) {
     // the middle (stiffer still on an overshoot, a strained block, a glint's
     // band); scaled by Hold. Only a big excursion breaks it free.
     const float x = saturate(pb.x);
-    const float omega = cap.z * lerp(5.0, 70.0, x * x) * (1.0 + 0.6 * max(pb.x - 1.0, 0.0)) *
+    const float omega = cap.z * lerp(5.0, 60.0, x * x) * (1.0 + 0.6 * max(pb.x - 1.0, 0.0)) *
                         sqrt(max(mcap, 0.3)) * lerp(0.75, 1.25, susc - 0.5);
     const float w = bound ? 1.0 : saturate(Scap * susc * pull * orbit.w);
     const float hs = max(h, 0.05);
@@ -297,8 +255,8 @@ void main(uint3 gid : SV_DispatchThreadID) {
         float3 pl = pos - ncap * g;
         float3 vt3 = vel - ncap * vn;
         float3 n0, nf;
-        ltn_lane_field(captor, pl, lift, ramp, n0);
-        ltn_lane_field(captor, pl + vt3 * la, lift, ramp, nf);
+        ltn_box_sdf(captor, pl, n0);
+        ltn_box_sdf(captor, pl + vt3 * la, nf);
         a -= ncap * (0.8 * dot(vt3, nf - n0) / la);
       }
       // Over a face square to its block's spin axis the stream only circles;

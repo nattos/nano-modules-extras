@@ -23,10 +23,10 @@
 //              spread like the smoke lines over a wing; the deeper the knob
 //              is in its sweep, the wider and slower they run),
 //              drawn sideways into the ember grooves, pushed (not steered)
-//              so it keeps its momentum. Its lane keeps an AIR GAP: never
-//              nearer the block than its altitude, lifted toward each edge so
-//              it turns the edge in a gentle arc (a neighbor in its way it
-//              slips through, out of sight a moment). The field leads each
+//              so it keeps its momentum. Its lane keeps an AIR GAP: the box's
+//              offset at its altitude, turning each edge on that radius and
+//              never nearer the block (a neighbor in its way it slips
+//              through, out of sight a moment). The field leads each
 //              turn, supplying most of the push that keeps it level as the
 //              lane bends. Its ALTITUDE is held by a spring for the rest —
 //              damped, hardening as it is pushed off, soft deep in the sweep
