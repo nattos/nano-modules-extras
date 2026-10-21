@@ -10,7 +10,7 @@ cbuffer Part : register(b4) {
   float4 ring;      // radius, looseness, orbit speed (m/s), return stiffness
   float4 jet;       // axis (unit, world), strength (already x S)
   float4 jet2;      // bore speed (m/s), local (0 round the structure, 1 round each block), 0, 0
-  float4 cap;       // capture accel, capture range (m), hold accel, lane strength
+  float4 cap;       // stick, capture range (m), hold, lane strength (stick/hold: of v^2/lane)
   float4 orbit;     // standoff now (m), orbit speed now (m/s), curl (rad/s), capture
   float4 shell;     // radius, stiffness, fling speed, heat
   float4 vibe;      // amplitude now (m), phase (rad), spread, angular freq (rad/s)

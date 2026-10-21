@@ -118,7 +118,7 @@ float3 ltn_jet_accel(float3 pos, float3 vel) {
   float s = dot(pos, J);
   float3 rp = pos - s * J;
   u += cross(J, rp) * (0.35 * jet2.x / R * exp(-dot(rp, rp) / 9.0));
-  return (u - vel) * (4.0 * jet.w);
+  return (u - vel) * (1.5 * jet.w);
 }
 
 [numthreads(64, 1, 1)]
@@ -195,35 +195,38 @@ void main(uint3 gid : SV_DispatchThreadID) {
     float h = h0 / (1.0 + 0.6 * boost);
     float g = dcap - h;
 
-    // Held: snapped back onto its lane round its captor each step, normal
-    // velocity killed — for as long as that asks less than the magnet holds.
-    // Along a face it asks nothing; round an edge it asks the centripetal
-    // v^2/lane, so the inner lanes peel off sharp edges at speed (often into
-    // the next block's pull) while the outer ones wrap round.
+    // The magnet's scale: what it takes to wrap the lane at the stream's
+    // speed (v^2/lane). Its pull and its hold are fractions of that (Stick,
+    // Hold), so it stays as sticky at any speed; the block's magnetism, the
+    // sustain and the flake's own susceptibility scale both.
+    const float Vc = orbit.y;
+    const float aneed = Vc * Vc / max(h, 0.04);
+    const float msc = sqrt(max(Scap, 0.0)) * max(mcap, 0.3) * susc;
+    const float w = bound ? 1.0 : saturate(Scap * susc * pull * orbit.w);
+
+    // LATCHED (the magneto envelope's latch): snapped back onto its lane round
+    // its captor each step, its normal velocity killed — for as long as that
+    // asks less than the magnet holds. Along a face it asks nothing; off an
+    // edge, carried straight on by its own momentum, it asks about v^2/2lane
+    // — more than a weak magnet holds, so it flies off and the pull arcs it
+    // back to snap onto the next face, or into another block's.
     if (bound) {
-      // (Outside its lane is what a turn too fast for the hold leaves it;
-      // inside is its lane having widened — it eases out to it.)
       float need = max(g, 0.0) / (dt * dt);
-      if (Scap < 0.02 || need > cap.z * sqrt(Scap) * max(mcap, 0.3)) {
+      if (Scap < 0.02 || need > cap.z * aneed * msc) {
         bound = false;
       } else {
         pos -= ncap * max(g, -4.0 * dt);
         vel -= ncap * dot(vel, ncap);
       }
-    } else if (captor >= 0 && Scap > 1e-4 && saturate(Scap * susc * pull * orbit.w) > 0.15 &&
-               abs(g) < 0.05 + abs(dot(vel, ncap)) * dt) {
-      bound = true;
-      pos -= ncap * g;
-      vel -= ncap * dot(vel, ncap);
     }
 
+    float3 a = float3(0.0, 0.0, 0.0);
     if (bound) {
       // Streaming round its captor, about the block's own axis (one of the
       // two it does not jut along, set per block) — or, as much as Local is
-      // short of 1, round the whole structure — steered, not pushed, so it
-      // turns hard. On a block flush with its neighbors the loop crosses the
-      // outer face and dives through the seams; round a jutting one it shows
-      // whole.
+      // short of 1, round the whole structure. A push toward the stream's
+      // speed, not a steer: it keeps its momentum, and only slowly gives up
+      // going any other way across the face.
       float rho;
       float3 W = ltn_block_swirl(captor, pos, rho);
       {
@@ -239,7 +242,9 @@ void main(uint3 gid : SV_DispatchThreadID) {
       // Slower toward the axis, as a turning body is, so a cap's center
       // doesn't spin.
       float V = orbit.y * pace * (1.0 + 0.5 * boost) * saturate(rho / lerp(1.5, 0.3, jet2.y));
-      float3 target = t * V;
+      float vt = dot(vel, t);
+      a += t * ((V - vt) * 3.0);
+      a -= (vel - t * vt) * 4.0;
       if (cap.w > 0.0) {
         // Drawn sideways into the ember grooves (never along its way, so a
         // stream across them isn't held back).
@@ -247,13 +252,10 @@ void main(uint3 gid : SV_DispatchThreadID) {
         float off = ltn_groove_offset(pos, gm);
         float3 Zt = Z - ncap * dot(Z, ncap);
         Zt -= t * dot(Zt, t);
-        target -= Zt * (off * 30.0 * cap.w * lerp(0.4, 1.0, gm));
+        a -= Zt * (off * 400.0 * cap.w * lerp(0.4, 1.0, gm));
       }
-      vel = lerp(vel, target, 1.0 - exp(-dt * 40.0));
     } else {
-      float w = saturate(Scap * susc * pull * orbit.w);
       float freew = 1.0 - saturate(2.0 * w);
-      float3 a = float3(0.0, 0.0, 0.0);
       a += ltn_ring_accel(pos, vel, s4.z, s4.w) * (freew * (1.0 - 0.7 * R) * (1.0 - saturate(1.6 * jet.w)));
       a += ltn_jet_accel(pos, vel) * freew * (1.0 - R);
       // A slow wander, so the ring isn't clockwork.
@@ -269,18 +271,37 @@ void main(uint3 gid : SV_DispatchThreadID) {
         a += er * (-shell.y * (r - rs) - 1.2 * sqrt(shell.y) * vr) * R;
         a -= (vel - er * vr) * (0.4 * R);
       }
-      // Drawn toward its lane by a nearby magnet, thrown back out from under it.
+      // In flight near a magnet: a pull toward its lane that is weak a lane
+      // or two out and ramps up hard as it closes (the magneto envelope's
+      // eps/(d^2+eps)), so a flake swings in and SNAPS on; driven under the
+      // lane (by the jet, say) it is pushed back out.
       if (w > 1e-3 && captor >= 0) {
-        float vn = dot(vel, ncap);
-        a += ncap * (g > 0.0 ? -cap.x * w : cap.x * 40.0 * w * saturate(-g / 0.1));
-        a -= ncap * (vn * 4.0 * w);
+        float eps = (0.6 * h + 0.05) * (0.6 * h + 0.05);
+        if (g > 0.0) a -= ncap * (cap.x * aneed * msc * w * eps / (g * g + eps));
+        else if (g < -h) a += ncap * (200.0 * saturate(-g / max(h, 0.05) - 1.0));
       }
-      // Off a surface the streams' speed bleeds away to what the free flow
-      // carries, quickly but not at once (a released stream flies on).
+      // Off a surface a stream's speed bleeds slowly toward what the free
+      // flow carries: released, it flies on almost ballistically.
       float sp = length(vel);
       float vmax = max(ring.z * 2.0, jet2.x * jet.w * 1.5);
-      if (sp > vmax) a -= vel * ((sp - vmax) / sp * 1.6);
-      vel += a * dt;
+      if (sp > vmax) a -= vel * ((sp - vmax) / sp * 0.5);
+    }
+    vel += a * dt;
+
+    // Arriving: crossing onto its lane, a flake latches — snapped on, normal
+    // velocity killed — unless it comes in too fast, when it bounces off
+    // (and the pull brings it back for another try).
+    if (!bound && captor >= 0 && Scap > 1e-4 && w > 0.15) {
+      float vn = dot(vel, ncap);
+      if (g + vn * dt <= 0.0 && g > -h) {
+        if (-vn < 0.5 * Vc + 2.0) {
+          bound = true;
+          pos -= ncap * g;
+          vel -= ncap * vn;
+        } else {
+          vel -= ncap * (vn * 1.4);
+        }
+      }
     }
     pos += vel * dt;
 

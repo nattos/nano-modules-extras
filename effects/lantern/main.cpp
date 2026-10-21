@@ -486,6 +486,7 @@ struct State {
   float streak = 1.0f;
   float heat = 1.0f;
   float hold = 1.0f;
+  float stick = 0.8f;
   float lanes = 0.7f;
   float fling = 1.0f;
   float shell_radius = 4.0f;
@@ -706,9 +707,12 @@ void module_init() {
           "to right), and the blocks catch them: *Capture* is the magnets' "
           "pull, *Reach* how far it carries; a caught flake streams round the "
           "block that caught it (*Local* 1; toward 0, round the whole structure) "
-          "in a lane above its surface, held round the edges as hard as "
-          "*Hold* allows before it peels off, gathering along the ember "
-          "grooves as much as *Lanes* says. How deep the knob is in its "
+          "in a lane above its surface, keeping its momentum. It is LATCHED "
+          "on as long as the magnet holds (*Hold*); off an edge it flies on "
+          "and the pull (*Stick*) swings it back to snap onto the next face "
+          "or another block -- both scale with its speed, so it stays as "
+          "sticky however fast. Strained blocks hold hardest. *Lanes* draws "
+          "it into the ember grooves. How deep the knob is in its "
           "sweep sets the rest: in the middle the lanes hug at *Standoff* and "
           "run at *Orbit Speed*; toward either end they widen to *Standoff "
           "Deep* and slow to *Speed Deep* while the magnets weaken, until the "
@@ -754,6 +758,8 @@ void module_init() {
           .label("Local", "Locl")
       .floatField("hold", 1.0f, 0.f, 4.f, state::PrimaryInput)
           .label("Hold", "Hold")
+      .floatField("stick", 0.8f, 0.f, 4.f, state::PrimaryInput)
+          .label("Stick", "Stck")
       .floatField("lanes", 0.7f, 0.f, 1.f, state::PrimaryInput)
           .label("Lanes", "Lane")
       .floatField("dust", 0.5f, 0.f, 2.f, state::PrimaryInput)
@@ -1136,6 +1142,7 @@ void on_state_patched(void* self, int n, const char* pb, const int* off,
     else if (state::pathIs(p, l, "speed_deep"))   s->speed_deep = state::patchFloat(i);
     else if (state::pathIs(p, l, "local"))        s->local = state::patchFloat(i);
     else if (state::pathIs(p, l, "hold"))         s->hold = state::patchFloat(i);
+    else if (state::pathIs(p, l, "stick"))        s->stick = state::patchFloat(i);
     else if (state::pathIs(p, l, "lanes"))        s->lanes = state::patchFloat(i);
     else if (state::pathIs(p, l, "dust"))         s->dust = state::patchFloat(i);
     else if (state::pathIs(p, l, "fling"))        s->fling = state::patchFloat(i);
@@ -1473,9 +1480,9 @@ void render(void* self, int vp_w, int vp_h) {
     }
     pu.jet2[0] = 6.0f + 10.0f * S;
     pu.jet2[1] = s->local;
-    pu.cap[0] = 40.0f;
+    pu.cap[0] = s->stick;
     pu.cap[1] = s->reach;
-    pu.cap[2] = 3000.0f * s->hold;
+    pu.cap[2] = s->hold;
     pu.cap[3] = s->lanes;
     {
       const float x = std::fmin(S, 1.0f);

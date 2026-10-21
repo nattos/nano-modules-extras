@@ -22,11 +22,15 @@
 //              round a jutting one — in its own lane above it (lanes
 //              spread like the smoke lines over a wing; the deeper the knob
 //              is in its sweep, the wider and slower they run),
-//              drawn sideways into the ember grooves. It is snapped
-//              back onto its lane each step — the magneto envelope's latch —
-//              for as long as that asks less than the magnet holds: round an
-//              edge it asks v^2/lane, so inner lanes peel off sharp corners
-//              (often into the next block's pull) while outer ones wrap round.
+//              drawn sideways into the ember grooves, pushed (not steered)
+//              so it keeps its momentum. LATCHED like the magneto envelope's
+//              spheres: snapped back onto its lane each step for as long as
+//              that asks less than the magnet holds; off an edge, carried
+//              straight on, it asks more than a weak magnet holds, flies off,
+//              and a pull that ramps up hard as it closes (eps/(d^2+eps))
+//              swings it back to snap onto the next face — or bounce, coming
+//              in too fast. Pull and hold scale with v^2/lane: as sticky at
+//              any speed; the strained blocks hold hardest.
 //   shell    — the thrown tail: released flakes are pushed onto a sphere
 //              around the structure (p_update), where p_shade shakes them at
 //              the tail's falling frequency (a render-only offset whose speed
