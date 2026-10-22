@@ -324,6 +324,12 @@ void main(uint3 gid : SV_DispatchThreadID) {
 
     float3 a = float3(0.0, 0.0, 0.0);
     if (bound) {
+      // Its stream: round its captor, about the block's own axis (one of the
+      // two it does not jut along, set per block) — or, as much as Local is
+      // short of 1, round the whole structure — at the stream's pace.
+      float rho;
+      float3 t = ltn_stream_dir(captor, pos, ncap, sgn, vel, rho);
+      float V = ltn_stream_pace(pace, lane, boost, rho);
       // Its altitude: the spring.
       float vn = dot(vel, ncap);
       float hard = min(1.0 + (g / hs) * (g / hs), 3.0);
@@ -335,11 +341,15 @@ void main(uint3 gid : SV_DispatchThreadID) {
       // (Read off the lane itself — the flake set back onto it, looking ahead
       // along it — not at the flake's own height: below the lane by an edge
       // the field bends as tightly as the edge does, and leading that would
-      // fling it.)
+      // fling it. And it leads only as fast as the stream runs: a lead that
+      // grows with the square of the flake's own speed, on a soft spring that
+      // lets it swing well off the lane, fed every turn back into that speed
+      // until the flakes whipped round at many times their stream's pace.)
       {
         float la = max(2.0 * dt, 0.004);
         float3 pl = pos - ncap * g;
         float3 vt3 = vel - ncap * vn;
+        vt3 *= min(1.0, (1.1 * V + 0.5) * rsqrt(max(dot(vt3, vt3), 1e-8)));
         float3 n0, nf;
         ltn_box_sdf(captor, pl, n0);
         ltn_box_sdf(captor, pl + vt3 * la, nf);
@@ -363,14 +373,9 @@ void main(uint3 gid : SV_DispatchThreadID) {
         loft += dt * (climb * cap_w - 1.5 * loft * (1.0 - cap_w));
         loft = max(loft, 0.0);
       }
-      // Streaming round its captor, about the block's own axis (one of the
-      // two it does not jut along, set per block) — or, as much as Local is
-      // short of 1, round the whole structure. A push toward the stream's
-      // speed, not a steer: it keeps its momentum, and only slowly gives up
-      // going any other way across the face.
-      float rho;
-      float3 t = ltn_stream_dir(captor, pos, ncap, sgn, vel, rho);
-      float V = ltn_stream_pace(pace, lane, boost, rho);
+      // Streaming: a push toward the stream's speed, not a steer — it keeps
+      // its momentum, and only slowly gives up going any other way across
+      // the face.
       float vt = dot(vel, t);
       float3 side = vel - t * vt - ncap * vn;
       a += t * ((V - vt) * 2.0);
@@ -422,10 +427,13 @@ void main(uint3 gid : SV_DispatchThreadID) {
         a -= ncap * (cap.x * omega * omega * hs * msc_free(Scap, mcap, susc) * w * eps / (g * g + eps));
       }
       // Off a surface a stream's speed bleeds slowly toward what the free
-      // flow carries: released, it flies on almost ballistically.
+      // flow carries: released, it flies on almost ballistically. But let go
+      // by the choke (no throw) it settles quickly into the ring instead of
+      // sailing off on what it had.
       float sp = length(vel);
       float vmax = max(ring.z * 2.0, jet2.x * jet.w * 1.5);
-      if (sp > vmax) a -= vel * ((sp - vmax) / sp * 0.5);
+      float bleed = 0.5 + 2.0 * saturate(1.0 - Scap / 0.15) * (1.0 - R);
+      if (sp > vmax) a -= vel * ((sp - vmax) / sp * bleed);
     }
     vel += a * dt;
     pos += vel * dt;

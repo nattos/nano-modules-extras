@@ -1518,7 +1518,9 @@ void render(void* self, int vp_w, int vp_h) {
       // slow to Speed Deep (and the pull and the hold weaken with S), until
       // the choke lets them go. An overshoot goes past the middle's.
       pu.orbit[0] = (s->standoff_deep + (s->standoff - s->standoff_deep) * x) * (1.0f - 0.5f * over);
-      pu.orbit[1] = (s->speed_deep + (s->orbit_speed - s->speed_deep) * x) * (1.0f + 0.6f * over);
+      // (The pace eases in: the liminal stretch near either end runs slow and
+      // loose, on the brink, and only the middle runs at full speed.)
+      pu.orbit[1] = (s->speed_deep + (s->orbit_speed - s->speed_deep) * x * x) * (1.0f + 0.6f * over);
       pu.orbit[2] = 6.0f;
       pu.orbit[3] = 1.6f * s->capture;
       pu.bite[0] = std::fmin(0.6f, s->bite * s->pending_bite);
