@@ -1,6 +1,6 @@
 // source.mesh.lantern — the flakes' raster: one quad per flake around its
-// ember capsule (p_shade), read from the render records by instance. Culled
-// flakes collapse outside clip space.
+// ember (p_shade), bent at its corner, read from the render records by
+// instance. Culled flakes collapse outside clip space.
 
 #include "part_ub.hlsl"
 #include "spark_common.hlsl"
@@ -22,11 +22,13 @@ SparkOut main(uint vid : SV_VertexID, uint iid : SV_InstanceID) {
   o.shp = float4(len, w, r2.w, r0.w);
   o.col = float4(r2.rgb, 0.0);
   o.mv = r3.xy;
+  o.kink = r3.zw;
   float2 c = corners[vid % 6u];
   float pad = w + 1.0;
-  // Along: from behind the tail to past the head; across: either side.
-  float u = lerp(-pad, len + pad, c.x);
-  float v = c.y * pad;
+  // Along: from behind the tail to past the head; across: either side —
+  // both taking in the corner.
+  float u = lerp(min(0.0, r3.z) - pad, max(len, r3.z) + pad, c.x);
+  float v = lerp(min(0.0, r3.w) - pad, max(0.0, r3.w) + pad, c.y * 0.5 + 0.5);
   o.off = float2(u, v);
   if (r0.w <= 0.0) {
     o.pos = float4(2.0, 2.0, 2.0, 1.0);

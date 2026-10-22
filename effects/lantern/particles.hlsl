@@ -58,13 +58,14 @@
 #include "common.hlsl"
 #include "nano_hash.hlsl"
 
-static const int LTN_P_ROWS = 5;     // state rows per flake (p_update)
+static const int LTN_P_ROWS = 7;     // state rows per flake (p_update)
 static const int LTN_R_ROWS = 4;     // render rows per flake (p_shade -> spark)
 static const int LTN_GRID = 32;      // presence grid, per axis (LTN_GRID in main.cpp)
 
 // State rows: s0 (pos, captor box or -1), s1 (vel, bound 0/1),
 //             s2 (flake normal, tumble rate), s3 (tumble axis, susceptibility),
-//             s4 (disc radius m, kind, ring jitter r, ring jitter z).
+//             s4 (disc radius m, kind, ring jitter r, ring jitter z),
+//             s5 (the corner it turned last frame, 0), s6 (where it set off, 0).
 
 #include "part_ub.hlsl"
 

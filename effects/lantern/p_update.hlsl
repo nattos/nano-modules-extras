@@ -293,6 +293,9 @@ void main(uint3 gid : SV_DispatchThreadID) {
 
   int steps = (int)pa.w;
   float dt = pa.z;
+  // Where it sets off this frame and which way, for the ember's tail.
+  const float3 pos0 = pos, vel0 = vel;
+  float trav = 0.0;
   [loop] for (int k = 0; k < steps; k++) {
     // The strongest magnet: a squared Lorentzian of the gap to its lane (the
     // magneto envelope's falloff, sharpened so only a flake that comes within
@@ -520,6 +523,7 @@ void main(uint3 gid : SV_DispatchThreadID) {
     }
     vel += a * dt;
     pos += vel * dt;
+    trav += length(vel) * dt;
     if (bound && loft > 1.0 + 4.0 * hs) { bound = false; loft = 0.0; }   // flown off
 
     // Ricochet: a flake held by (or swinging in to) a magnet that strikes a
@@ -556,8 +560,10 @@ void main(uint3 gid : SV_DispatchThreadID) {
   }
 
   // Never let a runaway poison the grid or the raster: it starts over.
+  bool reborn = fresh;
   if (ltn_bad(float4(pos, loft)) || ltn_bad(float4(vel, 0.0)) || ltn_bad(float4(nrm, 0.0)) ||
       dot(pos, pos) > 1.0e4) {
+    reborn = true;
     ltn_seed(id, s0, s1, s2, s3, s4);
     pos = s0.xyz; vel = s1.xyz; nrm = s2.xyz;
     bound = false;
@@ -573,6 +579,31 @@ void main(uint3 gid : SV_DispatchThreadID) {
   parts[base + 2u] = float4(nrm, s2.w);
   parts[base + 3u] = s3;
   parts[base + 4u] = s4;
+
+  // The KINK the ember's tail is drawn through (p_shade): the corner it
+  // turned this frame, where the line it set off along meets the line it
+  // arrives along (the nearest points of the two: they may pass each other).
+  // A flake rounding a block's edge within a frame keeps its tail on the two
+  // faces, not sticking straight out past the edge through water it never
+  // crossed. A gentle turn (or none), or lines that meet nowhere near its
+  // path, take the chord's middle.
+  if (steps > 0 || reborn) {
+    float3 from = reborn ? pos : pos0;
+    float3 kink = 0.5 * (pos + from);
+    float lu = length(vel), le = length(vel0);
+    if (!reborn && lu > 1e-4 && le > 1e-4) {
+      float3 u = -vel / lu, e = vel0 / le, w0 = pos - pos0;
+      float b = dot(u, e), du = dot(u, w0), de = dot(e, w0);
+      float den = 1.0 - b * b;
+      if (den > 0.01) {
+        float sa = (b * de - du) / den, tb = (de - b * du) / den;
+        if (sa > 0.0 && tb > 0.0 && sa + tb < 1.5 * trav + 1e-3)
+          kink = 0.5 * (pos + u * sa + pos0 + e * tb);
+      }
+    }
+    parts[base + 5u] = float4(kink, 0.0);
+    parts[base + 6u] = float4(from, 0.0);
+  }
 
   // Splat into the presence grid (8 cells, fixed-point weights).
   float res = grid.y;

@@ -120,23 +120,51 @@ void main(uint3 gid : SV_DispatchThreadID) {
 
   // --- Footprint: an ember. The disc's size in pixels (at least a hairline;
   // a smaller flake keeps its size as coverage), stretched from where it is
-  // back along where it came from over `streak` frames, tapering to its tail.
+  // back along where it came from over `streak` frames, tapering to its tail:
+  // back through the corner it turned last frame (p_update's kink) to where
+  // it set off, and on back the way it set off for a streak over a frame.
   float3 n = normalize(s2.xyz);
   float kpx = vp.y * cam_p.x * cam_p.z / w;          // pixels per metre here
   float wt = s4.x * flake.x * kpx;                    // true half-width, px
   float wd = max(wt, 0.55);
   float peak = min(1.0, (wt * wt) / (wd * wd));
-  float2 tail = px;
-  if (pframe.w > 0.0) {
-    float3 back = p - (vel * pframe.x + vibd) * pframe.w;
-    float2 tpx;
-    float tw;
-    if (ltn_project(cam_r, cam_u, cam_f, back, tpx, tw)) tail = tpx;
+  float2 tail = px, kn = px;
+  if (pframe.w > 0.0 && !anchors) {
+    float3 kw = parts[sb + 5u].xyz, fw = parts[sb + 6u].xyz;
+    float la = length(pos - kw), lb = length(kw - fw);
+    // (The shake's own travel spread along it.)
+    kw += vib - vibd * (la / max(la + lb, 1e-6));
+    fw += vib - vibd;
+    la = length(p - kw);
+    lb = length(kw - fw);
+    float want = pframe.w * (la + lb);
+    float3 te;
+    if (want <= la) {                 // short of the corner: straight
+      te = p + (kw - p) * (want / max(la, 1e-6));
+      kw = 0.5 * (p + te);
+    } else if (want <= la + lb) {
+      te = kw + (fw - kw) * ((want - la) / max(lb, 1e-6));
+    } else {                          // past where it set off: on back that way
+      float3 bd = lb > 1e-6 ? (fw - kw) / lb : (kw - p) / max(la, 1e-6);
+      te = fw + bd * (want - la - lb);
+    }
+    float2 tpx, kp;
+    float tw, kz;
+    if (ltn_project(cam_r, cam_u, cam_f, te, tpx, tw) &&
+        ltn_project(cam_r, cam_u, cam_f, kw, kp, kz)) { tail = tpx; kn = kp; }
+  }
+  // Its frame: along the chord from the tail to the head, the corner at
+  // (ku, kv) in it.
+  float lp = length(px - kn) + length(kn - tail);
+  if (lp > 256.0) {
+    tail = px + (tail - px) * (256.0 / lp);
+    kn = px + (kn - px) * (256.0 / lp);
   }
   float2 dpx = px - tail;
   float len = length(dpx);
-  if (len > 256.0) { dpx *= 256.0 / len; len = 256.0; }
   float2 axis = len > 1e-3 ? dpx / len : float2(1.0, 0.0);
+  float2 ko = kn - tail;
+  float2 kink = float2(dot(ko, axis), dot(ko, float2(-axis.y, axis.x)));
 
   // --- Shading.
   float3 v = -rd;
@@ -196,5 +224,5 @@ void main(uint3 gid : SV_DispatchThreadID) {
   recs[b + 0u] = float4(px, t, Tm);
   recs[b + 1u] = float4(axis, len, wd);
   recs[b + 2u] = float4(L * T / max(Tm, 1e-4), peak);
-  recs[b + 3u] = float4(mv * pview.zw, 0.0, 0.0);
+  recs[b + 3u] = float4(mv * pview.zw, kink);
 }

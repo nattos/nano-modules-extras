@@ -96,7 +96,7 @@ constexpr int kEscLow = 64;      // LTN_ESC_LOW
 
 // The flakes (particles.hlsl).
 constexpr int kMaxFlakes = 4096;
-constexpr int kPRows = 5;        // LTN_P_ROWS
+constexpr int kPRows = 7;        // LTN_P_ROWS
 constexpr int kRRows = 4;        // LTN_R_ROWS
 constexpr int kGrid = 32;        // LTN_GRID
 constexpr float kGridExtent = 8.0f;   // m, half the presence grid's side
