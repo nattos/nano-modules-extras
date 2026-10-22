@@ -54,7 +54,7 @@ cbuffer Frame : register(b0) {
   float4 egg_r0;    // world -> structure frame rotation rows (material coords)
   float4 egg_r1;
   float4 egg_r2;
-  float4 vol_k;     // volume light scale vs surfaces: core, ambient sun, 0, 0
+  float4 vol_k;     // volume light scale vs surfaces: core, ambient sun; core clear (m), 0
   float4 heart;     // the heart's emission (rgb radiance), 0
   float4 air;       // the air wall: view depth its edge starts, ends; amount, 0
   float4 surf;      // shell glow, chip amount, albedo scale, 0

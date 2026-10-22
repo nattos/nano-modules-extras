@@ -426,6 +426,7 @@ struct State {
   float core_power = 0.5f;
   float core_r = 1.0f, core_g = 0.56f, core_b = 0.26f;
   float core_radius = 1.1f;
+  float core_clear = 0.4f;     // blocks nearer the center than this pass the beams
   float wander = 0.0f;
   float wander_rate = 0.3f;
   float flicker = 0.0f;
@@ -563,13 +564,17 @@ void module_init() {
           "The light inside. *Power* is its brightness (the scene's 8 kW at "
           "the middle), *Radius* how large it is — larger softens the beams. "
           "*Wander* moves it around inside the hollow, which swings every beam "
-          "at once; *Flicker* makes it gutter.")
+          "at once; *Flicker* makes it gutter. *Clear*: a block that strays "
+          "nearer the middle than this lets the beams through, fading out the "
+          "nearer it comes, so one brushing the heart doesn't mute the core.")
       .floatField("core_power", 0.5f, 0.f, 1.f, state::PrimaryInput)
           .label("Power", "Pwr")
       .rgbField("core_color", 1.0f, 0.56f, 0.26f, state::PrimaryInput)
           .label("Color", "Col")
       .floatField("core_radius", 1.1f, 0.05f, 2.f, state::PrimaryInput, nullptr, 0.f, "m")
           .label("Radius", "Rad")
+      .floatField("core_clear", 0.4f, 0.f, 1.5f, state::PrimaryInput, nullptr, 0.f, "m")
+          .label("Clear", "Clr")
       .floatField("wander", 0.0f, 0.f, 1.f, state::PrimaryInput)
           .label("Wander", "Wndr")
       .floatField("wander_rate", 0.3f, 0.f, 1.f, state::PrimaryInput)
@@ -1099,6 +1104,7 @@ void on_state_patched(void* self, int n, const char* pb, const int* off,
       s->core_r = v.x; s->core_g = v.y; s->core_b = v.z;
     }
     else if (state::pathIs(p, l, "core_radius"))  s->core_radius = state::patchFloat(i);
+    else if (state::pathIs(p, l, "core_clear"))   s->core_clear = state::patchFloat(i);
     else if (state::pathIs(p, l, "wander"))       s->wander = state::patchFloat(i);
     else if (state::pathIs(p, l, "wander_rate"))  s->wander_rate = state::patchFloat(i);
     else if (state::pathIs(p, l, "flicker"))      s->flicker = state::patchFloat(i);
@@ -1412,6 +1418,7 @@ void render(void* self, int vp_w, int vp_h) {
   }
   u.vol_k[0] = kPointVolK;
   u.vol_k[1] = kSunVolK;
+  u.vol_k[2] = s->core_clear;
   u.egg_r0[3] = s->core_r * flick; u.egg_r1[3] = s->core_g * flick; u.egg_r2[3] = s->core_b * flick;
   // Light samples: a Fibonacci sphere inside the light (a sphere seen from
   // afar is a disk; 0.7 R spreads the samples over most of it).
