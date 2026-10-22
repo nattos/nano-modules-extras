@@ -2,7 +2,7 @@
 //
 // World space is the poster scene's (Blender axes: Z up), in metres, with the
 // structure's center at the origin. The scene is a list of oriented boxes in a
-// storage buffer (FIVE float4 rows per box, see LTN_BOX_ROWS); every visibility
+// storage buffer (SIX float4 rows per box, see LTN_BOX_ROWS); every visibility
 // query is an exact ray-box test against all of them — no distance field, so
 // the ~6 cm seams between blocks are resolved exactly.
 //
@@ -23,7 +23,7 @@
 
 #include "nano_octahedral.hlsl"
 
-static const int   LTN_BOX_ROWS = 5;
+static const int   LTN_BOX_ROWS = 6;
 static const int   LTN_MAX_SAMPLES = 8;
 static const float LTN_PI = 3.14159265;
 static const float LTN_MISS = 6.0e4;   // largest sentinel an RGBA16F holds

@@ -90,6 +90,20 @@ float ltn_lane_alt(float lane, float m) {
   return 0.3 * h + 0.01;
 }
 
+// The glint's lure (bite.y: Glint Pull, while a glint charges any block): a
+// charged block's reach grows by GLINT_REACH x its charge; a bound flake is
+// lured off its captor by a block within about GLINT_RANGE (m) charged more
+// than its captor by GLINT_MARGIN / Glint Pull (or less, flake to flake); and
+// a lured flake homes in at up to GLINT_DASH m/s, steering at GLINT_HOME /s;
+// and once its block's charge has faded below GLINT_BACK (or less, flake to
+// flake), it flies back to the block it was lured off.
+static const float GLINT_REACH = 2.0;
+static const float GLINT_RANGE = 1.5;
+static const float GLINT_MARGIN = 0.25;
+static const float GLINT_DASH = 10.0;
+static const float GLINT_HOME = 8.0;
+static const float GLINT_BACK = 0.12;
+
 void ltn_seed(uint id, out float4 s0, out float4 s1, out float4 s2, out float4 s3,
               out float4 s4) {
   float jr = ltn_pgauss(id, 10u), jz = ltn_pgauss(id, 20u);
@@ -181,13 +195,22 @@ void main(uint3 gid : SV_DispatchThreadID) {
   }
   if (fresh) ltn_seed(id, s0, s1, s2, s3, s4);
   float3 pos = s0.xyz, vel = s1.xyz, nrm = s2.xyz;
+  // s1.w: 0 free; bound, 1 + loft + 16 (home + 1); lured, -1 - 16 (home + 1).
   bool bound = s1.w > 0.5;
-  // How far a vortex has lifted a bound flake's lane (s1.w is 1 + this).
-  float loft = bound ? max(s1.w - 1.0, 0.0) : 0.0;
+  // Lured off its block by a glint, flying to the block it keeps as its
+  // captor until it is caught there.
+  bool lured = s1.w < -0.5;
+  // Its HOME: the block a glint lured it off (-1: none, it is home), which
+  // it flies back to once the charge that drew it away has faded.
+  float hm = bound ? floor((s1.w - 1.0) / 16.0) : (lured ? floor((-s1.w - 1.0) / 16.0 + 0.5) : 0.0);
+  int home = (int)hm - 1;
+  // How far a vortex has lifted a bound flake's lane.
+  float loft = bound ? max(s1.w - 1.0 - 16.0 * hm, 0.0) : 0.0;
   int captor = (int)s0.w;
   float susc = s3.w;
   int nbox = ltn_box_count();
-  if (captor >= nbox) { captor = -1; bound = false; }
+  if (captor >= nbox) { captor = -1; bound = false; lured = false; }
+  if (home >= nbox) home = -1;
 
   const float S = pb.x, R = pb.y;
   const float Scap = S * (1.0 - R) * (1.0 - R);
@@ -205,7 +228,9 @@ void main(uint3 gid : SV_DispatchThreadID) {
     float3 er = r > 1e-3 ? pos / r : ltn_prand_dir(id, 60u);
     vel += er * (shell.z * pb.z * (0.7 + 0.6 * ltn_prand(id, 61u)));
     bound = false;
+    lured = false;
     captor = -1;
+    home = -1;
   }
 
   // The BITE: as the sustain rises, flakes may be snapped straight onto a
@@ -259,6 +284,8 @@ void main(uint3 gid : SV_DispatchThreadID) {
         nrm = nf;
         captor = bi;
         bound = true;
+        lured = false;
+        home = -1;
         loft = 0.0;
       }
     }
@@ -271,10 +298,16 @@ void main(uint3 gid : SV_DispatchThreadID) {
     // magneto envelope's falloff, sharpened so only a flake that comes within
     // about Reach is caught) scaled by the block's magnetism. And, for a
     // bound flake, its captor's own surface.
+    // While a glint charges blocks (each block's charge in row 5), a charged
+    // block reaches further, and a bound flake weighs the charged blocks
+    // within GLINT_RANGE against its own captor: one charged more by its own
+    // margin (a share of GLINT_MARGIN, per flake, so they go one by one) LURES
+    // it off, to fly to that block and stream round it instead.
     const float h0 = orbit.x * lerp(0.35, 2.2, lane);
-    float pull = 0.0, dcap = 1.0e9, dnear = 1.0e9;
+    const bool lure = bite.y > 0.0 && Scap > 1e-4;
+    float pull = 0.0, dcap = 1.0e9, dnear = 1.0e9, lbest = 0.0;
     float3 ncap = float3(0.0, 0.0, 1.0);
-    int ibest = -1, inear = -1;
+    int ibest = -1, inear = -1, jbest = -1;
     [loop] for (int i = 0; i < nbox; i++) {
       float m = boxes[i * LTN_BOX_ROWS + 4].z;
       if (m <= 0.0) continue;    // not a magnet (a loose fragment)
@@ -282,16 +315,50 @@ void main(uint3 gid : SV_DispatchThreadID) {
       float d = ltn_box_sdf(i, pos, n);
       if (i == captor) dcap = d;
       if (d < dnear) { dnear = d; inear = i; }
+      float gc = boxes[i * LTN_BOX_ROWS + 5].x;
       if (!bound && Scap > 1e-4) {
-        float eps = cap.y * cap.y * m;
+        float rk = 1.0 + bite.y * GLINT_REACH * gc;
+        float eps = cap.y * cap.y * m * rk * rk;
         float dl = max(d - h0, 0.0);
         float lz = eps / (dl * dl + eps);
         float pi = m * lz * lz;
         if (pi > pull) { pull = pi; ibest = i; }
       }
+      if (bound && lure && gc > 0.0 && i != captor) {
+        float dl = max(d - h0, 0.0);
+        float li = gc * GLINT_RANGE * GLINT_RANGE / (dl * dl + GLINT_RANGE * GLINT_RANGE);
+        if (li > lbest) { lbest = li; jbest = i; }
+      }
     }
     if (bound && dcap > 1.0e8) bound = false;
-    if (!bound) captor = ibest;
+    if (bound && jbest >= 0) {
+      float ccap = boxes[captor * LTN_BOX_ROWS + 5].x;
+      if (lbest - ccap > GLINT_MARGIN * (0.4 + 0.6 * ltn_prand(id, 86u)) / max(bite.y, 0.05)) {
+        bound = false;
+        lured = true;
+        loft = 0.0;
+        if (home < 0) home = captor;
+        captor = jbest;
+        if (captor == home) home = -1;
+      }
+    }
+    // Away from home on a block whose charge has faded (each flake at its
+    // own point, so they go back one by one): back home.
+    if (bound && home >= 0 && home != captor && Scap > 1e-4 &&
+        boxes[captor * LTN_BOX_ROWS + 5].x < GLINT_BACK * (0.3 + 0.7 * ltn_prand(id, 87u))) {
+      bound = false;
+      lured = true;
+      loft = 0.0;
+      captor = home;
+    }
+    // A lured flake keeps its block until that has lost its charge (then it
+    // heads home, if it has one); one heading home keeps it till it's there.
+    if (lured && captor != home && boxes[captor * LTN_BOX_ROWS + 5].x < 0.05) {
+      if (home >= 0) captor = home;
+      else lured = false;
+    }
+    if (lured && Scap <= 1e-4) lured = false;
+    if (!bound && !lured) { captor = ibest; home = -1; }
     // A glint's band pulls the lanes in closer and drives them faster.
     float mcap = captor >= 0 ? boxes[captor * LTN_BOX_ROWS + 4].z : 1.0;
     float boost = max(mcap - 1.0, 0.0);
@@ -319,12 +386,16 @@ void main(uint3 gid : SV_DispatchThreadID) {
     const float x = saturate(pb.x);
     const float omega = cap.z * lerp(5.0, 60.0, x * x) * (1.0 + 0.6 * max(pb.x - 1.0, 0.0)) *
                         sqrt(max(mcap, 0.3)) * lerp(0.75, 1.25, susc - 0.5);
-    const float w = bound ? 1.0 : saturate(Scap * susc * pull * orbit.w);
+    const float w = bound || lured ? 1.0 : saturate(Scap * susc * pull * orbit.w);
     const float hs = max(h, 0.05);
 
     if (bound && (Scap < 0.02 || g > 4.0 * hs + 0.2)) bound = false;   // torn loose
     // Captured: a free flake drawn in close enough to its lane is held by it.
-    if (!bound && captor >= 0 && Scap > 1e-4 && w > 0.15 && g < 3.0 * hs + 0.1) bound = true;
+    if (!bound && captor >= 0 && Scap > 1e-4 && w > 0.15 && g < 3.0 * hs + 0.1) {
+      bound = true;
+      lured = false;
+      if (captor == home) home = -1;
+    }
     if (!bound) loft = 0.0;
 
     float3 a = float3(0.0, 0.0, 0.0);
@@ -431,6 +502,13 @@ void main(uint3 gid : SV_DispatchThreadID) {
         float eps = (0.6 * h + 0.05) * (0.6 * h + 0.05);
         a -= ncap * (cap.x * omega * omega * hs * msc_free(Scap, mcap, susc) * w * eps / (g * g + eps));
       }
+      // Lured: it homes in on its charged block, a streak straight across to
+      // it (slowing as it comes in, to be caught), keeping some of its sweep.
+      if (lured && captor >= 0) {
+        float3 vh = -ncap * clamp(g * 8.0, 2.0, GLINT_DASH);
+        float3 vk = vel - ncap * dot(vel, ncap);
+        a += (vh + vk * 0.3 - vel) * GLINT_HOME;
+      }
       // Off a surface a stream's speed bleeds slowly toward what the free
       // flow carries: released, it flies on almost ballistically. But let go
       // by the choke (no throw) it settles quickly into the ring instead of
@@ -483,12 +561,15 @@ void main(uint3 gid : SV_DispatchThreadID) {
     ltn_seed(id, s0, s1, s2, s3, s4);
     pos = s0.xyz; vel = s1.xyz; nrm = s2.xyz;
     bound = false;
+    lured = false;
     captor = -1;
+    home = -1;
     loft = 0.0;
   }
 
   parts[base + 0u] = float4(pos, (float)captor);
-  parts[base + 1u] = float4(vel, bound ? 1.0 + loft : 0.0);
+  float hk = 16.0 * float(home + 1);
+  parts[base + 1u] = float4(vel, bound ? 1.0 + min(loft, 15.0) + hk : (lured ? -1.0 - hk : 0.0));
   parts[base + 2u] = float4(nrm, s2.w);
   parts[base + 3u] = s3;
   parts[base + 4u] = s4;

@@ -166,6 +166,15 @@ struct Params {
   /// how long a glint glides on and lingers before it has puttered out.
   /// kSpeedRelease unless an effect exposes it.
   float linger = kSpeedRelease;
+
+  /// Floor on the travel, crossings per second: how fast a glint still drifts
+  /// once the knob is at rest. kMinSpeed unless an effect exposes it.
+  float drift = kMinSpeed;
+  /// 0..1: how much of its strength a glint keeps however still the knob is.
+  /// 0 (the default) lets it putter out where it is once the sweep stops; an
+  /// effect whose glint is a FORCE, not a glare, holds it at 1 so every
+  /// launched glint makes it across.
+  float hold = 0.0f;
 };
 
 /// One glint in flight. The three look values are drawn at birth and never
@@ -262,7 +271,8 @@ struct Core {
     //        exponential, still moving, until there is nothing left to see.
     const float fling = p.fling < 0.0f ? 0.0f : (p.fling > 1.0f ? 1.0f : p.fling);
     const float sling = p.sling < 0.0f ? 0.0f : (p.sling > 1.0f ? 1.0f : p.sling);
-    const float travel = (speed > kMinSpeed ? speed : kMinSpeed)
+    const float floor = p.drift > 0.0f ? p.drift : 0.0f;
+    const float travel = (speed > floor ? speed : floor)
                        * (1.0f + kFlingBoost * fling * sling);
     // A throw holds the putter off for as long as it lasts. Letting go of the
     // knob to reach a mute is exactly the gesture that fires one, so without
@@ -270,6 +280,7 @@ struct Core {
     // being flung — which is backwards.
     float vitality = speed >= kPutterFrom ? 1.0f : speed / kPutterFrom;
     if (fling > vitality) vitality = fling;
+    if (p.hold > vitality) vitality = p.hold > 1.0f ? 1.0f : p.hold;
     const float death = 1.0f + (p.trail > 0.0f ? p.trail : 0.0f);
     for (int i = 0; i < kMaxLive; ++i) {
       Glint& g = glints[i];

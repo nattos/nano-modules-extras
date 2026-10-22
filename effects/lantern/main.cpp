@@ -85,7 +85,7 @@ constexpr float kSunVolK = 1.0f / kSunE;
 constexpr float kPointVolK = 0.0756f / kPointE;
 
 constexpr int kMaxBoxes = 192;
-constexpr int kBoxRows = 5;
+constexpr int kBoxRows = 6;
 constexpr int kSamples = 8;      // core light samples (atlas tiles)
 constexpr int kTileRes = 512;
 constexpr int kAtlasCols = 4;
@@ -102,6 +102,8 @@ constexpr int kGrid = 32;        // LTN_GRID
 constexpr float kGridExtent = 8.0f;   // m, half the presence grid's side
 constexpr float kSplat = 256.0f;      // fixed-point scale of a splat
 constexpr float kSubstep = 1.0f / 360.0f;
+// How long (s, 1/e) a block keeps its glint charge after the band has passed.
+constexpr float kGlintRelease = 0.35f;
 
 struct FrameUniforms {
   float cam_r[4], cam_u[4], cam_f[4], cam_p[4], vp[4];
@@ -467,6 +469,8 @@ struct State {
   float glint_angle = 35.0f;
   float glint_gain = 1.5f;
   float glint_width = 0.12f;
+  float glint_time = 1.2f;     // s a glint takes to cross once the knob rests
+  float glint_pull = 1.0f;
   // The flakes.
   int flakes = 1200;
   float flake_size = 1.0f;
@@ -502,6 +506,11 @@ struct State {
 
   sweep_knob::Knob knob;
   three_planes_glints::Core glint_core;
+  // Each block's glint charge: up as a glint's band reaches it, easing off
+  // after it has passed (kGlintRelease), so the pull trails the band.
+  float glint_c[kMaxBoxes] = {};
+  int glint_c_count = 0;
+  float glint_cmax = 0.0f;
   double sim_dt = 0.0;         // time the flakes haven't been stepped through
   float frame_dt = 1.0f / 60.0f;
   float pending_fling = 0.0f;  // a throw this frame (its charge)
@@ -667,8 +676,11 @@ void module_init() {
           "choke) they let go into loose ballistic orbits around a ring. "
           "Sweep back in fast and it *Overshoots* -- tighter and faster for "
           "a moment. Each pass through the middle sends a GLINT across the "
-          "screen, a slanted band (*Glint Angle*, *Glint Width*) that makes "
-          "the blocks under it stronger magnets (*Glint Gain*). And a hard "
+          "screen, a slanted band (*Glint Angle*, *Glint Width*; as fast as "
+          "the sweep, or *Glint Time* to cross once the knob rests) that "
+          "makes the blocks under it stronger magnets (*Glint Gain*) and lures "
+          "the flakes off the blocks around them onto those (*Glint Pull*): "
+          "the streams are handed along with the band. And a hard "
           "pass through the middle that goes on to the choke THROWS: the "
           "flakes are flung onto a sphere around the structure and shaken "
           "there while the tail rings out over *Tail* seconds -- stop short "
@@ -701,8 +713,15 @@ void module_init() {
                   "How much stronger a glint makes the magnets under it.")
           .label("Glint Gain", "GGain")
       .floatField("glint_width", 0.12f, 0.02f, 0.5f, state::SecondaryInput, nullptr, 0.f, nullptr,
-                  "A glint's half-width, as a fraction of the screen it crosses.")
+                  "A glint's half-width, as a fraction of the structure it crosses.")
           .label("Glint Width", "GWid")
+      .floatField("glint_time", 1.2f, 0.2f, 6.f, state::SecondaryInput, nullptr, 0.f, "s",
+                  "How long a glint takes to cross the screen once the knob rests.")
+          .label("Glint Time", "GTime")
+      .floatField("glint_pull", 1.0f, 0.f, 3.f, state::PrimaryInput, nullptr, 0.f, nullptr,
+                  "How hard a glint lures flakes off the blocks around it onto the "
+                  "blocks under it.")
+          .label("Glint Pull", "GPull")
       .group("flakes", "Flakes")
         .groupHelp(
           "The specks of mica, grit and silt flying around the structure. "
@@ -1072,6 +1091,10 @@ void tick(void* self, double dt) {
   gp.sling = 0.0f;   // a throw holds them in the frame, it doesn't carry them off
   gp.lead = s->glint_width * 1.5f;
   gp.trail = s->glint_width * 4.0f;
+  // Here a glint is a pull, not a glare: it never runs down where it is, and
+  // once the knob rests it still crosses, in Glint Time.
+  gp.drift = 1.0f / std::fmax(s->glint_time, 0.05f);
+  gp.hold = 1.0f;
   s->glint_core.tick(gp, (float)dt);
   // The tail's shake: one phase for every flake, its frequency falling as
   // the tail rings out.
@@ -1144,6 +1167,8 @@ void on_state_patched(void* self, int n, const char* pb, const int* off,
     else if (state::pathIs(p, l, "glint_angle"))  s->glint_angle = state::patchFloat(i);
     else if (state::pathIs(p, l, "glint_gain"))   s->glint_gain = state::patchFloat(i);
     else if (state::pathIs(p, l, "glint_width"))  s->glint_width = state::patchFloat(i);
+    else if (state::pathIs(p, l, "glint_time"))   s->glint_time = state::patchFloat(i);
+    else if (state::pathIs(p, l, "glint_pull"))   s->glint_pull = state::patchFloat(i);
     else if (state::pathIs(p, l, "flakes"))       s->flakes = state::patchInt(i);
     else if (state::pathIs(p, l, "flake_size"))   s->flake_size = state::patchFloat(i);
     else if (state::pathIs(p, l, "mica"))         s->mica = state::patchFloat(i);
@@ -1243,6 +1268,7 @@ M3 poseBlocks(State* s, int& count) {
       circ = (float)((jut + (pick < 0.5f ? 1 : 2)) % 3);
     }
     r[4] = {{b.stone ? 1.0f : 0.0f, b.seed, 0.0f, circ}};
+    r[5] = {{0.0f, 0.0f, 0.0f, 0.0f}};   // .x: its glint charge (the flakes' pass)
     count++;
   }
   return egg;
@@ -1447,7 +1473,10 @@ void render(void* self, int vp_w, int vp_h) {
   if (s->bite_prev_S >= 0.0f) s->pending_bite += std::fmax(S - s->bite_prev_S, 0.0f);
   s->bite_prev_S = S;
   // Each block's magnetism: the further it strains out the stronger (the
-  // ember blocks), and stronger still in a glint's band.
+  // ember blocks), and stronger still in a glint's band. A glint crosses the
+  // STRUCTURE (0 to 1 from its first block on screen along the glint's way
+  // to its last), not the whole screen: framed large or small, a band is the
+  // same share of the blocks.
   {
     const float aspect = (float)vp_w / (float)vp_h;
     const float ga = s->glint_angle * kDeg;
@@ -1457,15 +1486,34 @@ void render(void* self, int vp_w, int vp_h) {
     const V3 cr = v3(u.cam_r[0], u.cam_r[1], u.cam_r[2]);
     const V3 cu = v3(u.cam_u[0], u.cam_u[1], u.cam_u[2]);
     const V3 cf = v3(u.cam_f[0], u.cam_f[1], u.cam_f[2]);
+    if (s->glint_c_count != count) {
+      for (float& c : s->glint_c) c = 0.0f;
+      s->glint_c_count = count;
+    }
+    const float glint_fade = std::exp(-s->frame_dt / kGlintRelease);
+    s->glint_cmax = 0.0f;
+    float sn_of[kMaxBoxes];
+    float smin = 1e9f, smax = -1e9f;
+    for (int i = 0; i < count; i++) {
+      const Row* r = &s->rows[i * kBoxRows];
+      sn_of[i] = -1e9f;
+      const V3 rel = v3(r[0].v[0], r[0].v[1], r[0].v[2]) - cpos;
+      const float w = dot(rel, cf);
+      if (w <= 0.05f) continue;
+      const float nx = dot(rel, cr) / w * 2.0f * u.cam_p[0] * u.cam_p[1];
+      const float ny = dot(rel, cu) / w * 2.0f * u.cam_p[0] * u.cam_p[2];
+      sn_of[i] = (nx * aspect * gc + ny * gs) / reach;
+      if (r[4].v[3] >= 0.0f) {
+        smin = std::fmin(smin, sn_of[i]);
+        smax = std::fmax(smax, sn_of[i]);
+      }
+    }
+    const float span = std::fmax(smax - smin, 1e-3f);
     for (int i = 0; i < count; i++) {
       Row* r = &s->rows[i * kBoxRows];
       float e = 0.0f;
-      const V3 rel = v3(r[0].v[0], r[0].v[1], r[0].v[2]) - cpos;
-      const float w = dot(rel, cf);
-      if (w > 0.05f) {
-        const float nx = dot(rel, cr) / w * 2.0f * u.cam_p[0] * u.cam_p[1];
-        const float ny = dot(rel, cu) / w * 2.0f * u.cam_p[0] * u.cam_p[2];
-        const float sn = 0.5f * ((nx * aspect * gc + ny * gs) / reach + 1.0f);
+      if (sn_of[i] > -1e8f) {
+        const float sn = (sn_of[i] - smin) / span;
         for (int g = 0; g < three_planes_glints::kMaxLive; g++) {
           const auto& gl = s->glint_core.glints[g];
           if (!gl.live) continue;
@@ -1474,6 +1522,12 @@ void render(void* self, int vp_w, int vp_h) {
           e += gl.drawGain() * (std::exp(-x * x) - 0.5f * gl.drawShade() * std::exp(-wk * wk));
         }
       }
+      // Its charge: the band's pull, held a moment after it has passed.
+      float& c = s->glint_c[i];
+      c = std::fmax(std::fmax(e, 0.0f), c * glint_fade);
+      e = c;
+      s->glint_cmax = std::fmax(s->glint_cmax, c);
+      r[5].v[0] = c;
       // (The loose fragments are no magnets: flakes held round so small a
       // box only spin in place.)
       r[4].v[2] = r[4].v[3] < 0.0f ? 0.0f
@@ -1531,6 +1585,7 @@ void render(void* self, int vp_w, int vp_h) {
       pu.orbit[2] = 6.0f;
       pu.orbit[3] = 1.6f * s->capture;
       pu.bite[0] = std::fmin(0.6f, s->bite * s->pending_bite);
+      pu.bite[1] = s->glint_cmax > 0.02f ? s->glint_pull : 0.0f;
     }
     pu.shell[0] = s->shell_radius;
     pu.shell[1] = 9.0f;
