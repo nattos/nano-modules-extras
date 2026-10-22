@@ -446,7 +446,7 @@ struct Slot {
   Pose shown;              // as last drawn
   bool stone = false;      // what it was made of before the change...
   float seed = 0.0f;
-  float flip = 0.0f;       // ...until this long after it (s), then the goal's
+  float flip = 0.0f;       // ...for this long yet (s), then the goal's
   float circ = -1.0f;      // the axis flakes circulate it about (row 4.w)
   float charge = 0.0f;     // its glint charge (row 5.x)
   int prev = -1;           // its index last frame (-1: new)
@@ -1197,6 +1197,7 @@ void tick(void* self, double dt) {
     const glide::Params gp = glideParams(s);
     const glide::Glitch gl = glide::Glitch::from(s->glitch, gp);
     for (int i = 0; i < s->slot_count; i++) {
+      s->slots[i].flip -= (float)dt;
       auto& g = s->slots[i].g;
       if (g.active(1e-5f)) g.step((float)dt, gp, gl);
       else if (g.age < 1e8f) g.snap();
@@ -1412,10 +1413,28 @@ void compact(State* s) {
   s->slot_count = n;
 }
 
+// What a slot shows now: its goal and the glide's offset over it.
+Pose showOf(const State* s, const Slot& sl) {
+  const Pose goal = goalOf(s, sl);
+  const float* o = sl.g.out;
+  Pose p;
+  p.c = goal.c + v3(o[0], o[1], o[2]);
+  const V3 h = goal.half + v3(o[3], o[4], o[5]);
+  // (Overshooting through no size, a block blinks out a moment.)
+  p.half = v3(std::fmax(h.x, 0.002f), std::fmax(h.y, 0.002f), std::fmax(h.z, 0.002f));
+  p.rot = mul(rotExp(v3(o[6], o[7], o[8])), goal.rot);
+  p.glow = goal.glow;
+  return p;
+}
+
 // A new layout: build it, and send what is on screen there — nearest first,
 // fragments only to fragments; what is left over shrinks into its nearest
 // new block, and new blocks left over grow out of their nearest slot.
 void relayout(State* s) {
+  // Where everything is NOW (the glide has moved on since it was drawn):
+  // measured from last frame's pose, a layout changing every frame would
+  // pin every block where it was.
+  for (int i = 0; i < s->slot_count; i++) s->slots[i].shown = showOf(s, s->slots[i]);
   s->block_count = s->layout == 0 ? buildReference(s->blocks)
                                   : buildProcedural(s->blocks, s->layout);
   s->built_layout = s->layout;
@@ -1468,8 +1487,10 @@ void relayout(State* s) {
       sl.into = -1;
       offsetOf(sl.shown, goals[sl.block], o);
       sl.g.retargetTo(o, gl);
-      // Its stuff changes (shell <-> stone) at a moment of its own.
-      sl.flip = gp.time * (0.05f + 0.45f * sl.g.rnd());
+      // Its stuff changes (shell <-> stone) at a moment of its own (one
+      // already coming stays put: changes every frame still get there).
+      const float flip = gp.time * (0.05f + 0.45f * sl.g.rnd());
+      if (!(sl.flip > 0.0f)) sl.flip = flip;
     } else {
       sl.block = -1;
       sl.into = nearestBlock(sl.shown.c);
@@ -1532,20 +1553,12 @@ M3 poseBlocks(State* s, int& count) {
   count = s->slot_count;
   for (int i = 0; i < count; i++) {
     Slot& sl = s->slots[i];
-    const Pose goal = goalOf(s, sl);
-    const float* o = sl.g.out;
-    Pose p;
-    p.c = goal.c + v3(o[0], o[1], o[2]);
-    const V3 h = goal.half + v3(o[3], o[4], o[5]);
-    // (Overshooting through no size, a block blinks out a moment.)
-    p.half = v3(std::fmax(h.x, 0.002f), std::fmax(h.y, 0.002f), std::fmax(h.z, 0.002f));
-    p.rot = mul(rotExp(v3(o[6], o[7], o[8])), goal.rot);
-    p.glow = goal.glow;
+    const Pose p = showOf(s, sl);
     sl.shown = p;
     if (sl.block >= 0) {
       const Block& b = s->blocks[sl.block];
       sl.circ = circOf(b);
-      if (sl.g.age >= sl.flip) { sl.stone = b.stone; sl.seed = b.seed; }
+      if (sl.flip <= 0.0f) { sl.stone = b.stone; sl.seed = b.seed; }
     }
     const M3 w = mul(egg, p.rot);
     const V3 c = mul(egg, p.c);

@@ -109,6 +109,23 @@ TEST_CASE("glide: a retarget mid-glide keeps the velocity and the picture", "[gl
   CHECK(el.age == 0.0f);
 }
 
+TEST_CASE("glide: a goal that moves every frame still gets glided to", "[glide]") {
+  // Retargeted every frame (a wired Layout sweeping), it must not restart its
+  // stagger each time and so never let go.
+  const Glitch g = Glitch::from(1.0f, Params{});
+  Element<2> el;
+  el.seed = 3;
+  const float start[2] = {1.0f, -1.0f};
+  el.retargetTo(start, g);
+  const float none[2] = {0.0f, 0.0f};
+  for (int i = 0; i < 60; i++) {
+    el.step(1.0f / 60.0f, Params{}, g);
+    el.retarget(none, g);
+  }
+  CHECK(std::fabs(el.e[0]) < 0.05f);
+  CHECK(std::fabs(el.e[1]) < 0.05f);
+}
+
 TEST_CASE("glide: stagger and skew hold channels still before they let go", "[glide]") {
   Glitch g;
   g.stagger = 0.1f;

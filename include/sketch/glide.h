@@ -159,12 +159,18 @@ struct Element {
   }
 
   /// The goal moved: `offset` is what it shows now, measured from the new
-  /// goal. Its velocity (and the smoothing's) carries on.
+  /// goal. Its velocity (and the smoothing's) carries on, and so does a glide
+  /// already under way: only an element at rest waits (stagger, skew) before
+  /// it lets go — one still waiting keeps what is left of its wait, one
+  /// already moving keeps moving. (Else a goal that moves every frame would
+  /// hold it still for good.)
   void retargetTo(const float* offset, const Glitch& g) {
+    const bool rest = !active(1e-4f);
     const float st = g.stagger * rnd();
     for (int c = 0; c < N; c++) {
       e[c] = held[c] = out[c] = offset[c];
-      wait[c] = st + g.skew * rnd();
+      const float w = st + g.skew * rnd();
+      if (rest) wait[c] = w;
     }
     age = 0.0f;
     rate = 1.0f + g.detune * (2.0f * rnd() - 1.0f);
