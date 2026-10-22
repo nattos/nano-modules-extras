@@ -425,7 +425,7 @@ struct State {
   float drift = 0.3f;
   float core_power = 0.5f;
   float core_r = 1.0f, core_g = 0.56f, core_b = 0.26f;
-  float core_radius = 1.1f;
+  float core_radius = 0.25f;
   float core_clear = 0.4f;     // blocks nearer the center than this pass the beams
   float wander = 0.0f;
   float wander_rate = 0.3f;
@@ -571,7 +571,7 @@ void module_init() {
           .label("Power", "Pwr")
       .rgbField("core_color", 1.0f, 0.56f, 0.26f, state::PrimaryInput)
           .label("Color", "Col")
-      .floatField("core_radius", 1.1f, 0.05f, 2.f, state::PrimaryInput, nullptr, 0.f, "m")
+      .floatField("core_radius", 0.25f, 0.05f, 2.f, state::PrimaryInput, nullptr, 0.f, "m")
           .label("Radius", "Rad")
       .floatField("core_clear", 0.4f, 0.f, 1.5f, state::PrimaryInput, nullptr, 0.f, "m")
           .label("Clear", "Clr")
