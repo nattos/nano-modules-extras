@@ -56,6 +56,7 @@
 #include <cmath>
 #include <cstdint>
 
+#include <sketch/glide.h>
 #include <sketch/sweep_knob.h>
 #include <sketch/three_planes_glints.h>
 
@@ -163,6 +164,37 @@ inline V3 mul(const M3& a, V3 v) {
           a.m[2][0] * v.x + a.m[2][1] * v.y + a.m[2][2] * v.z};
 }
 inline V3 col(const M3& a, int j) { return {a.m[0][j], a.m[1][j], a.m[2][j]}; }
+inline M3 transpose(const M3& a) {
+  M3 r;
+  for (int i = 0; i < 3; i++)
+    for (int j = 0; j < 3; j++) r.m[i][j] = a.m[j][i];
+  return r;
+}
+// A rotation as its rotation vector (axis x angle), and back (Rodrigues).
+inline V3 rotLog(const M3& r) {
+  const float tr = r.m[0][0] + r.m[1][1] + r.m[2][2];
+  const float a = std::acos(std::fmax(-1.0f, std::fmin(1.0f, 0.5f * (tr - 1.0f))));
+  const V3 w = v3(r.m[2][1] - r.m[1][2], r.m[0][2] - r.m[2][0], r.m[1][0] - r.m[0][1]);
+  if (a < 1e-4f) return w * 0.5f;
+  if (a > kPi - 1e-3f) {
+    // Half a turn: the axis from R + I = 2 n n^T, its largest column.
+    int k = 0;
+    for (int i = 1; i < 3; i++)
+      if (r.m[i][i] > r.m[k][k]) k = i;
+    const V3 c = v3(r.m[0][k], r.m[1][k], r.m[2][k]) + v3(k == 0, k == 1, k == 2);
+    return normalize(c) * a;
+  }
+  return w * (a / (2.0f * std::sin(a)));
+}
+inline M3 rotExp(V3 w) {
+  const float a = std::sqrt(dot(w, w));
+  if (a < 1e-6f) return {{{1, -w.z, w.y}, {w.z, 1, -w.x}, {-w.y, w.x, 1}}};
+  const V3 n = w * (1.0f / a);
+  const float c = std::cos(a), sn = std::sin(a), t = 1.0f - c;
+  return {{{t * n.x * n.x + c, t * n.x * n.y - sn * n.z, t * n.x * n.z + sn * n.y},
+           {t * n.x * n.y + sn * n.z, t * n.y * n.y + c, t * n.y * n.z - sn * n.x},
+           {t * n.x * n.z - sn * n.y, t * n.y * n.z + sn * n.x, t * n.z * n.z + c}}};
+}
 // Blender XYZ euler: R = Rz * Ry * Rx.
 inline M3 euler(float x, float y, float z) {
   float cx = std::cos(x), sx = std::sin(x), cy = std::cos(y), sy = std::sin(y);
@@ -383,6 +415,44 @@ int buildProcedural(Block* out, int seed) {
 }
 
 // ---------------------------------------------------------------------------
+// Gliding between layouts.
+//
+// What is drawn is a list of SLOTS, not the layout's blocks: each slot is a
+// block on screen, heading for one of the layout's blocks (or, when the new
+// layout has fewer, shrinking into its nearest one on its way out) on a stiff
+// spring (sketch/glide.h) that overshoots and rings out. A new layout pairs
+// what is on screen with its blocks nearest first; blocks left over grow out
+// of their nearest slot. Slots keep their index while they glide, so the
+// flakes keep their blocks; a slot that has gone is compacted away and the
+// flakes are told where everything moved (p_update's remap).
+
+// A block's pose in the structure's frame (before the egg's turn).
+struct Pose {
+  V3 c = {0, 0, 0}, half = {0, 0, 0};
+  M3 rot = {{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}};
+  float glow = 0.0f;
+};
+
+// The glide's channels: the center (3), the half size (3), the turn (a
+// rotation vector, 3) — offsets from the goal.
+constexpr int kGlideCh = 9;
+
+struct Slot {
+  int block = -1;          // the layout's block it is (becoming); -1: leaving
+  int into = -1;           // leaving: the block it shrinks into
+  bool fragment = false;
+  glide::Element<kGlideCh> g;
+  Pose shown;              // as last drawn
+  bool stone = false;      // what it was made of before the change...
+  float seed = 0.0f;
+  float flip = 0.0f;       // ...until this long after it (s), then the goal's
+  float circ = -1.0f;      // the axis flakes circulate it about (row 4.w)
+  float charge = 0.0f;     // its glint charge (row 5.x)
+  int prev = -1;           // its index last frame (-1: new)
+  bool dead = false;       // dropped to make room: gone this frame
+};
+
+// ---------------------------------------------------------------------------
 
 static gpu::ComputePSO s_pso_shadow, s_pso_escape, s_pso_reduce, s_pso_vis, s_pso_scene,
     s_pso_fog, s_pso_blur, s_pso_comp, s_pso_prefill;
@@ -402,7 +472,15 @@ struct State {
   Block blocks[kMaxBoxes];
   int block_count = 0;
   int built_layout = -1;
-  Row rows[kMaxBoxes * kBoxRows];
+  // What is drawn: slots gliding to the layout's blocks; their rows, then
+  // (on a frame slots were compacted) the flakes' remap, a row per last
+  // frame's slot.
+  Slot slots[kMaxBoxes];
+  int slot_count = 0;
+  int last_slot_count = 0;
+  uint32_t slot_serial = 0;
+  bool pose_jump = false;      // the blocks jumped this frame: no motion to show
+  Row rows[kMaxBoxes * (kBoxRows + 1)];
 
   // The flakes on the GPU: state (kPRows a flake), the presence grid's
   // counts + running average, render records (kRRows a flake).
@@ -412,12 +490,15 @@ struct State {
   int p_live = 0;            // flakes the state buffer holds
   // Last frame's poses, for motion vectors.
   Row prev_rows[kMaxBoxes * kBoxRows];
-  int prev_count = -1, prev_layout = -1;
+  int prev_count = -1;
   float prev_cam[3][4] = {};
   bool prev_cam_valid = false;
 
   // Params.
   int layout = 0;
+  float glide_time = 0.4f;     // s a change of layout rings out over (0: a cut)
+  float stiffness = 10.0f;     // Hz it rings at
+  float glitch = 0.5f;
   float jut = 1.0f;
   float breathe = 0.0f;
   float breathe_rate = 0.3f;
@@ -506,10 +587,7 @@ struct State {
 
   sweep_knob::Knob knob;
   three_planes_glints::Core glint_core;
-  // Each block's glint charge: up as a glint's band reaches it, easing off
-  // after it has passed (kGlintRelease), so the pull trails the band.
-  float glint_c[kMaxBoxes] = {};
-  int glint_c_count = 0;
+  // The most any block is charged by a glint (each slot's own: Slot.charge).
   float glint_cmax = 0.0f;
   double sim_dt = 0.0;         // time the flakes haven't been stepped through
   float frame_dt = 1.0f / 60.0f;
@@ -527,6 +605,13 @@ struct State {
   double drift_phase = 0.0;
   uint32_t frame = 0;
 };
+
+glide::Params glideParams(const State* s) {
+  glide::Params p;
+  p.time = std::fmax(s->glide_time, 0.0f);
+  p.stiffness = std::fmax(s->stiffness, 0.1f);
+  return p;
+}
 
 inline double rateHz(float k, double mid) {
   if (std::fabs(k) <= 0.001f) return 0.0;
@@ -547,13 +632,24 @@ void module_init() {
       .group("structure", "Structure")
         .groupHelp(
           "*Layout* 0 is the poster scene's exact arrangement; other numbers "
-          "grow new ones the same way. *Jut* scales how far the blocks stand "
+          "grow new ones the same way. A new layout doesn't cut in: the blocks "
+          "spring there, overshooting and ringing out over *Glide* (0 cuts), "
+          "ringing *Stiffness* times a second; *Glitch* breaks it up — blocks "
+          "letting go one after another, moving an axis at a time, freezing "
+          "for a few frames and jumping on. *Jut* scales how far the blocks stand "
           "out from the core; *Breathe* rolls slow waves through them on top "
           "of that, some sealing shut while others push out, at *Breathe Rate*. *Seam* is the gap "
           "between neighboring blocks. *Spin* turns the whole structure; "
           "*Drift* sets the loose fragments bobbing.")
       .intField("layout", 0, 0, 999, state::SecondaryInput)
           .label("Layout", "Lay")
+      .floatField("glide", 0.4f, 0.f, 2.f, state::PrimaryInput, nullptr, 0.f, "s")
+          .label("Glide", "Glide")
+      .floatField("stiffness", 10.0f, 2.f, 40.f, state::PrimaryInput, nullptr, 0.f, "Hz")
+          .logScale()
+          .label("Stiffness", "Stiff")
+      .floatField("glitch", 0.5f, 0.f, 1.f, state::PrimaryInput)
+          .label("Glitch", "Glitch")
       .floatField("jut", 1.0f, 0.f, 2.f, state::PrimaryInput)
           .label("Jut", "Jut")
       .floatField("breathe", 0.0f, 0.f, 1.f, state::PrimaryInput)
@@ -976,7 +1072,7 @@ void module_init() {
 void* create() {
   auto* s = new State();
   s->ub_frame = gpu::Device::createBuffer(sizeof(FrameUniforms), gpu::BufferUsage::Uniform);
-  s->box_buf = gpu::Device::createBuffer((long long)sizeof(Row) * kMaxBoxes * kBoxRows,
+  s->box_buf = gpu::Device::createBuffer((long long)sizeof(Row) * kMaxBoxes * (kBoxRows + 1),
                                          gpu::BufferUsage::Storage);
   s->atlas = gpu::Device::createTexture(kTileRes * kAtlasCols, kTileRes * kAtlasRows,
                                         gpu::TextureFormat::RGBA16F);
@@ -1074,6 +1170,16 @@ void tick(void* self, double dt) {
   if (s->wander_phase > 4096.0 * kTau) s->wander_phase -= 4096.0 * kTau;
   if (s->drift_phase > 4096.0) s->drift_phase -= 4096.0;
   if (s->time > 4096.0) s->time -= 4096.0;
+  // The blocks' glide to a new layout.
+  {
+    const glide::Params gp = glideParams(s);
+    const glide::Glitch gl = glide::Glitch::from(s->glitch, gp);
+    for (int i = 0; i < s->slot_count; i++) {
+      auto& g = s->slots[i].g;
+      if (g.active(1e-5f)) g.step((float)dt, gp, gl);
+      else if (g.age < 1e8f) g.snap();
+    }
+  }
 
   // The sweep: level, bounce, throw (sweep_knob.h); the glints it launches.
   sweep_knob::Params kp;
@@ -1114,6 +1220,9 @@ void on_state_patched(void* self, int n, const char* pb, const int* off,
     const char* p = pb + off[i];
     int l = len[i];
     if      (state::pathIs(p, l, "layout"))       s->layout = state::patchInt(i);
+    else if (state::pathIs(p, l, "glide"))        s->glide_time = state::patchFloat(i);
+    else if (state::pathIs(p, l, "stiffness"))    s->stiffness = state::patchFloat(i);
+    else if (state::pathIs(p, l, "glitch"))       s->glitch = state::patchFloat(i);
     else if (state::pathIs(p, l, "jut"))          s->jut = state::patchFloat(i);
     else if (state::pathIs(p, l, "breathe"))      s->breathe = state::patchFloat(i);
     else if (state::pathIs(p, l, "breathe_rate")) s->breathe_rate = state::patchFloat(i);
@@ -1202,74 +1311,228 @@ void on_state_patched(void* self, int n, const char* pb, const int* off,
   }
 }
 
-// Pose every block for this frame and write the box rows. Returns the
+// A block's goal this frame, in the structure's frame: where its layout puts
+// it, jutted, breathing, bobbing.
+Pose goalPose(const State* s, const Block& b) {
+  const float bp = (float)s->breathe_phase;
+  const float dp = (float)s->drift_phase;
+  const float jmax = kCell * kJutMax;
+  Pose p;
+  if (b.fragment) {
+    float ph = kTau * (dp + b.seed);
+    p.c = b.rest + b.axis * (0.7f * s->drift * std::sin(ph));
+    float tt = (float)s->drift_phase * 14.0f * s->drift;
+    p.rot = euler(b.tip.x + b.spin.x * tt, b.tip.y + b.spin.y * tt, b.tip.z + b.spin.z * tt);
+    p.half = b.size * 0.5f;
+    p.glow = 1.0f;
+  } else {
+    // Slow waves of opening and closing: value noise over the rest
+    // position, moving through the noise domain with the breathing phase.
+    // It swings each block both ways about its rest jut — some seal shut
+    // while others push out — so the light comes and goes in patches
+    // rather than the whole shell gaping open.
+    float open = 0.5f + 0.5f * vnoise(b.rest * 0.45f + v3(0.0f, 0.0f, bp), 101u);
+    open = open * open * (3.0f - 2.0f * open);
+    float jut = std::fmax(b.jut * s->jut + s->breathe * jmax * 0.9f * (open - 0.5f), 0.0f);
+    float strain = jutStrain(jut);
+    float tip = std::pow(std::fmin(strain, 1.5f), 1.5f) * 0.18f;
+    p.c = b.rest + b.axis * jut;
+    p.rot = euler(b.tip.x * tip, b.tip.y * tip, b.tip.z * tip);
+    V3 half = v3(b.span[0] * kCell - s->seam, b.span[1] * kCell - s->seam,
+                 b.span[2] * kCell - s->seam) * 0.5f;
+    p.half = v3(std::fmax(half.x, 0.02f), std::fmax(half.y, 0.02f), std::fmax(half.z, 0.02f));
+    p.glow = std::fmin(strain, 1.0f);
+  }
+  return p;
+}
+
+// The axis flakes circulate a block about — one of the two it does not jut
+// along, picked per block (-1: a loose fragment).
+float circOf(const Block& b) {
+  if (b.fragment) return -1.0f;
+  const float ax = std::fabs(b.axis.x), ay = std::fabs(b.axis.y), az = std::fabs(b.axis.z);
+  const int jut = (ax >= ay && ax >= az) ? 0 : (ay >= az ? 1 : 2);
+  const float pick = b.seed * 7.31f - std::floor(b.seed * 7.31f);
+  return (float)((jut + (pick < 0.5f ? 1 : 2)) % 3);
+}
+
+// A slot's goal: its block's pose, or leaving, the block it shrinks into's,
+// at no size.
+Pose goalOf(const State* s, const Slot& sl) {
+  if (sl.block >= 0) return goalPose(s, s->blocks[sl.block]);
+  Pose p = goalPose(s, s->blocks[sl.into]);
+  p.half = v3(0.0f, 0.0f, 0.0f);
+  p.glow = sl.shown.glow;
+  return p;
+}
+
+// The glide's channels for showing `shown` while heading for `goal`.
+void offsetOf(const Pose& shown, const Pose& goal, float* o) {
+  const V3 dc = shown.c - goal.c, dh = shown.half - goal.half;
+  const V3 w = rotLog(mul(shown.rot, transpose(goal.rot)));
+  o[0] = dc.x; o[1] = dc.y; o[2] = dc.z;
+  o[3] = dh.x; o[4] = dh.y; o[5] = dh.z;
+  o[6] = w.x;  o[7] = w.y;  o[8] = w.z;
+}
+
+// Drop the slots that have finished leaving (or were dropped for room).
+void compact(State* s) {
+  int n = 0;
+  for (int i = 0; i < s->slot_count; i++) {
+    const Slot& sl = s->slots[i];
+    if (sl.block < 0 && (sl.dead || !sl.g.active(1e-3f))) continue;
+    if (n != i) s->slots[n] = sl;
+    n++;
+  }
+  s->slot_count = n;
+}
+
+// A new layout: build it, and send what is on screen there — nearest first,
+// fragments only to fragments; what is left over shrinks into its nearest
+// new block, and new blocks left over grow out of their nearest slot.
+void relayout(State* s) {
+  s->block_count = s->layout == 0 ? buildReference(s->blocks)
+                                  : buildProcedural(s->blocks, s->layout);
+  s->built_layout = s->layout;
+  const glide::Params gp = glideParams(s);
+  const int m = s->block_count;
+  if (s->slot_count == 0 || gp.time <= 1e-3f) {   // a cut
+    s->slot_count = m;
+    for (int j = 0; j < m; j++) {
+      Slot& sl = s->slots[j];
+      sl = Slot();
+      sl.block = j;
+      sl.fragment = s->blocks[j].fragment;
+      sl.stone = s->blocks[j].stone;
+      sl.seed = s->blocks[j].seed;
+      sl.g.seed = ++s->slot_serial;
+      sl.shown = goalPose(s, s->blocks[j]);
+    }
+    s->pose_jump = true;
+    return;
+  }
+  const glide::Glitch gl = glide::Glitch::from(s->glitch, gp);
+  static Pose goals[kMaxBoxes];
+  for (int j = 0; j < m; j++) goals[j] = goalPose(s, s->blocks[j]);
+  const int n = s->slot_count;
+  int to[kMaxBoxes], from[kMaxBoxes], best[kMaxBoxes];
+  float bestc[kMaxBoxes];
+  glide::matchNearest(
+      n, m,
+      [&](int i, int j) {
+        if (s->slots[i].fragment != s->blocks[j].fragment) return (float)INFINITY;
+        const V3 d = s->slots[i].shown.c - goals[j].c;
+        return dot(d, d);
+      },
+      to, from, best, bestc);
+  auto nearestBlock = [&](V3 p) {
+    int k = 0;
+    float bd = 1e30f;
+    for (int j = 0; j < m; j++) {
+      const V3 d = p - goals[j].c;
+      if (dot(d, d) < bd) { bd = dot(d, d); k = j; }
+    }
+    return k;
+  };
+  float o[kGlideCh];
+  for (int i = 0; i < n; i++) {
+    Slot& sl = s->slots[i];
+    sl.dead = false;
+    if (to[i] >= 0) {
+      sl.block = to[i];
+      sl.into = -1;
+      offsetOf(sl.shown, goals[sl.block], o);
+      sl.g.retargetTo(o, gl);
+      // Its stuff changes (shell <-> stone) at a moment of its own.
+      sl.flip = gp.time * (0.05f + 0.45f * sl.g.rnd());
+    } else {
+      sl.block = -1;
+      sl.into = nearestBlock(sl.shown.c);
+      Pose goal = goals[sl.into];
+      goal.half = v3(0.0f, 0.0f, 0.0f);
+      offsetOf(sl.shown, goal, o);
+      sl.g.retargetTo(o, gl);
+    }
+  }
+  // New blocks left over, each grown out of the slot nearest it.
+  static Pose start[kMaxBoxes];
+  int spawn = 0;
+  for (int j = 0; j < m; j++) {
+    if (from[j] >= 0) continue;
+    int k = 0;
+    float bd = 1e30f;
+    for (int i = 0; i < n; i++) {
+      const V3 d = s->slots[i].shown.c - goals[j].c;
+      if (dot(d, d) < bd) { bd = dot(d, d); k = i; }
+    }
+    start[j] = s->slots[k].shown;
+    start[j].half = v3(0.0f, 0.0f, 0.0f);
+    spawn++;
+  }
+  // No room for them all: the slots already on their way out go at once.
+  if (n + spawn > kMaxBoxes) {
+    int total = n + spawn;
+    for (int i = 0; i < n && total > kMaxBoxes; i++)
+      if (s->slots[i].block < 0) { s->slots[i].dead = true; total--; }
+    compact(s);
+  }
+  for (int j = 0; j < m && s->slot_count < kMaxBoxes; j++) {
+    if (from[j] >= 0) continue;
+    Slot& sl = s->slots[s->slot_count++];
+    sl = Slot();
+    sl.block = j;
+    sl.fragment = s->blocks[j].fragment;
+    sl.stone = s->blocks[j].stone;
+    sl.seed = s->blocks[j].seed;
+    sl.shown = start[j];
+    sl.g.seed = ++s->slot_serial;
+    offsetOf(start[j], goals[j], o);
+    sl.g.retargetTo(o, gl);
+  }
+}
+
+// Pose every slot for this frame and write the box rows. Returns the
 // structure's rotation (world <- structure frame).
 M3 poseBlocks(State* s, int& count) {
-  if (s->built_layout != s->layout) {
-    s->block_count = s->layout == 0 ? buildReference(s->blocks)
-                                    : buildProcedural(s->blocks, s->layout);
-    s->built_layout = s->layout;
-  }
+  s->pose_jump = false;
+  for (int i = 0; i < s->slot_count; i++) s->slots[i].prev = i;
+  if (s->built_layout != s->layout) relayout(s);
+  compact(s);
   const M3 tilt = euler(kRefTiltDeg[0] * kDeg, kRefTiltDeg[1] * kDeg, kRefTiltDeg[2] * kDeg);
   // Spin turns the tilted structure about the world's vertical, or about its
   // own (tilted) axis.
   const M3 turn = euler(0.0f, 0.0f, (float)(s->spin_phase * kTau));
   const M3 egg = s->spin_axis == 0 ? mul(turn, tilt) : mul(tilt, turn);
-  const float bp = (float)s->breathe_phase;
-  const float dp = (float)s->drift_phase;
-  const float jmax = kCell * kJutMax;
 
-  count = 0;
-  for (int i = 0; i < s->block_count && count < kMaxBoxes; i++) {
-    const Block& b = s->blocks[i];
-    V3 center, half;
-    M3 rot;
-    float glow;
-    if (b.fragment) {
-      float ph = kTau * (dp + b.seed);
-      center = b.rest + b.axis * (0.7f * s->drift * std::sin(ph));
-      float tt = (float)s->drift_phase * 14.0f * s->drift;
-      rot = euler(b.tip.x + b.spin.x * tt, b.tip.y + b.spin.y * tt, b.tip.z + b.spin.z * tt);
-      half = b.size * 0.5f;
-      glow = 1.0f;
-    } else {
-      // Slow waves of opening and closing: value noise over the rest
-      // position, moving through the noise domain with the breathing phase.
-      // It swings each block both ways about its rest jut — some seal shut
-      // while others push out — so the light comes and goes in patches
-      // rather than the whole shell gaping open.
-      float open = 0.5f + 0.5f * vnoise(b.rest * 0.45f + v3(0.0f, 0.0f, bp), 101u);
-      open = open * open * (3.0f - 2.0f * open);
-      float jut = std::fmax(b.jut * s->jut + s->breathe * jmax * 0.9f * (open - 0.5f), 0.0f);
-      float strain = jutStrain(jut);
-      float tip = std::pow(std::fmin(strain, 1.5f), 1.5f) * 0.18f;
-      center = b.rest + b.axis * jut;
-      rot = euler(b.tip.x * tip, b.tip.y * tip, b.tip.z * tip);
-      half = v3(b.span[0] * kCell - s->seam, b.span[1] * kCell - s->seam,
-                b.span[2] * kCell - s->seam) * 0.5f;
-      half = v3(std::fmax(half.x, 0.02f), std::fmax(half.y, 0.02f), std::fmax(half.z, 0.02f));
-      glow = std::fmin(strain, 1.0f);
+  count = s->slot_count;
+  for (int i = 0; i < count; i++) {
+    Slot& sl = s->slots[i];
+    const Pose goal = goalOf(s, sl);
+    const float* o = sl.g.out;
+    Pose p;
+    p.c = goal.c + v3(o[0], o[1], o[2]);
+    const V3 h = goal.half + v3(o[3], o[4], o[5]);
+    // (Overshooting through no size, a block blinks out a moment.)
+    p.half = v3(std::fmax(h.x, 0.002f), std::fmax(h.y, 0.002f), std::fmax(h.z, 0.002f));
+    p.rot = mul(rotExp(v3(o[6], o[7], o[8])), goal.rot);
+    p.glow = goal.glow;
+    sl.shown = p;
+    if (sl.block >= 0) {
+      const Block& b = s->blocks[sl.block];
+      sl.circ = circOf(b);
+      if (sl.g.age >= sl.flip) { sl.stone = b.stone; sl.seed = b.seed; }
     }
-    const M3 w = mul(egg, rot);
-    const V3 c = mul(egg, center);
+    const M3 w = mul(egg, p.rot);
+    const V3 c = mul(egg, p.c);
     const V3 ax = col(w, 0), ay = col(w, 1), az = col(w, 2);
-    Row* r = &s->rows[count * kBoxRows];
-    r[0] = {{c.x, c.y, c.z, glow}};
-    r[1] = {{ax.x, ax.y, ax.z, half.x}};
-    r[2] = {{ay.x, ay.y, ay.z, half.y}};
-    r[3] = {{az.x, az.y, az.z, half.z}};
-    // .w: the axis flakes circulate this block about — one of the two it
-    // does not jut along, picked per block (-1: a loose fragment).
-    float circ = -1.0f;
-    if (!b.fragment) {
-      const float ax = std::fabs(b.axis.x), ay = std::fabs(b.axis.y), az = std::fabs(b.axis.z);
-      const int jut = (ax >= ay && ax >= az) ? 0 : (ay >= az ? 1 : 2);
-      const float pick = b.seed * 7.31f - std::floor(b.seed * 7.31f);
-      circ = (float)((jut + (pick < 0.5f ? 1 : 2)) % 3);
-    }
-    r[4] = {{b.stone ? 1.0f : 0.0f, b.seed, 0.0f, circ}};
+    Row* r = &s->rows[i * kBoxRows];
+    r[0] = {{c.x, c.y, c.z, p.glow}};
+    r[1] = {{ax.x, ax.y, ax.z, p.half.x}};
+    r[2] = {{ay.x, ay.y, ay.z, p.half.y}};
+    r[3] = {{az.x, az.y, az.z, p.half.z}};
+    // .w: the axis flakes circulate this block about (-1: a fragment).
+    r[4] = {{sl.stone ? 1.0f : 0.0f, sl.seed, 0.0f, sl.circ}};
     r[5] = {{0.0f, 0.0f, 0.0f, 0.0f}};   // .x: its glint charge (the flakes' pass)
-    count++;
   }
   return egg;
 }
@@ -1486,10 +1749,6 @@ void render(void* self, int vp_w, int vp_h) {
     const V3 cr = v3(u.cam_r[0], u.cam_r[1], u.cam_r[2]);
     const V3 cu = v3(u.cam_u[0], u.cam_u[1], u.cam_u[2]);
     const V3 cf = v3(u.cam_f[0], u.cam_f[1], u.cam_f[2]);
-    if (s->glint_c_count != count) {
-      for (float& c : s->glint_c) c = 0.0f;
-      s->glint_c_count = count;
-    }
     const float glint_fade = std::exp(-s->frame_dt / kGlintRelease);
     s->glint_cmax = 0.0f;
     float sn_of[kMaxBoxes];
@@ -1523,7 +1782,7 @@ void render(void* self, int vp_w, int vp_h) {
         }
       }
       // Its charge: the band's pull, held a moment after it has passed.
-      float& c = s->glint_c[i];
+      float& c = s->slots[i].charge;
       c = std::fmax(std::fmax(e, 0.0f), c * glint_fade);
       e = c;
       s->glint_cmax = std::fmax(s->glint_cmax, c);
@@ -1534,7 +1793,22 @@ void render(void* self, int vp_w, int vp_h) {
                 : std::fmax(0.0f, (0.35f + r[0].v[3]) * (1.0f + s->glint_gain * e));
     }
   }
-  s->box_buf.write(s->rows, count * kBoxRows);
+  // Slots compacted away this frame: where each of last frame's went
+  // (-1: gone), a row each after the boxes, for the flakes holding onto them.
+  bool remap = false;
+  int remap_rows = 0;
+  if (!s->pose_jump) {
+    const int n0 = s->last_slot_count;
+    Row* rm = &s->rows[count * kBoxRows];
+    for (int o = 0; o < n0; o++) rm[o] = {{-1.0f, 0.0f, 0.0f, 0.0f}};
+    for (int i = 0; i < count; i++) {
+      const int pv = s->slots[i].prev;
+      if (pv >= 0 && pv < n0) rm[pv].v[0] = (float)i;
+    }
+    for (int o = 0; o < n0 && o < count; o++) remap = remap || rm[o].v[0] != (float)o;
+    if (remap) remap_rows = n0;
+  }
+  s->box_buf.write(s->rows, count * kBoxRows + remap_rows);
 
   PartUniforms pu = {};
   int p_init_from = s->p_live;
@@ -1586,6 +1860,7 @@ void render(void* self, int vp_w, int vp_h) {
       pu.orbit[3] = 1.6f * s->capture;
       pu.bite[0] = std::fmin(0.6f, s->bite * s->pending_bite);
       pu.bite[1] = s->glint_cmax > 0.02f ? s->glint_pull : 0.0f;
+      pu.bite[2] = remap ? 1.0f : 0.0f;
     }
     pu.shell[0] = s->shell_radius;
     pu.shell[1] = 9.0f;
@@ -1740,10 +2015,12 @@ void render(void* self, int vp_w, int vp_h) {
     }
     // Last frame's poses (this frame's when the blocks were rebuilt).
     static Row prev4[kMaxBoxes * 4];
-    const bool same = s->prev_count == count && s->prev_layout == s->layout;
-    const Row* src = same ? s->prev_rows : s->rows;
-    for (int i = 0; i < count; i++)
-      for (int k = 0; k < 4; k++) prev4[i * 4 + k] = src[i * kBoxRows + k];
+    for (int i = 0; i < count; i++) {
+      const int pv = s->slots[i].prev;
+      const bool had = !s->pose_jump && pv >= 0 && pv < s->prev_count;
+      const Row* src = had ? &s->prev_rows[pv * kBoxRows] : &s->rows[i * kBoxRows];
+      for (int k = 0; k < 4; k++) prev4[i * 4 + k] = src[k];
+    }
     s->prev_box_buf.write(prev4, count * 4);
     if (s->motion_tex.valid()) {
       auto cp = gpu::ComputePass::begin();
@@ -1811,7 +2088,7 @@ void render(void* self, int vp_w, int vp_h) {
   // This frame's poses, for next frame's motion.
   for (int i = 0; i < count * kBoxRows; i++) s->prev_rows[i] = s->rows[i];
   s->prev_count = count;
-  s->prev_layout = s->layout;
+  s->last_slot_count = count;
   for (int c = 0; c < 4; c++) {
     s->prev_cam[0][c] = u.cam_r[c];
     s->prev_cam[1][c] = u.cam_u[c];

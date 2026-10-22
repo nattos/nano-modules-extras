@@ -973,6 +973,74 @@ TEST_CASE("sweep_chamber renders and drives motion.blur natively",
   INFO("total rgb delta blurred vs sharp " << diff);
   CHECK(diff > 1000);
 }
+// source.mesh.lantern's layouts GLIDE (sketch/glide.h): a new layout springs
+// in rather than cutting, and lands exactly where the cut would have. The
+// web suites set params once and then tick, so a change mid-run is only
+// reachable here.
+TEST_CASE("lantern glides between layouts and lands where a cut lands",
+          "[effect_render][lantern]") {
+  auto backend = gpu::createBackend();
+  if (!backend) SKIP("No GPU device available");
+
+  sketch_executor::WasmEffectBundles bundles;
+  REQUIRE(bundles.init());
+  EffectRuntime rt(backend.get());
+  sketch_executor::ModuleRegistry registry(&rt);
+  REQUIRE(bundles.loadBundleFile(kCoreWasm, registry, backend.get(), nullptr) > 1);
+  REQUIRE(bundles.loadBundleFile(kNanoWasm, registry, backend.get(), nullptr) > 1);
+
+  const uint32_t W = 160, H = 120;
+  const int RGBA8 = 1;
+  constexpr int kSwitch = 30, kMid = 36, kLate = 90;   // 100 ms and 1 s after the switch
+
+  // Frames kMid and kLate of a run that switches layout 0 -> `to` at kSwitch.
+  auto run = [&](int to, double glide) {
+    sketch_executor::SketchExecutor ex(&rt, &registry, backend.get());
+    int in = backend->createTexture(W, H, RGBA8);
+    int out = backend->createTexture(W, H, RGBA8);
+    auto sketch = nlohmann::json::parse(R"JSON({
+      "wires": [],
+      "chain": [ { "type": "module", "module_type": "source.mesh.lantern", "instance_key": "l" } ],
+      "instances": { "l": { "module_type": "source.mesh.lantern", "state": {
+        "layout": 0, "drift": 0.0, "flakes": 0, "distance": 60.0 } } }
+    })JSON");
+    sketch["instances"]["l"]["state"]["glide"] = glide;
+    std::vector<std::vector<uint8_t>> shots;
+    for (int f = 0; f <= kLate; ++f) {
+      const bool change = f == kSwitch;
+      if (change) sketch["instances"]["l"]["state"]["layout"] = to;
+      REQUIRE(ex.execute(sketch, in, out, (int)W, (int)H, 1.0 / 60.0, f == 0 || change) > 0);
+      backend->submit();
+      if (f == kMid || f == kLate) shots.push_back(backend->readbackTexture(out, W, H));
+    }
+    return shots;
+  };
+  auto mad = [](const std::vector<uint8_t>& a, const std::vector<uint8_t>& b) {
+    double sum = 0.0;
+    for (size_t i = 0; i < a.size(); i += 4)
+      for (int c = 0; c < 3; c++) sum += std::abs((int)a[i + c] - (int)b[i + c]);
+    return sum / (a.size() / 4 * 3);
+  };
+
+  const auto glided = run(7, 0.4);
+  const auto cut = run(7, 0.0);
+  const auto cut2 = run(7, 0.0);
+  const auto stay = run(0, 0.4);
+  REQUIRE(glided.size() == 2);
+  // (Two identical runs differ a little — the fog's dither — so everything
+  // is measured against that.)
+  const double noise = std::fmax(mad(cut[0], cut2[0]), mad(cut[1], cut2[1]));
+  const double mid_vs_cut = mad(glided[0], cut[0]);
+  const double mid_vs_old = mad(glided[0], stay[0]);
+  const double cut_vs_old = mad(cut[0], stay[0]);
+  const double late = mad(glided[1], cut[1]);
+  INFO("noise " << noise << ", mid vs cut " << mid_vs_cut << ", mid vs old " << mid_vs_old
+                << ", cut vs old " << cut_vs_old << ", 1 s later vs cut " << late);
+  CHECK(cut_vs_old > 5.0 * noise);    // the layouts really differ
+  CHECK(mid_vs_cut > 5.0 * noise);    // 100 ms in it is neither...
+  CHECK(mid_vs_old > 5.0 * noise);
+  CHECK(late < 1.5 * noise + 0.1);    // ...and it lands where the cut did
+}
 #endif  // NANO_WASM_PATH && CORE_WASM_PATH
 
 // source.mesh.three_planes' MASK input, on Metal.

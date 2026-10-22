@@ -21,7 +21,7 @@ cbuffer Part : register(b4) {
   float4 prev_r;    // the previous frame's camera, as cam_r / cam_u / cam_f
   float4 prev_u;
   float4 prev_f;
-  float4 bite;      // chance this step that a flake is snapped onto a block's lane, glint pull (0: no glint charging a block), 0, 0
+  float4 bite;      // chance this step that a flake is snapped onto a block's lane, glint pull (0: no glint charging a block), blocks remapped (1: a row each after the boxes), 0
 };
 
 #endif  // LANTERN_PART_UB_HLSL

@@ -209,7 +209,14 @@ void main(uint3 gid : SV_DispatchThreadID) {
   int captor = (int)s0.w;
   float susc = s3.w;
   int nbox = ltn_box_count();
-  if (captor >= nbox) { captor = -1; bound = false; lured = false; }
+  // Blocks that finished gliding out of a layout were compacted away this
+  // frame (main.cpp's slots): last frame's index -> this frame's, a row each
+  // after the boxes (-1: gone, and the flakes on it let go).
+  if (bite.z > 0.5) {
+    if (captor >= 0) captor = (int)boxes[nbox * LTN_BOX_ROWS + captor].x;
+    if (home >= 0) home = (int)boxes[nbox * LTN_BOX_ROWS + home].x;
+  }
+  if (captor < 0 || captor >= nbox) { captor = -1; bound = false; lured = false; }
   if (home >= nbox) home = -1;
 
   const float S = pb.x, R = pb.y;

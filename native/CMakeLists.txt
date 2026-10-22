@@ -102,10 +102,10 @@ catch_discover_tests(test_sdf_field)
 
 # The LED-bar show logic: three_planes' glints and Strobe throw, the house
 # rig's pixel map, three_walls' moves, sweep_choke's knob, sweep_gradient's roll,
-# side_racks' show. Each is driven at an exact dt.
+# side_racks' show, glide's stiff spring. Each is driven at an exact dt.
 foreach(t test_three_planes_glints test_three_planes_strobe test_led_bars
           test_three_walls_show test_sweep_choke test_sweep_gradient
-          test_drum_bars test_side_racks)
+          test_drum_bars test_side_racks test_glide)
   add_executable(${t} ${EXTRAS_TESTS}/${t}.cpp)
   # Ours first (<sketch/led_bars.h>), then nano-modules' src for the shared
   # utilities the SDK also ships (<sketch/knob_rate.h>).
