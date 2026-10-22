@@ -40,6 +40,12 @@
  * screen, the choke lets them go ballistic in a loose ring, and a throw FLINGS
  * them onto a sphere where the tail shakes them as it rings out.
  *
+ * The sweep plays the blocks and the core too, through a matrix of SENDS:
+ * its envelope, its overshoot, each block's glint charge and the thrown tail
+ * (the reverb) each drive Jut, Seam, Jitter (knocks rung out on the glide's
+ * spring), the core's Power and the blocks' Magnetism by their own amounts;
+ * and a change of jut twangs through that spring as well.
+ *
  * With render_outputs read downstream, the blocks' and the flakes' motion
  * vectors go out on its motion leaf (motion.hlsl + the spark raster) for a
  * motion blur to streak.
@@ -444,6 +450,8 @@ struct Slot {
   bool fragment = false;
   glide::Element<kGlideCh> g;
   Pose shown;              // as last drawn
+  float jut = 1.0f;        // its Jut and Seam this frame, sends and all
+  float seam = 0.057f;
   bool stone = false;      // what it was made of before the change...
   float seed = 0.0f;
   float flip = 0.0f;       // ...for this long yet (s), then the goal's
@@ -452,6 +460,46 @@ struct Slot {
   int prev = -1;           // its index last frame (-1: new)
   bool dead = false;       // dropped to make room: gone this frame
 };
+
+// ---------------------------------------------------------------------------
+// The sends: what the sweep does to the blocks and the core, as a matrix.
+// Each target is its own knob plus, from each source, its send x that
+// source:
+//
+//   Envelope   the sustain as the flakes feel it: Sustain at home, 0 at the
+//              choke, past it on an overshoot (0..1.5);
+//   Overshoot  the bounce alone, again (0 at rest, ~0.7 at a hard return):
+//              to accentuate an overshoot beyond what the envelope carries;
+//   Glint      each block's own charge from the glint band (the core: the
+//              most charged block's);
+//   Reverb     the thrown tail, 1 at a full throw ringing down to 0 over Tail.
+
+enum Source { kEnv, kOver, kGlint, kReverb, kSources };
+enum Target { kJut, kSeam, kJitter, kPower, kMagnet, kTargets };
+
+// Field keys, labels and ranges, [source][target] and [target].
+const char* const kSendKey[kSources][kTargets] = {
+    {"env_jut", "env_seam", "env_jitter", "env_power", "env_magnet"},
+    {"over_jut", "over_seam", "over_jitter", "over_power", "over_magnet"},
+    {"glint_jut", "glint_seam", "glint_jitter", "glint_power", "glint_magnet"},
+    {"reverb_jut", "reverb_seam", "reverb_jitter", "reverb_power", "reverb_magnet"}};
+const char* const kSendLabel[kSources][kTargets] = {
+    {"Env Jut", "Env Seam", "Env Jitter", "Env Power", "Env Magnet"},
+    {"Over Jut", "Over Seam", "Over Jitter", "Over Power", "Over Magnet"},
+    {"Glint Jut", "Glint Seam", "Glint Jitter", "Glint Power", "Glint Magnet"},
+    {"Reverb Jut", "Reverb Seam", "Reverb Jitter", "Reverb Power", "Reverb Magnet"}};
+const char* const kSendShort[kSources][kTargets] = {
+    {"EJut", "ESeam", "EJit", "EPwr", "EMag"},
+    {"OJut", "OSeam", "OJit", "OPwr", "OMag"},
+    {"GJut", "GSeam", "GJit", "GPwr", "GMag"},
+    {"RJut", "RSeam", "RJit", "RPwr", "RMag"}};
+// A send's reach either way, in its target's units.
+constexpr float kSendRange[kTargets] = {2.0f, 0.3f, 0.5f, 1.0f, 4.0f};
+// Where the result is held.
+constexpr float kTargetLo[kTargets] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+constexpr float kTargetHi[kTargets] = {3.0f, 0.45f, 1.0f, 1.25f, 8.0f};
+// Jitter's turn per metre of knock (rad).
+constexpr float kJitterTurn = 0.5f;
 
 // ---------------------------------------------------------------------------
 
@@ -502,6 +550,9 @@ struct State {
   float glitch = 0.5f;
   float glide_smooth = 0.0f;   // 0..1: how much calmer the glide is
   float jut = 1.0f;
+  float twang = 1.0f;          // how much of a change of Jut goes through the spring
+  float jitter = 0.0f;         // m, how hard the blocks are knocked about
+  float jitter_rate = 4.0f;    // Hz, knocks a block takes a second
   float breathe = 0.0f;
   float breathe_rate = 0.3f;
   float seam = 0.057f;
@@ -550,10 +601,14 @@ struct State {
   float sustain = 1.0f;        // the level the knob's full position holds
   float overshoot = 1.0f;
   float glint_angle = 35.0f;
-  float glint_gain = 1.5f;
   float glint_width = 0.12f;
   float glint_time = 1.2f;     // s a glint takes to cross once the knob rests
   float glint_pull = 1.0f;
+  float magnetism = 1.0f;      // the blocks' pull on the flakes, x their strain
+  // The sends, [source][target] (see Source / Target); all 0 but a glint's
+  // pull on the magnets.
+  float sends[kSources][kTargets] = {{0, 0, 0, 0, 0}, {0, 0, 0, 0, 0},
+                                     {0, 0, 0, 0, 1.5f}, {0, 0, 0, 0, 0}};
   // The flakes.
   int flakes = 1200;
   float flake_size = 1.0f;
@@ -621,6 +676,28 @@ glide::Params glideParams(const State* s) {
   return p;
 }
 
+// The sends' sources this frame (Glint's is the core's: the most charged
+// block's; each block reads its own).
+struct Drive { float src[kSources]; };
+
+Drive driveOf(const State* s) {
+  Drive d;
+  const float over = 2.5f * s->knob.bounce;
+  d.src[kEnv] = std::fmin(1.5f, std::fmax(0.0f, s->sustain * s->knob.level + s->overshoot * over));
+  d.src[kOver] = over;
+  d.src[kGlint] = s->glint_cmax;
+  d.src[kReverb] = s->knob.release;
+  return d;
+}
+
+// Target `t`: its own knob `base` plus every send x its source, `glint` the
+// charge of the block it is for.
+float sent(const State* s, const Drive& d, int t, float base, float glint) {
+  float v = base;
+  for (int k = 0; k < kSources; k++) v += s->sends[k][t] * (k == kGlint ? glint : d.src[k]);
+  return std::fmin(kTargetHi[t], std::fmax(kTargetLo[t], v));
+}
+
 inline double rateHz(float k, double mid) {
   if (std::fabs(k) <= 0.001f) return 0.0;
   double s = k < 0 ? -1.0 : 1.0;
@@ -646,7 +723,11 @@ void module_init() {
           "letting go one after another, moving an axis at a time, freezing "
           "for a few frames and jumping on; *Smooth* calms all of it, "
           "rounding off the overshoot, the ringing and the jumps. *Jut* scales how far the blocks stand "
-          "out from the core; *Breathe* rolls slow waves through them on top "
+          "out from the core, and *Twang* is how much of a change of it goes "
+          "through that spring too (1: a jut driven by the sweep twangs; 0: "
+          "the blocks follow it at once). *Jitter* knocks every block about "
+          "on the same spring, *Jitter Rate* knocks a second each, so they "
+          "ring on their own. *Breathe* rolls slow waves through them on top "
           "of that, some sealing shut while others push out, at *Breathe Rate*. *Seam* is the gap "
           "between neighboring blocks. *Spin* turns the whole structure; "
           "*Drift* sets the loose fragments bobbing.")
@@ -663,6 +744,13 @@ void module_init() {
           .label("Smooth", "Smth")
       .floatField("jut", 1.0f, 0.f, 2.f, state::PrimaryInput)
           .label("Jut", "Jut")
+      .floatField("twang", 1.0f, 0.f, 1.f, state::PrimaryInput)
+          .label("Twang", "Twng")
+      .floatField("jitter", 0.0f, 0.f, 0.5f, state::PrimaryInput, nullptr, 0.f, "m")
+          .label("Jitter", "Jit")
+      .floatField("jitter_rate", 4.0f, 0.25f, 30.f, state::PrimaryInput, nullptr, 0.f, "Hz")
+          .logScale()
+          .label("Jitter Rate", "JRate")
       .floatField("breathe", 0.0f, 0.f, 1.f, state::PrimaryInput)
           .label("Breathe", "Brth")
       .floatField("breathe_rate", 0.3f, 0.f, 1.f, state::PrimaryInput)
@@ -785,7 +873,8 @@ void module_init() {
           "a moment. Each pass through the middle sends a GLINT across the "
           "screen, a slanted band (*Glint Angle*, *Glint Width*; as fast as "
           "the sweep, or *Glint Time* to cross once the knob rests) that "
-          "makes the blocks under it stronger magnets (*Glint Gain*) and lures "
+          "makes the blocks under it stronger magnets (the Glint sends' "
+          "*Magnet*) and lures "
           "the flakes off the blocks around them onto those (*Glint Pull*): "
           "the streams are handed along with the band. And a hard "
           "pass through the middle that goes on to the choke THROWS: the "
@@ -816,9 +905,6 @@ void module_init() {
       .floatField("glint_angle", 35.0f, -90.f, 90.f, state::SecondaryInput, nullptr, 0.f, "deg",
                   "Which way the glints cross the screen; 0 left to right.")
           .label("Glint Angle", "GAng")
-      .floatField("glint_gain", 1.5f, 0.f, 4.f, state::PrimaryInput, nullptr, 0.f, nullptr,
-                  "How much stronger a glint makes the magnets under it.")
-          .label("Glint Gain", "GGain")
       .floatField("glint_width", 0.12f, 0.02f, 0.5f, state::SecondaryInput, nullptr, 0.f, nullptr,
                   "A glint's half-width, as a fraction of the structure it crosses.")
           .label("Glint Width", "GWid")
@@ -828,7 +914,37 @@ void module_init() {
       .floatField("glint_pull", 1.0f, 0.f, 3.f, state::PrimaryInput, nullptr, 0.f, nullptr,
                   "How hard a glint lures flakes off the blocks around it onto the "
                   "blocks under it.")
-          .label("Glint Pull", "GPull")
+          .label("Glint Pull", "GPull");
+  // The sends: a group per source, a send per target.
+  {
+    static const char* const kGroup[kSources][2] = {
+        {"sends_env", "Envelope Sends"}, {"sends_over", "Overshoot Sends"},
+        {"sends_glint", "Glint Sends"}, {"sends_reverb", "Reverb Sends"}};
+    static const char* const kHelp[kSources] = {
+        "What the sweep's ENVELOPE does to the blocks and the core: each send "
+        "adds that much of its target at full sustain (the knob at home: "
+        "*Sustain*), none at the choke, and more on an overshoot (up to 1.5x). "
+        "*Jut* in Jut's units, *Seam* in metres, *Jitter* in metres, *Power* "
+        "in Power's, *Magnet* in Magnetism's; negative sends take away. So a "
+        "block's jut is Jut + Env Jut x envelope + Over Jut x overshoot + "
+        "Glint Jut x its glint + Reverb Jut x reverb.",
+        "The OVERSHOOT again, on its own -- 0 at rest, about 0.7 coming back in "
+        "hard -- for targets that should leap on a return more than the "
+        "envelope already makes them.",
+        "Each block's GLINT charge (as the band crosses it, held a moment "
+        "after); the core reads the most charged block's. *Magnet* is how "
+        "much stronger a glint makes the magnets under it.",
+        "The REVERB: the thrown tail, 1 at a full throw and ringing down to 0 "
+        "over *Tail*."};
+    for (int k = 0; k < kSources; k++) {
+      schema.group(kGroup[k][0], kGroup[k][1]).groupHelp(kHelp[k]);
+      for (int t = 0; t < kTargets; t++)
+        schema.floatField(kSendKey[k][t], k == kGlint && t == kMagnet ? 1.5f : 0.0f,
+                          -kSendRange[t], kSendRange[t], state::PrimaryInput)
+            .label(kSendLabel[k][t], kSendShort[k][t]);
+    }
+  }
+  schema
       .group("flakes", "Flakes")
         .groupHelp(
           "The specks of mica, grit and silt flying around the structure. "
@@ -842,7 +958,8 @@ void module_init() {
           "*Ring Loose*, at *Ring Speed*. Sustained, *Jet* blows the free "
           "ones through the core along *Jet Angle* (0 is the screen's left "
           "to right), and the blocks catch them: *Capture* is the magnets' "
-          "pull, *Reach* how far it carries; a caught flake streams round the "
+          "pull, *Magnetism* how strong each block is as a magnet (x its "
+          "strain; the sends drive it), *Reach* how far it carries; a caught flake streams round the "
           "block that caught it (*Local* 1; toward 0, round the whole structure) "
           "in a lane above its surface, keeping its momentum, its altitude "
           "held by a spring: soft and flexible deep in the sweep, nearly "
@@ -884,6 +1001,8 @@ void module_init() {
           .label("Jet Angle", "JAng")
       .floatField("capture", 0.6f, 0.f, 1.f, state::PrimaryInput)
           .label("Capture", "Capt")
+      .floatField("magnetism", 1.0f, 0.f, 4.f, state::PrimaryInput)
+          .label("Magnetism", "Mag")
       .floatField("bite", 0.5f, 0.f, 1.f, state::PrimaryInput)
           .label("Bite", "Bite")
       .floatField("reach", 0.5f, 0.05f, 2.f, state::PrimaryInput, nullptr, 0.f, "m")
@@ -1192,18 +1311,6 @@ void tick(void* self, double dt) {
   if (s->wander_phase > 4096.0 * kTau) s->wander_phase -= 4096.0 * kTau;
   if (s->drift_phase > 4096.0) s->drift_phase -= 4096.0;
   if (s->time > 4096.0) s->time -= 4096.0;
-  // The blocks' glide to a new layout.
-  {
-    const glide::Params gp = glideParams(s);
-    const glide::Glitch gl = glide::Glitch::from(s->glitch, gp);
-    for (int i = 0; i < s->slot_count; i++) {
-      s->slots[i].flip -= (float)dt;
-      auto& g = s->slots[i].g;
-      if (g.active(1e-5f)) g.step((float)dt, gp, gl);
-      else if (g.age < 1e8f) g.snap();
-    }
-  }
-
   // The sweep: level, bounce, throw (sweep_knob.h); the glints it launches.
   sweep_knob::Params kp;
   kp.sweep = s->sweep;
@@ -1225,6 +1332,39 @@ void tick(void* self, double dt) {
   gp.drift = 1.0f / std::fmax(s->glint_time, 0.05f);
   gp.hold = 1.0f;
   s->glint_core.tick(gp, (float)dt);
+  // The blocks' glide (to a new layout, after their jut), and their jitter:
+  // knocks at random, Jitter Rate a second, each ringing out on the glide's
+  // spring.
+  {
+    const glide::Params sp = glideParams(s);
+    const glide::Glitch gl = glide::Glitch::from(s->glitch, sp);
+    const Drive d = driveOf(s);
+    const float knock = 1.0f - std::exp(-std::fmax(s->jitter_rate, 0.0f) * (float)dt);
+    const float w = kTau * sp.stiffness;
+    for (int i = 0; i < s->slot_count; i++) {
+      Slot& sl = s->slots[i];
+      sl.flip -= (float)dt;
+      auto& g = sl.g;
+      if (sl.block >= 0 && sp.time > 1e-4f && knock > 0.0f) {
+        const float A = sent(s, d, kJitter, s->jitter, sl.charge);
+        if (A > 1e-4f && g.rnd() < knock) {
+          float dv[kGlideCh] = {};
+          for (int k = 0; k < 2; k++) {   // a random way to move, and to turn
+            const float z = 2.0f * g.rnd() - 1.0f, ph = kTau * g.rnd();
+            const float r = std::sqrt(std::fmax(0.0f, 1.0f - z * z));
+            const float a = A * w * (k == 0 ? 1.0f : kJitterTurn);
+            const int c0 = k == 0 ? 0 : 6;
+            dv[c0] = a * r * std::cos(ph);
+            dv[c0 + 1] = a * r * std::sin(ph);
+            dv[c0 + 2] = a * z;
+          }
+          g.kick(dv);
+        }
+      }
+      if (g.active(1e-5f)) g.step((float)dt, sp, gl);
+      else if (g.age < 1e8f) g.snap();
+    }
+  }
   // The tail's shake: one phase for every flake, its frequency falling as
   // the tail rings out.
   const double hz = s->vibe_hz * (0.12 + 0.88 * s->knob.release);
@@ -1298,7 +1438,10 @@ void on_state_patched(void* self, int n, const char* pb, const int* off,
     else if (state::pathIs(p, l, "sense"))        s->sense = state::patchFloat(i);
     else if (state::pathIs(p, l, "tail"))         s->tail = state::patchFloat(i);
     else if (state::pathIs(p, l, "glint_angle"))  s->glint_angle = state::patchFloat(i);
-    else if (state::pathIs(p, l, "glint_gain"))   s->glint_gain = state::patchFloat(i);
+    else if (state::pathIs(p, l, "magnetism"))    s->magnetism = state::patchFloat(i);
+    else if (state::pathIs(p, l, "twang"))        s->twang = state::patchFloat(i);
+    else if (state::pathIs(p, l, "jitter"))       s->jitter = state::patchFloat(i);
+    else if (state::pathIs(p, l, "jitter_rate"))  s->jitter_rate = state::patchFloat(i);
     else if (state::pathIs(p, l, "glint_width"))  s->glint_width = state::patchFloat(i);
     else if (state::pathIs(p, l, "glint_time"))   s->glint_time = state::patchFloat(i);
     else if (state::pathIs(p, l, "glint_pull"))   s->glint_pull = state::patchFloat(i);
@@ -1334,12 +1477,16 @@ void on_state_patched(void* self, int n, const char* pb, const int* off,
     else if (state::pathIs(p, l, "vibe"))         s->vibe = state::patchFloat(i);
     else if (state::pathIs(p, l, "vibe_hz"))      s->vibe_hz = state::patchFloat(i);
     else if (state::pathIs(p, l, "vibe_spread"))  s->vibe_spread = state::patchFloat(i);
+    else
+      for (int k = 0; k < kSources; k++)
+        for (int t = 0; t < kTargets; t++)
+          if (state::pathIs(p, l, kSendKey[k][t])) s->sends[k][t] = state::patchFloat(i);
   }
 }
 
 // A block's goal this frame, in the structure's frame: where its layout puts
 // it, jutted, breathing, bobbing.
-Pose goalPose(const State* s, const Block& b) {
+Pose goalPose(const State* s, const Block& b, float jutk, float seam) {
   const float bp = (float)s->breathe_phase;
   const float dp = (float)s->drift_phase;
   const float jmax = kCell * kJutMax;
@@ -1359,13 +1506,13 @@ Pose goalPose(const State* s, const Block& b) {
     // rather than the whole shell gaping open.
     float open = 0.5f + 0.5f * vnoise(b.rest * 0.45f + v3(0.0f, 0.0f, bp), 101u);
     open = open * open * (3.0f - 2.0f * open);
-    float jut = std::fmax(b.jut * s->jut + s->breathe * jmax * 0.9f * (open - 0.5f), 0.0f);
+    float jut = std::fmax(b.jut * jutk + s->breathe * jmax * 0.9f * (open - 0.5f), 0.0f);
     float strain = jutStrain(jut);
     float tip = std::pow(std::fmin(strain, 1.5f), 1.5f) * 0.18f;
     p.c = b.rest + b.axis * jut;
     p.rot = euler(b.tip.x * tip, b.tip.y * tip, b.tip.z * tip);
-    V3 half = v3(b.span[0] * kCell - s->seam, b.span[1] * kCell - s->seam,
-                 b.span[2] * kCell - s->seam) * 0.5f;
+    V3 half = v3(b.span[0] * kCell - seam, b.span[1] * kCell - seam,
+                 b.span[2] * kCell - seam) * 0.5f;
     p.half = v3(std::fmax(half.x, 0.02f), std::fmax(half.y, 0.02f), std::fmax(half.z, 0.02f));
     p.glow = std::fmin(strain, 1.0f);
   }
@@ -1385,8 +1532,8 @@ float circOf(const Block& b) {
 // A slot's goal: its block's pose, or leaving, the block it shrinks into's,
 // at no size.
 Pose goalOf(const State* s, const Slot& sl) {
-  if (sl.block >= 0) return goalPose(s, s->blocks[sl.block]);
-  Pose p = goalPose(s, s->blocks[sl.into]);
+  if (sl.block >= 0) return goalPose(s, s->blocks[sl.block], sl.jut, sl.seam);
+  Pose p = goalPose(s, s->blocks[sl.into], sl.jut, sl.seam);
   p.half = v3(0.0f, 0.0f, 0.0f);
   p.glow = sl.shown.glow;
   return p;
@@ -1440,6 +1587,10 @@ void relayout(State* s) {
   s->built_layout = s->layout;
   const glide::Params gp = glideParams(s);
   const int m = s->block_count;
+  // A new slot's Jut and Seam: the sends with no glint of its own yet.
+  const Drive d = driveOf(s);
+  const float jut0 = sent(s, d, kJut, s->jut, 0.0f);
+  const float seam0 = sent(s, d, kSeam, s->seam, 0.0f);
   if (s->slot_count == 0 || gp.time <= 1e-3f) {   // a cut
     s->slot_count = m;
     for (int j = 0; j < m; j++) {
@@ -1450,14 +1601,16 @@ void relayout(State* s) {
       sl.stone = s->blocks[j].stone;
       sl.seed = s->blocks[j].seed;
       sl.g.seed = ++s->slot_serial;
-      sl.shown = goalPose(s, s->blocks[j]);
+      sl.jut = jut0;
+      sl.seam = seam0;
+      sl.shown = goalOf(s, sl);
     }
     s->pose_jump = true;
     return;
   }
   const glide::Glitch gl = glide::Glitch::from(s->glitch, gp);
   static Pose goals[kMaxBoxes];
-  for (int j = 0; j < m; j++) goals[j] = goalPose(s, s->blocks[j]);
+  for (int j = 0; j < m; j++) goals[j] = goalPose(s, s->blocks[j], jut0, seam0);
   const int n = s->slot_count;
   int to[kMaxBoxes], from[kMaxBoxes], best[kMaxBoxes];
   float bestc[kMaxBoxes];
@@ -1485,7 +1638,7 @@ void relayout(State* s) {
     if (to[i] >= 0) {
       sl.block = to[i];
       sl.into = -1;
-      offsetOf(sl.shown, goals[sl.block], o);
+      offsetOf(sl.shown, goalOf(s, sl), o);
       sl.g.retargetTo(o, gl);
       // Its stuff changes (shell <-> stone) at a moment of its own (one
       // already coming stays put: changes every frame still get there).
@@ -1494,9 +1647,7 @@ void relayout(State* s) {
     } else {
       sl.block = -1;
       sl.into = nearestBlock(sl.shown.c);
-      Pose goal = goals[sl.into];
-      goal.half = v3(0.0f, 0.0f, 0.0f);
-      offsetOf(sl.shown, goal, o);
+      offsetOf(sl.shown, goalOf(s, sl), o);
       sl.g.retargetTo(o, gl);
     }
   }
@@ -1532,6 +1683,8 @@ void relayout(State* s) {
     sl.seed = s->blocks[j].seed;
     sl.shown = start[j];
     sl.g.seed = ++s->slot_serial;
+    sl.jut = jut0;
+    sl.seam = seam0;
     offsetOf(start[j], goals[j], o);
     sl.g.retargetTo(o, gl);
   }
@@ -1544,6 +1697,29 @@ M3 poseBlocks(State* s, int& count) {
   for (int i = 0; i < s->slot_count; i++) s->slots[i].prev = i;
   if (s->built_layout != s->layout) relayout(s);
   compact(s);
+  // Each slot's Jut and Seam this frame, the sends and its glint charge in.
+  // A change of jut goes (Twang of it) through the glide's spring: what it
+  // showed holds back and twangs after its new goal. Seam goes straight in.
+  {
+    const Drive d = driveOf(s);
+    const float k = std::fmin(std::fmax(s->twang, 0.0f), 1.0f);
+    const bool spring = k > 0.0f && glideParams(s).time > 1e-4f;
+    float o[kGlideCh], jump[kGlideCh];
+    for (int i = 0; i < s->slot_count; i++) {
+      Slot& sl = s->slots[i];
+      const float jut = sent(s, d, kJut, s->jut, sl.charge);
+      if (spring && std::fabs(jut - sl.jut) > 1e-6f) {
+        const Pose was = showOf(s, sl);
+        sl.jut = jut;
+        offsetOf(was, goalOf(s, sl), o);
+        for (int c = 0; c < kGlideCh; c++) jump[c] = sl.g.out[c] - o[c];
+        jump[3] = jump[4] = jump[5] = 0.0f;   // (jut never resizes it)
+        sl.g.carry(jump, k);
+      }
+      sl.jut = jut;
+      sl.seam = sent(s, d, kSeam, s->seam, sl.charge);
+    }
+  }
   const M3 tilt = euler(kRefTiltDeg[0] * kDeg, kRefTiltDeg[1] * kDeg, kRefTiltDeg[2] * kDeg);
   // Spin turns the tilted structure about the world's vertical, or about its
   // own (tilted) axis.
@@ -1634,7 +1810,10 @@ void render(void* self, int vp_w, int vp_h) {
               0.4f * vnoise(v3(t * 19.0f, 3.0f, 0.0f), 37u);
     flick = std::fmax(0.0f, 1.0f - s->flicker * (0.5f + 0.5f * n));
   }
-  const float watts = 8000.0f * std::pow(2.0f, (s->core_power - 0.5f) * 8.0f) * flick;
+  // (Last frame's glint charges: this frame's are measured below, on screen.)
+  const Drive drive = driveOf(s);
+  const float power = sent(s, drive, kPower, s->core_power, drive.src[kGlint]);
+  const float watts = 8000.0f * std::pow(2.0f, (power - 0.5f) * 8.0f) * flick;
   const float core_e = kPointE * watts;
 
   FrameUniforms u = {};
@@ -1765,8 +1944,7 @@ void render(void* self, int vp_w, int vp_h) {
 
   // --- The sweep, as the flakes feel it.
   const float release = s->knob.release;
-  const float S = std::fmin(1.5f, std::fmax(0.0f, s->sustain * s->knob.level +
-                                                     s->overshoot * 2.5f * s->knob.bounce));
+  const float S = drive.src[kEnv];
   // The BITE: as the sustain rises (the knob coming in off the choke, its
   // bounce), flakes are snapped straight onto the blocks' lanes, already
   // streaming — the streamlines show the moment it grabs, not once the
@@ -1774,7 +1952,7 @@ void render(void* self, int vp_w, int vp_h) {
   if (s->bite_prev_S >= 0.0f) s->pending_bite += std::fmax(S - s->bite_prev_S, 0.0f);
   s->bite_prev_S = S;
   // Each block's magnetism: the further it strains out the stronger (the
-  // ember blocks), and stronger still in a glint's band. A glint crosses the
+  // ember blocks), x Magnetism and its sends (a glint's band, by default). A glint crosses the
   // STRUCTURE (0 to 1 from its first block on screen along the glint's way
   // to its last), not the whole screen: framed large or small, a band is the
   // same share of the blocks.
@@ -1827,8 +2005,9 @@ void render(void* self, int vp_w, int vp_h) {
       r[5].v[0] = c;
       // (The loose fragments are no magnets: flakes held round so small a
       // box only spin in place.)
-      r[4].v[2] = r[4].v[3] < 0.0f ? 0.0f
-                : std::fmax(0.0f, (0.35f + r[0].v[3]) * (1.0f + s->glint_gain * e));
+      r[4].v[2] = r[4].v[3] < 0.0f
+                ? 0.0f
+                : (0.35f + r[0].v[3]) * sent(s, drive, kMagnet, s->magnetism, e);
     }
   }
   // Slots compacted away this frame: where each of last frame's went

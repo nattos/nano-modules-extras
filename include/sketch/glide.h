@@ -43,6 +43,11 @@
  *            shows for a few frames and then jumps to where it really is:
  *            dropped frames, element by element.
  *
+ * Two ways to move it besides a retarget, neither of which starts anything
+ * over: carry() puts some of a goal's move through the spring (a value driven
+ * every frame twangs after it), and kick() knocks it (jitter: random knocks
+ * keep it ringing).
+ *
  * And matchNearest(): the greedy pairing a morph between two SETS needs (which
  * old element becomes which new one, which are left over on either side).
  *
@@ -184,6 +189,28 @@ struct Element {
     float o[N];
     for (int c = 0; c < N; c++) o[c] = out[c] - jump[c];
     retargetTo(o, g);
+  }
+
+  /// The goal moved by `jump`, and `k` of that move goes through the spring:
+  /// what is shown holds back by k x the jump and springs after it (k = 1: it
+  /// stays put, then twangs over; 0: it moves with the goal). Unlike a
+  /// retarget nothing starts over — no waits, no glitch, the velocity carries
+  /// on — so a goal DRIVEN every frame (a modulated value) can be carried
+  /// every frame: a slow drive just lags a little, a sudden one twangs.
+  void carry(const float* jump, float k) {
+    for (int c = 0; c < N; c++) {
+      const float d = k * jump[c];
+      e[c] -= d;
+      held[c] -= d;
+      out[c] -= d;
+    }
+  }
+
+  /// A knock: `dv` added to the velocity (channel units / s). It rings out
+  /// like any glide; at dv = A x 2π stiffness the first swing reaches nearly A
+  /// (0.8 A at the default spring).
+  void kick(const float* dv) {
+    for (int c = 0; c < N; c++) v[c] += dv[c];
   }
 
   void step(float dt, const Params& p, const Glitch& g) {

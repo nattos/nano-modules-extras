@@ -15,6 +15,10 @@
 //     happens at glitch 0;
 //   * smoothing calms it — a smaller overshoot, softer turns, no new
 //     wobble — and still lands; 0 is off exactly;
+//   * carry: a goal's move put through the spring holds the picture still
+//     that instant and twangs after it, overshooting; a slow drive only
+//     lags; k 0 follows at once;
+//   * kick: a knock of A x 2π stiffness swings out nearly A and rings out;
 //   * matchNearest pairs nearest first and leaves the rest over.
 
 #include "sketch/glide.h"
@@ -246,6 +250,56 @@ TEST_CASE("glide: Time 0 is a cut", "[glide]") {
   CHECK(el.out[0] == 0.0f);
   CHECK(el.out[1] == 0.0f);
   CHECK_FALSE(el.active(1e-6f));
+}
+
+TEST_CASE("glide: carry twangs after a sudden move and only lags a slow one", "[glide]") {
+  const Params p;
+  // A goal that steps from 0 to 1, carried in full: shown = goal + out.
+  Element<1> el;
+  const float jump = 1.0f;
+  el.carry(&jump, 1.0f);
+  CHECK(el.out[0] == -1.0f);           // the picture hasn't moved yet
+  float peak = 0.0f;
+  for (int i = 0; i < (int)(0.5f / kDt); i++) {
+    el.step(kDt, p, Glitch{});
+    peak = std::fmax(peak, 1.0f + el.out[0]);
+  }
+  CHECK(peak > 1.4f);                  // it twangs past the new goal...
+  CHECK(std::fabs(el.out[0]) < 0.02f); // ...and lands on it
+  // k 0: no spring at all.
+  Element<1> none;
+  none.carry(&jump, 0.0f);
+  CHECK(none.out[0] == 0.0f);
+  CHECK_FALSE(none.active(1e-6f));
+  // A ramp over a second, carried a frame at a time: it only lags, a little.
+  Element<1> ramp;
+  float worst = 0.0f;
+  const float step = kDt / 1.0f;
+  for (int i = 0; i < (int)(1.0f / kDt); i++) {
+    ramp.carry(&step, 1.0f);
+    ramp.step(kDt, p, Glitch{});
+    worst = std::fmax(worst, std::fabs(ramp.out[0]));
+  }
+  // (The worst is the ramp's start, itself a kink: rate / 2π stiffness.)
+  INFO("ramp lag " << worst << ", at the end " << ramp.out[0]);
+  CHECK(worst < 0.02f);
+  CHECK(std::fabs(ramp.out[0]) < 0.008f);   // steady: 2σ/ω² x the rate
+}
+
+TEST_CASE("glide: a kick swings out nearly its amplitude and rings out", "[glide]") {
+  const Params p;
+  Element<1> el;
+  const float A = 0.2f, dv = A * kTau * p.stiffness;
+  el.kick(&dv);
+  float peak = 0.0f;
+  for (int i = 0; i < (int)(p.time / kDt); i++) {
+    el.step(kDt, p, Glitch{});
+    peak = std::fmax(peak, std::fabs(el.out[0]));
+  }
+  INFO("peak " << peak);
+  CHECK(peak > 0.7f * A);
+  CHECK(peak < 1.0f * A);
+  CHECK(std::fabs(el.out[0]) < kSettle * A);
 }
 
 TEST_CASE("matchNearest pairs nearest first and leaves the rest over", "[glide]") {

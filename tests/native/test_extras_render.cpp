@@ -1053,6 +1053,86 @@ TEST_CASE("lantern glides between layouts and lands where a cut lands",
   CHECK(mid_vs_old > 5.0 * noise);
   CHECK(late < 1.5 * noise + 0.1);    // ...and it lands where the cut did
 }
+// Lantern's sends: the sweep drives the blocks and the core. An envelope send
+// moves the blocks at home and lets them back at the choke; Jitter keeps a
+// still scene moving; a change of Jut twangs through the glide's spring --
+// the first frame after it barely moves, and it overshoots before landing
+// where Twang 0 cut to.
+TEST_CASE("lantern's sends, jitter and twang", "[effect_render][lantern]") {
+  auto backend = gpu::createBackend();
+  if (!backend) SKIP("No GPU device available");
+
+  sketch_executor::WasmEffectBundles bundles;
+  REQUIRE(bundles.init());
+  EffectRuntime rt(backend.get());
+  sketch_executor::ModuleRegistry registry(&rt);
+  REQUIRE(bundles.loadBundleFile(kCoreWasm, registry, backend.get(), nullptr) > 1);
+  REQUIRE(bundles.loadBundleFile(kNanoWasm, registry, backend.get(), nullptr) > 1);
+
+  const uint32_t W = 160, H = 120;
+  const int RGBA8 = 1;
+  // Frames `at` of a run with `extra` state, `edits` (frame, key, value)
+  // applied before their frame.
+  using Edit = std::tuple<int, const char*, double>;
+  auto run = [&](const nlohmann::json& extra, const std::vector<Edit>& edits,
+                 const std::vector<int>& at) {
+    sketch_executor::SketchExecutor ex(&rt, &registry, backend.get());
+    int in = backend->createTexture(W, H, RGBA8);
+    int out = backend->createTexture(W, H, RGBA8);
+    auto sketch = nlohmann::json::parse(R"JSON({
+      "wires": [],
+      "chain": [ { "type": "module", "module_type": "source.mesh.lantern", "instance_key": "l" } ],
+      "instances": { "l": { "module_type": "source.mesh.lantern", "state": {
+        "drift": 0.0, "flakes": 0, "distance": 50.0 } } }
+    })JSON");
+    for (auto& [k, v] : extra.items()) sketch["instances"]["l"]["state"][k] = v;
+    rekey(sketch);
+    std::vector<std::vector<uint8_t>> shots;
+    for (int f = 0; f <= at.back(); ++f) {
+      bool change = f == 0;
+      for (const auto& [ef, k, v] : edits)
+        if (ef == f) { sketch["instances"][key]["state"][k] = v; change = true; }
+      REQUIRE(ex.execute(sketch, in, out, (int)W, (int)H, 1.0 / 60.0, change) > 0);
+      backend->submit();
+      if (std::find(at.begin(), at.end(), f) != at.end())
+        shots.push_back(backend->readbackTexture(out, W, H));
+    }
+    return shots;
+  };
+  auto mad = [](const std::vector<uint8_t>& a, const std::vector<uint8_t>& b) {
+    double sum = 0.0;
+    for (size_t i = 0; i < a.size(); i += 4)
+      for (int c = 0; c < 3; c++) sum += std::abs((int)a[i + c] - (int)b[i + c]);
+    return sum / (a.size() / 4 * 3);
+  };
+
+  // An envelope send: at home (frame 40) it juts the blocks out; choked
+  // (the knob at 0 from frame 41; frame 90) it lets them back in.
+  const std::vector<Edit> choke = {{41, "sweep", 0.0}};
+  const auto plain = run({}, choke, {40, 90});
+  const auto sent = run({{"env_jut", 1.0}}, choke, {40, 90});
+  const double at_home = mad(plain[0], sent[0]), choked = mad(plain[1], sent[1]);
+  // Jitter: a still scene, frame to frame.
+  const auto still = run({}, {}, {60, 61});
+  const auto shaken = run({{"jitter", 0.1}}, {}, {60, 61});
+  const double calm = mad(still[0], still[1]), jitter = mad(shaken[0], shaken[1]);
+  // Twang: Jut 1 -> 1.8 at frame 30.
+  const std::vector<Edit> jump = {{30, "jut", 1.8}};
+  const auto cut = run({{"twang", 0.0}}, jump, {29, 30, 90});
+  const auto twang = run({{"twang", 1.0}}, jump, {29, 30, 33, 90});
+  const double cut_moved = mad(cut[0], cut[1]), twang_moved = mad(twang[0], twang[1]);
+  const double twang_over = mad(twang[0], twang[2]), landed = mad(cut[2], twang[3]);
+  INFO("env send at home " << at_home << ", choked " << choked << " | still " << calm
+                           << ", jitter " << jitter << " | cut moved " << cut_moved
+                           << ", twang moved " << twang_moved << ", 3 frames on "
+                           << twang_over << ", landed vs cut " << landed);
+  CHECK(at_home > 5.0);
+  CHECK(choked < 0.2 * at_home);
+  CHECK(jitter > 3.0 * calm + 0.3);
+  CHECK(twang_moved < 0.25 * cut_moved);   // held back the first frame...
+  CHECK(twang_over > cut_moved);           // ...overshoots...
+  CHECK(landed < 0.5);                     // ...and lands where the cut did
+}
 // Lantern's two motion-vector scales, read through a real motion.blur: at 0
 // both, the blur has nothing to smear; each alone brings its own smear back.
 TEST_CASE("lantern scales the flakes' and the scene's motion vectors apart",
