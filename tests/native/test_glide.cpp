@@ -13,6 +13,8 @@
 //   * the glitch: stagger and skew hold channels still before they let go,
 //     a stutter freezes what is shown while the rest moves on, and none of it
 //     happens at glitch 0;
+//   * smoothing calms it — a smaller overshoot, softer turns, no new
+//     wobble — and still lands; 0 is off exactly;
 //   * matchNearest pairs nearest first and leaves the rest over.
 
 #include "sketch/glide.h"
@@ -176,6 +178,45 @@ TEST_CASE("glide: the same seed glitches the same way", "[glide]") {
   };
   CHECK(run(5) == run(5));
   CHECK(run(5) != run(6));
+}
+
+TEST_CASE("glide: smoothing calms the overshoot and still lands", "[glide]") {
+  Params raw;
+  Params calm;
+  calm.smooth = 0.03f;
+  const auto a = ringOut(raw, 1.0f);
+  const auto b = ringOut(calm, 1.0f);
+  float amin = 0.0f, bmin = 0.0f, ajerk = 0.0f, bjerk = 0.0f;
+  for (int i = 0; i < (int)a.size(); i++) {
+    amin = std::fmin(amin, a[i]);
+    bmin = std::fmin(bmin, b[i]);
+    if (i >= 2) {   // the sharpest turn: the largest second difference
+      ajerk = std::fmax(ajerk, std::fabs(a[i] - 2 * a[i - 1] + a[i - 2]));
+      bjerk = std::fmax(bjerk, std::fabs(b[i] - 2 * b[i - 1] + b[i - 2]));
+    }
+  }
+  INFO("overshoot raw " << amin << " smoothed " << bmin);
+  CHECK(bmin > 0.5f * amin);          // under half the overshoot...
+  CHECK(bmin < -0.05f);               // ...but still a visible one
+  CHECK(bjerk < 0.5f * ajerk);        // and softer turns
+  CHECK(std::fabs(b.back()) < 1e-3f); // it still lands
+  // The follower itself never overshoots: a held step stays one-sided.
+  Element<1> el;
+  const float one = 1.0f;
+  el.retargetTo(&one, Glitch{});
+  Params hold = calm;
+  hold.stiffness = 0.5f;              // a spring too soft to swing back
+  float lo = 1.0f;
+  for (int i = 0; i < 480; i++) {
+    el.step(kDt, hold, Glitch{});
+    lo = std::fmin(lo, el.out[0]);
+  }
+  CHECK(lo > -1e-5f);
+
+  // 0 is exactly off.
+  Params off;
+  off.smooth = 0.0f;
+  CHECK(ringOut(off, 0.3f) == ringOut(Params{}, 0.3f));
 }
 
 TEST_CASE("glide: Time 0 is a cut", "[glide]") {

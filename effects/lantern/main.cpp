@@ -500,6 +500,7 @@ struct State {
   float glide_time = 0.4f;     // s a change of layout rings out over (0: a cut)
   float stiffness = 10.0f;     // Hz it rings at
   float glitch = 0.5f;
+  float glide_smooth = 0.0f;   // 0..1: how much calmer the glide is
   float jut = 1.0f;
   float breathe = 0.0f;
   float breathe_rate = 0.3f;
@@ -613,6 +614,10 @@ glide::Params glideParams(const State* s) {
   glide::Params p;
   p.time = std::fmax(s->glide_time, 0.0f);
   p.stiffness = std::fmax(s->stiffness, 0.1f);
+  // In step with the ringing (0.4 of its period at 1), so Smooth reads the
+  // same at any Stiffness: the first overshoot ~60% -> ~40% at 0.5 -> ~13%
+  // at 1.
+  p.smooth = 0.4f * std::fmin(std::fmax(s->glide_smooth, 0.0f), 1.0f) / p.stiffness;
   return p;
 }
 
@@ -639,7 +644,8 @@ void module_init() {
           "spring there, overshooting and ringing out over *Glide* (0 cuts), "
           "ringing *Stiffness* times a second; *Glitch* breaks it up — blocks "
           "letting go one after another, moving an axis at a time, freezing "
-          "for a few frames and jumping on. *Jut* scales how far the blocks stand "
+          "for a few frames and jumping on; *Smooth* calms all of it, "
+          "rounding off the overshoot, the ringing and the jumps. *Jut* scales how far the blocks stand "
           "out from the core; *Breathe* rolls slow waves through them on top "
           "of that, some sealing shut while others push out, at *Breathe Rate*. *Seam* is the gap "
           "between neighboring blocks. *Spin* turns the whole structure; "
@@ -653,6 +659,8 @@ void module_init() {
           .label("Stiffness", "Stiff")
       .floatField("glitch", 0.5f, 0.f, 1.f, state::PrimaryInput)
           .label("Glitch", "Glitch")
+      .floatField("glide_smooth", 0.0f, 0.f, 1.f, state::PrimaryInput)
+          .label("Smooth", "Smth")
       .floatField("jut", 1.0f, 0.f, 2.f, state::PrimaryInput)
           .label("Jut", "Jut")
       .floatField("breathe", 0.0f, 0.f, 1.f, state::PrimaryInput)
@@ -1237,6 +1245,7 @@ void on_state_patched(void* self, int n, const char* pb, const int* off,
     else if (state::pathIs(p, l, "glide"))        s->glide_time = state::patchFloat(i);
     else if (state::pathIs(p, l, "stiffness"))    s->stiffness = state::patchFloat(i);
     else if (state::pathIs(p, l, "glitch"))       s->glitch = state::patchFloat(i);
+    else if (state::pathIs(p, l, "glide_smooth")) s->glide_smooth = state::patchFloat(i);
     else if (state::pathIs(p, l, "jut"))          s->jut = state::patchFloat(i);
     else if (state::pathIs(p, l, "breathe"))      s->breathe = state::patchFloat(i);
     else if (state::pathIs(p, l, "breathe_rate")) s->breathe_rate = state::patchFloat(i);

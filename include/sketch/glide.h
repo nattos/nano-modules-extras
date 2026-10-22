@@ -26,6 +26,11 @@
  *              back is done by ~100 ms. Below ln(1/kSettle) / (2π time) Hz it
  *              no longer overshoots at all and creeps in instead.
  *
+ * SMOOTHING (`smooth`, s) calms all of it at once: what is shown follows the
+ * spring (and its glitch) through a critically damped follower that catches
+ * up in about that long — the overshoot rounds off and shrinks, the ringing
+ * dies sooner, a stutter's jump eases on. 0 is off, exactly.
+ *
  * THE GLITCH roughs it up per element, deterministically from its seed
  * (Glitch::from maps one 0..1 knob onto all of it):
  *
@@ -56,6 +61,7 @@ constexpr float kTau = 6.2831853f;
 struct Params {
   float time = 0.4f;        ///< s until the envelope is down to kSettle (0 = snap)
   float stiffness = 10.0f;  ///< Hz, how fast it rings
+  float smooth = 0.0f;      ///< s the shown value takes to catch up (0 = off)
 };
 
 struct Glitch {
@@ -130,7 +136,9 @@ template <int N>
 struct Element {
   float e[N] = {};      ///< offset from the goal
   float v[N] = {};      ///< its velocity
-  float out[N] = {};    ///< what it shows: e, unless a stutter holds it
+  float held[N] = {};   ///< e, unless a stutter holds it
+  float out[N] = {};    ///< what it shows: held, smoothed
+  float sv[N] = {};     ///< the smoothing follower's velocity
   float wait[N] = {};   ///< s each channel still waits before it lets go
   float age = 1e9f;     ///< s since it was last retargeted
   float rate = 1.0f;    ///< detune: × stiffness
@@ -144,18 +152,18 @@ struct Element {
 
   /// No glide: it shows the goal.
   void snap() {
-    for (int c = 0; c < N; c++) e[c] = v[c] = out[c] = wait[c] = 0.0f;
+    for (int c = 0; c < N; c++) e[c] = v[c] = held[c] = out[c] = sv[c] = wait[c] = 0.0f;
     age = 1e9f;
     frozen = false;
     seg = 0.0f;
   }
 
   /// The goal moved: `offset` is what it shows now, measured from the new
-  /// goal. Its velocity carries on.
+  /// goal. Its velocity (and the smoothing's) carries on.
   void retargetTo(const float* offset, const Glitch& g) {
     const float st = g.stagger * rnd();
     for (int c = 0; c < N; c++) {
-      e[c] = out[c] = offset[c];
+      e[c] = held[c] = out[c] = offset[c];
       wait[c] = st + g.skew * rnd();
     }
     age = 0.0f;
@@ -176,7 +184,7 @@ struct Element {
     if (!(dt > 0.0f)) return;
     age += dt;
     if (p.time <= 1e-4f) {
-      for (int c = 0; c < N; c++) e[c] = v[c] = out[c] = wait[c] = 0.0f;
+      snap();
       return;
     }
     const float sigma = decayOf(p.time) * damp;
@@ -207,7 +215,19 @@ struct Element {
       frozen = false;
     }
     if (!frozen)
-      for (int c = 0; c < N; c++) out[c] = e[c];
+      for (int c = 0; c < N; c++) held[c] = e[c];
+    // Smoothing: a critically damped follower of what is held, over dt.
+    if (p.smooth > 1e-4f) {
+      const float w = 2.0f / p.smooth;
+      const Step f = Step::of(w, w, dt);
+      for (int c = 0; c < N; c++) {
+        const float d = out[c] - held[c];
+        out[c] = held[c] + f.ee * d + f.ev * sv[c];
+        sv[c] = f.ve * d + f.vv * sv[c];
+      }
+    } else {
+      for (int c = 0; c < N; c++) { out[c] = held[c]; sv[c] = 0.0f; }
+    }
   }
 
   /// Is it still moving (or waiting to)? `eps` in the channels' units, and
@@ -215,7 +235,7 @@ struct Element {
   bool active(float eps) const {
     for (int c = 0; c < N; c++)
       if (wait[c] > 0.0f || std::fabs(e[c]) > eps || std::fabs(v[c]) * 0.1f > eps ||
-          std::fabs(out[c]) > eps)
+          std::fabs(out[c]) > eps || std::fabs(sv[c]) * 0.1f > eps)
         return true;
     return false;
   }
