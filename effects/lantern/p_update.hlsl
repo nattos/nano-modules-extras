@@ -3,7 +3,8 @@
 // Substepped semi-implicit Euler over the regimes in particles.hlsl, then a
 // trilinear splat of the flake into the presence grid (p_resolve turns the
 // counts into the dust the fog reads). Flakes at or past `first index to
-// (re)initialize` are seeded on the ring first.
+// (re)initialize` are seeded on the ring first, as is any slot never seeded or
+// poisoned by a NaN.
 
 #include "particles.hlsl"
 #include "nano_noise3.hlsl"
@@ -169,12 +170,16 @@ void main(uint3 gid : SV_DispatchThreadID) {
   if (id >= (uint)pa.x) return;
   uint base = id * (uint)LTN_P_ROWS;
   float4 s0, s1, s2, s3, s4;
-  if (id >= (uint)pa.y) {
-    ltn_seed(id, s0, s1, s2, s3, s4);
-  } else {
+  bool fresh = id >= (uint)pa.y;
+  if (!fresh) {
     s0 = parts[base + 0u]; s1 = parts[base + 1u]; s2 = parts[base + 2u];
     s3 = parts[base + 3u]; s4 = parts[base + 4u];
+    // (A slot never seeded, or poisoned by a NaN, starts over: kept, it
+    // would sit invisible for good.)
+    fresh = s4.x <= 0.0 || ltn_bad(s0) || ltn_bad(s1) || ltn_bad(s2) || ltn_bad(s3) ||
+            ltn_bad(s4);
   }
+  if (fresh) ltn_seed(id, s0, s1, s2, s3, s4);
   float3 pos = s0.xyz, vel = s1.xyz, nrm = s2.xyz;
   bool bound = s1.w > 0.5;
   // How far a vortex has lifted a bound flake's lane (s1.w is 1 + this).
@@ -472,13 +477,14 @@ void main(uint3 gid : SV_DispatchThreadID) {
     nrm = normalize(nrm);
   }
 
-  // Never let a runaway poison the grid or the raster.
-  if (any(pos != pos) || any(vel != vel) || dot(pos, pos) > 1.0e4) {
-    float4 a0, a1, a2, a3, a4;
-    ltn_seed(id, a0, a1, a2, a3, a4);
-    pos = a0.xyz; vel = a1.xyz; nrm = a2.xyz;
+  // Never let a runaway poison the grid or the raster: it starts over.
+  if (ltn_bad(float4(pos, loft)) || ltn_bad(float4(vel, 0.0)) || ltn_bad(float4(nrm, 0.0)) ||
+      dot(pos, pos) > 1.0e4) {
+    ltn_seed(id, s0, s1, s2, s3, s4);
+    pos = s0.xyz; vel = s1.xyz; nrm = s2.xyz;
     bound = false;
     captor = -1;
+    loft = 0.0;
   }
 
   parts[base + 0u] = float4(pos, (float)captor);

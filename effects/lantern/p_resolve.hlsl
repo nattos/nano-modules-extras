@@ -20,7 +20,7 @@ void main(uint3 gid : SV_DispatchThreadID) {
   float dens = float(gcount[idx]) / (grid.w * cell * cell * cell);
   gcount[idx] = 0u;
   float acc = gaccum[idx];
-  if (acc != acc) acc = 0.0;
+  if (ltn_bad(float4(acc, 0.0, 0.0, 0.0))) acc = 0.0;
   acc = lerp(acc, dens, grid.z);
   gaccum[idx] = acc;
   presence[gid] = float4(acc, 0.0, 0.0, 0.0);

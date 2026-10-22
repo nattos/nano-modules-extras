@@ -87,6 +87,12 @@ float ltn_pgauss(uint id, uint k) {
           ltn_prand(id, k + 3u) - 2.0) * 1.7320508;
 }
 
+// Is any component NaN or infinite? Read off the bits: Metal compiles these
+// with fast math, which folds a `v != v` test away to false.
+bool ltn_bad(float4 v) {
+  return any((asuint(v) & 0x7f800000u) == 0x7f800000u);
+}
+
 // Signed distance from p to box i, and the outward unit normal of the
 // nearest feature (world).
 float ltn_box_sdf(int i, float3 p, out float3 n) {
