@@ -973,6 +973,17 @@ TEST_CASE("sweep_chamber renders and drives motion.blur natively",
   INFO("total rgb delta blurred vs sharp " << diff);
   CHECK(diff > 1000);
 }
+// A fresh instance key for each run: the runtime keeps an instance's state
+// (its clocks, its slots) by key across executors.
+static int s_lantern_run = 0;
+static std::string key;
+static void rekey(nlohmann::json& sketch) {
+  key = "l" + std::to_string(++s_lantern_run);
+  sketch["chain"][0]["instance_key"] = key;
+  sketch["instances"][key] = sketch["instances"]["l"];
+  sketch["instances"].erase("l");
+}
+
 // source.mesh.lantern's layouts GLIDE (sketch/glide.h): a new layout springs
 // in rather than cutting, and lands exactly where the cut would have. The
 // web suites set params once and then tick, so a change mid-run is only
@@ -1005,10 +1016,11 @@ TEST_CASE("lantern glides between layouts and lands where a cut lands",
         "layout": 0, "drift": 0.0, "flakes": 0, "distance": 60.0 } } }
     })JSON");
     sketch["instances"]["l"]["state"]["glide"] = glide;
+    rekey(sketch);
     std::vector<std::vector<uint8_t>> shots;
     for (int f = 0; f <= kLate; ++f) {
       const bool change = f == kSwitch;
-      if (change) sketch["instances"]["l"]["state"]["layout"] = to;
+      if (change) sketch["instances"][key]["state"]["layout"] = to;
       REQUIRE(ex.execute(sketch, in, out, (int)W, (int)H, 1.0 / 60.0, f == 0 || change) > 0);
       backend->submit();
       if (f == kMid || f == kLate) shots.push_back(backend->readbackTexture(out, W, H));
@@ -1027,8 +1039,8 @@ TEST_CASE("lantern glides between layouts and lands where a cut lands",
   const auto cut2 = run(7, 0.0);
   const auto stay = run(0, 0.4);
   REQUIRE(glided.size() == 2);
-  // (Two identical runs differ a little — the fog's dither — so everything
-  // is measured against that.)
+  // (Measured against two identical runs, which match exactly without the
+  // flakes — their splats land in a different order run to run.)
   const double noise = std::fmax(mad(cut[0], cut2[0]), mad(cut[1], cut2[1]));
   const double mid_vs_cut = mad(glided[0], cut[0]);
   const double mid_vs_old = mad(glided[0], stay[0]);
@@ -1040,6 +1052,77 @@ TEST_CASE("lantern glides between layouts and lands where a cut lands",
   CHECK(mid_vs_cut > 5.0 * noise);    // 100 ms in it is neither...
   CHECK(mid_vs_old > 5.0 * noise);
   CHECK(late < 1.5 * noise + 0.1);    // ...and it lands where the cut did
+}
+// Lantern's two motion-vector scales, read through a real motion.blur: at 0
+// both, the blur has nothing to smear; each alone brings its own smear back.
+TEST_CASE("lantern scales the flakes' and the scene's motion vectors apart",
+          "[effect_render][lantern]") {
+  auto backend = gpu::createBackend();
+  if (!backend) SKIP("No GPU device available");
+
+  sketch_executor::WasmEffectBundles bundles;
+  REQUIRE(bundles.init());
+  EffectRuntime rt(backend.get());
+  sketch_executor::ModuleRegistry registry(&rt);
+  REQUIRE(bundles.loadBundleFile(kCoreWasm, registry, backend.get(), nullptr) > 1);
+  REQUIRE(bundles.loadBundleFile(kNanoWasm, registry, backend.get(), nullptr) > 1);
+
+  const uint32_t W = 160, H = 120;
+  const int RGBA8 = 1;
+  // Spinning fast (the blocks move) with the flakes streaming round them.
+  auto run = [&](double blur, double flakes, double scene, int nflakes) {
+    sketch_executor::SketchExecutor ex(&rt, &registry, backend.get());
+    int in = backend->createTexture(W, H, RGBA8);
+    int out = backend->createTexture(W, H, RGBA8);
+    auto sketch = nlohmann::json::parse(R"JSON({
+      "wires": [],
+      "chain": [
+        { "type": "module", "module_type": "source.mesh.lantern", "instance_key": "l" },
+        { "type": "module", "module_type": "motion.blur",         "instance_key": "mb" }
+      ],
+      "instances": {
+        "l": { "module_type": "source.mesh.lantern", "state": {
+          "drift": 0.0, "spin": 1.0, "distance": 45.0 } },
+        "mb": { "module_type": "motion.blur", "state": { "strength": 0.0, "samples": 16, "quality": 1 } }
+      }
+    })JSON");
+    auto& st = sketch["instances"]["l"]["state"];
+    st["motion_flakes"] = flakes;
+    st["motion_scene"] = scene;
+    st["flakes"] = nflakes;
+    sketch["instances"]["mb"]["state"]["strength"] = blur;
+    rekey(sketch);
+    for (int f = 0; f < 40; ++f) {
+      REQUIRE(ex.execute(sketch, in, out, (int)W, (int)H, 1.0 / 60.0, f == 0) > 0);
+      backend->submit();
+    }
+    return backend->readbackTexture(out, W, H);
+  };
+  auto mad = [](const std::vector<uint8_t>& a, const std::vector<uint8_t>& b) {
+    double sum = 0.0;
+    for (size_t i = 0; i < a.size(); i += 4)
+      for (int c = 0; c < 3; c++) sum += std::abs((int)a[i + c] - (int)b[i + c]);
+    return sum / (a.size() / 4 * 3);
+  };
+
+  // The blocks alone (no flakes), then the flakes over a still scene.
+  const auto sharp = run(0.0, 1.0, 1.0, 0);
+  const double noise = mad(sharp, run(0.0, 1.0, 1.0, 0));
+  const double none = mad(sharp, run(32.0, 1.0, 0.0, 0));
+  const double scene = mad(sharp, run(32.0, 1.0, 1.0, 0));
+  const double scene2 = mad(sharp, run(32.0, 1.0, 2.0, 0));
+  const auto fsharp = run(0.0, 1.0, 0.0, 1200);
+  const double fnoise = mad(fsharp, run(0.0, 1.0, 0.0, 1200));
+  const double fnone = mad(fsharp, run(32.0, 0.0, 0.0, 1200));
+  const double flakes = mad(fsharp, run(32.0, 1.0, 0.0, 1200));
+  INFO("noise " << noise << ", scene 0 " << none << ", scene 1 " << scene << ", scene 2 "
+                << scene2 << " | flake noise " << fnoise << ", flakes 0 " << fnone
+                << ", flakes 1 " << flakes);
+  CHECK(none < 1.5 * noise + 0.1);      // nothing to smear
+  CHECK(scene > 3.0 * noise + 0.3);     // the spinning blocks smear
+  CHECK(scene2 > scene);                // and smear further at 2
+  CHECK(fnone < 1.5 * fnoise + 0.1);
+  CHECK(flakes > 1.5 * fnoise + 0.1);   // the flakes' own streaks
 }
 #endif  // NANO_WASM_PATH && CORE_WASM_PATH
 

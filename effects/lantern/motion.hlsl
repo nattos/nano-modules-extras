@@ -4,7 +4,7 @@
 // The point each pixel sees is carried back through its block's previous
 // pose (which block: the one whose surface it lies on) and projected through
 // the previous camera; the motion is where it is now minus where it was, in
-// uv per frame. Water and the core get none. The flakes are laid over this
+// uv per frame (times Scene Motion). Water and the core get none. The flakes are laid over this
 // by the spark raster.
 
 #include "particles.hlsl"
@@ -41,7 +41,7 @@ void main(uint3 gid : SV_DispatchThreadID) {
       float2 ppx;
       float pw;
       if (ltn_project(prev_r, prev_u, prev_f, pp, ppx, pw))
-        mv = ((float2(gid.xy) + 0.5) - ppx) * pview.zw;
+        mv = ((float2(gid.xy) + 0.5) - ppx) * pview.zw * mvs.y;
     }
   }
   motionTex[gid.xy] = float4(mv, 0.0, 0.0);

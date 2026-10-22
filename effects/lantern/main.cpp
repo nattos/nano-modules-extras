@@ -128,8 +128,9 @@ struct PartUniforms {
   float vibe[4], flake[4], grid[4], pframe[4], pview[4];
   float prev_r[4], prev_u[4], prev_f[4];
   float bite[4];
+  float mvs[4];
 };
-static_assert(sizeof(PartUniforms) == 17 * 16, "PartUniforms layout mismatch");
+static_assert(sizeof(PartUniforms) == 18 * 16, "PartUniforms layout mismatch");
 
 struct Row { float v[4]; };
 
@@ -572,6 +573,8 @@ struct State {
   float local = 0.85f;
   float orbit_speed = 10.0f;
   float streak = 1.0f;
+  float motion_flakes = 1.0f;  // scales the flakes' motion vectors
+  float motion_scene = 1.0f;   // ...and everything else's (the blocks)
   float heat = 1.0f;
   float hold = 1.0f;
   float stick = 0.8f;
@@ -916,6 +919,17 @@ void module_init() {
           .label("Shake Hz", "ShHz")
       .floatField("vibe_spread", 0.25f, 0.f, 1.f, state::PrimaryInput)
           .label("Shake Spread", "ShSp")
+      .group("motion", "Motion Vectors")
+        .groupHelp(
+          "What a motion blur wired after this effect reads: how far each "
+          "pixel moved this frame. *Flake Motion* scales the flakes' share "
+          "(0: they stay sharp), *Scene Motion* everything else's -- the "
+          "blocks spinning, breathing and gliding. Past 1 they smear longer "
+          "than they really moved.")
+      .floatField("motion_flakes", 1.0f, 0.f, 4.f, state::PrimaryInput)
+          .label("Flake Motion", "FMot")
+      .floatField("motion_scene", 1.0f, 0.f, 4.f, state::PrimaryInput)
+          .label("Scene Motion", "SMot")
       .group("debug", "Debug")
       .selectField("debug_view", 0, state::SecondaryInput,
                    {{"Off", 0}, {"Linear", 1}, {"Surfaces", 2}, {"In-scatter", 3},
@@ -1284,6 +1298,8 @@ void on_state_patched(void* self, int n, const char* pb, const int* off,
     else if (state::pathIs(p, l, "sparkle"))      s->sparkle = state::patchFloat(i);
     else if (state::pathIs(p, l, "tumble"))       s->tumble = state::patchFloat(i);
     else if (state::pathIs(p, l, "streak"))       s->streak = state::patchFloat(i);
+    else if (state::pathIs(p, l, "motion_flakes")) s->motion_flakes = state::patchFloat(i);
+    else if (state::pathIs(p, l, "motion_scene")) s->motion_scene = state::patchFloat(i);
     else if (state::pathIs(p, l, "heat"))         s->heat = state::patchFloat(i);
     else if (state::pathIs(p, l, "ring_radius"))  s->ring_radius = state::patchFloat(i);
     else if (state::pathIs(p, l, "ring_loose"))   s->ring_loose = state::patchFloat(i);
@@ -1883,6 +1899,8 @@ void render(void* self, int vp_w, int vp_h) {
   pu.pframe[1] = (float)s->frame;
   pu.pframe[2] = (want_motion && s->prev_cam_valid) ? 1.0f : 0.0f;
   pu.pframe[3] = s->streak;
+  pu.mvs[0] = s->motion_flakes;
+  pu.mvs[1] = s->motion_scene;
   pu.pview[0] = (float)vp_w; pu.pview[1] = (float)vp_h;
   pu.pview[2] = 1.0f / vp_w; pu.pview[3] = 1.0f / vp_h;
   {

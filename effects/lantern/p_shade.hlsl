@@ -224,5 +224,5 @@ void main(uint3 gid : SV_DispatchThreadID) {
   recs[b + 0u] = float4(px, t, Tm);
   recs[b + 1u] = float4(axis, len, wd);
   recs[b + 2u] = float4(L * T / max(Tm, 1e-4), peak);
-  recs[b + 3u] = float4(mv * pview.zw, kink);
+  recs[b + 3u] = float4(mv * pview.zw * mvs.x, kink);
 }
