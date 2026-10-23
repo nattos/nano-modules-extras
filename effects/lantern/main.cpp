@@ -111,8 +111,6 @@ constexpr int kGrid = 32;        // LTN_GRID
 constexpr float kGridExtent = 8.0f;   // m, half the presence grid's side
 constexpr float kSplat = 256.0f;      // fixed-point scale of a splat
 constexpr float kSubstep = 1.0f / 360.0f;
-// How long (s, 1/e) a block keeps its glint charge after the band has passed.
-constexpr float kGlintRelease = 0.35f;
 
 struct FrameUniforms {
   float cam_r[4], cam_u[4], cam_f[4], cam_p[4], vp[4];
@@ -612,6 +610,7 @@ struct State {
   float glint_angle = 35.0f;
   float glint_width = 0.12f;
   float glint_time = 1.2f;     // s a glint takes to cross once the knob rests
+  float glint_fade = 0.15f;    // s (1/e) a block keeps its charge after the band
   float glint_pull = 1.0f;
   float magnetism = 1.0f;      // the blocks' pull on the flakes, x their strain
   // The sends, [source][target] (see Source / Target); all 0 but a glint's
@@ -883,7 +882,7 @@ void module_init() {
           "screen, a slanted band (*Glint Angle*, *Glint Width*; as fast as "
           "the sweep, or *Glint Time* to cross once the knob rests) that "
           "makes the blocks under it stronger magnets (the Glint sends' "
-          "*Magnet*) and lures "
+          "*Magnet*), for a moment after it passes (*Glint Fade*), and lures "
           "the flakes off the blocks around them onto those (*Glint Pull*): "
           "the streams are handed along with the band. And a hard "
           "pass through the middle that goes on to the choke THROWS: the "
@@ -920,6 +919,10 @@ void module_init() {
       .floatField("glint_time", 1.2f, 0.2f, 6.f, state::SecondaryInput, nullptr, 0.f, "s",
                   "How long a glint takes to cross the screen once the knob rests.")
           .label("Glint Time", "GTime")
+      .floatField("glint_fade", 0.15f, 0.f, 2.f, state::SecondaryInput, nullptr, 0.f, "s",
+                  "How long a block keeps its glint charge once the band has passed "
+                  "(to about a third); 0 lets go the moment it has crossed.")
+          .label("Glint Fade", "GFade")
       .floatField("glint_pull", 1.0f, 0.f, 3.f, state::PrimaryInput, nullptr, 0.f, nullptr,
                   "How hard a glint lures flakes off the blocks around it onto the "
                   "blocks under it.")
@@ -940,8 +943,8 @@ void module_init() {
         "The OVERSHOOT again, on its own -- 0 at rest, about 0.7 coming back in "
         "hard -- for targets that should leap on a return more than the "
         "envelope already makes them.",
-        "Each block's GLINT charge (as the band crosses it, held a moment "
-        "after); the core reads the most charged block's. *Magnet* is how "
+        "Each block's GLINT charge (as the band crosses it, fading over "
+        "*Glint Fade* after); the core reads the most charged block's. *Magnet* is how "
         "much stronger a glint makes the magnets under it.",
         "The REVERB: the thrown tail, 1 at a full throw and ringing down to 0 "
         "over *Tail*."};
@@ -1499,6 +1502,7 @@ void on_state_patched(void* self, int n, const char* pb, const int* off,
     else if (state::pathIs(p, l, "jitter_rate"))  s->jitter_rate = state::patchFloat(i);
     else if (state::pathIs(p, l, "glint_width"))  s->glint_width = state::patchFloat(i);
     else if (state::pathIs(p, l, "glint_time"))   s->glint_time = state::patchFloat(i);
+    else if (state::pathIs(p, l, "glint_fade"))   s->glint_fade = state::patchFloat(i);
     else if (state::pathIs(p, l, "glint_pull"))   s->glint_pull = state::patchFloat(i);
     else if (state::pathIs(p, l, "flakes"))       s->flakes = state::patchInt(i);
     else if (state::pathIs(p, l, "flake_size"))   s->flake_size = state::patchFloat(i);
@@ -2056,7 +2060,8 @@ void render(void* self, int vp_w, int vp_h) {
     const V3 cr = v3(u.cam_r[0], u.cam_r[1], u.cam_r[2]);
     const V3 cu = v3(u.cam_u[0], u.cam_u[1], u.cam_u[2]);
     const V3 cf = v3(u.cam_f[0], u.cam_f[1], u.cam_f[2]);
-    const float glint_fade = std::exp(-s->frame_dt / kGlintRelease);
+    const float glint_fade =
+        s->glint_fade > 1e-3f ? std::exp(-s->frame_dt / s->glint_fade) : 0.0f;
     s->glint_cmax = 0.0f;
     float sn_of[kMaxBoxes];
     float smin = 1e9f, smax = -1e9f;

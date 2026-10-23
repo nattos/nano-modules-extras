@@ -1132,6 +1132,32 @@ TEST_CASE("lantern's sends, jitter and twang", "[effect_render][lantern]") {
   CHECK(twang_moved < 0.25 * cut_moved);   // held back the first frame...
   CHECK(twang_over > cut_moved);           // ...overshoots...
   CHECK(landed < 0.5);                     // ...and lands where the cut did
+
+  // A glint's charge (Debug View Glint: red as far as it goes) fades over
+  // Glint Fade once the band has passed: a fast, narrow glint (0.2 s across)
+  // launched by a sweep from the choke into the middle, read at its height
+  // (frame 78) and 0.4 s later.
+  std::vector<Edit> into;
+  for (int i = 0; i <= 12; i++) into.push_back({60 + i, "sweep", 0.5 * i / 12});
+  auto redness = [](const std::vector<uint8_t>& px) {
+    double sum = 0.0;
+    for (size_t i = 0; i < px.size(); i += 4) sum += std::fmax(0, (int)px[i] - (int)px[i + 1]);
+    return sum;
+  };
+  auto glint = [&](double fade) {
+    const auto shots = run({{"debug_view", 8}, {"sweep", 0.0}, {"glint_width", 0.05},
+                            {"glint_time", 0.2}, {"glint_fade", fade}},
+                           into, {78, 102});
+    return std::make_pair(redness(shots[0]), redness(shots[1]));
+  };
+  const auto quick = glint(0.15), slow = glint(1.0), none = glint(0.0);
+  INFO("glint charge at its height / 0.4 s on: fade 0.15 " << quick.first << " / " << quick.second
+       << ", fade 1 " << slow.first << " / " << slow.second << ", fade 0 " << none.first
+       << " / " << none.second);
+  CHECK(quick.first > 1000.0);
+  CHECK(quick.second < 0.15 * quick.first);
+  CHECK(slow.second > 0.5 * slow.first);
+  CHECK(none.second < 0.01 * quick.first);
 }
 // Lantern's aux outputs: each is rendered only while wired, carries what its
 // select picks, and the blocks' true depth rides render_outputs beside the
