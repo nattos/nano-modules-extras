@@ -85,9 +85,12 @@ void main(uint3 gid : SV_DispatchThreadID) {
     float4 sp = sparkTex.Load(int3(int2(gid.xy), 0));
     c = c * (1.0 - saturate(sp.a)) + sp.rgb;
     // Debug: the flakes alone, their coverage a faint gray under them.
-    if (dbg >= 5) c = sp.rgb + 0.02 * saturate(sp.a);
+    if (dbg >= 5 && dbg != 8) c = sp.rgb + 0.02 * saturate(sp.a);
   }
-  if (dbg == 0 || dbg >= 5) {
+  if (dbg == 8) {
+    // Glint: the blocks' charge alone, flat, on black.
+    c = ltn_srgb(hit ? surface : float3(0.0, 0.0, 0.0));
+  } else if (dbg == 0 || dbg >= 5) {
     c = ltn_agx(c * grade.x, grade.w);
   } else {
     // Debug views: LINEAR values (times exposure), sRGB-encoded, no tonemap —

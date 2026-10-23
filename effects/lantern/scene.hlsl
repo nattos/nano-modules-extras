@@ -462,6 +462,14 @@ void main(uint3 gid : SV_DispatchThreadID) {
 
   float3 n = normalize(axes[0] * nlocal.x + axes[1] * nlocal.y + axes[2] * nlocal.z);
   float3 v = -rd;
+  // Debug view Glint (8): each block flat gray, red as far as its glint
+  // charge goes (1 = full red; past it, brighter).
+  if (shade.w > 7.5 && shade.w < 8.5) {
+    float gc = boxes[box * LTN_BOX_ROWS + 5].x;
+    float3 base = float3(0.12, 0.12, 0.13) * (0.35 + 0.65 * saturate(dot(n, v)));
+    sceneOut[gid.xy] = float4(lerp(base, float3(1.0, 0.12, 0.04), saturate(gc)) * max(gc, 1.0), t);
+    return;
+  }
   // Lighting is looked up from just outside the PLAIN box (what the shadow
   // maps and shadow rays see): a carved point sits inside it, so step out
   // through its nearest face.
