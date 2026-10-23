@@ -452,3 +452,38 @@ TEST_CASE("reset clears the sky", "[three_planes_glints]") {
   c.reset();
   REQUIRE(c.liveCount() == 0);
 }
+
+// A choke catching a glint early takes it out; one it catches late finishes.
+// The lantern's case: `hold` keeps every glint up, so without the quench a
+// glint thrown into a choke crosses the picture after the gesture is over.
+TEST_CASE("a choke fades out a glint it catches early", "[three_planes_glints]") {
+  auto throwInto = [](float quench_before, float drift) {
+    Core c;
+    Params p;
+    p.hold = 1.0f;
+    p.chaos = 0.0f;
+    p.drift = drift;
+    p.quench_before = quench_before;
+    p.trail = 3.0f;   // (so one that finishes is still in flight when counted)
+    hold(c, p, 1.0f, 0.2f);
+    // End to end in 0.3 s; the knob reaches its mute (here: the last 0.05) at
+    // the end, with the glint about halfway across.
+    const int n = (int)(0.3f / kDt);
+    float pos_at_choke = -1.0f;
+    for (int i = 0; i < n; ++i) {
+      p.sweep = 1.0f - (float)(i + 1) / (float)n;
+      p.choked = p.sweep < 0.05f;
+      c.tick(p, kDt);
+      if (p.choked && pos_at_choke < 0.0f)
+        for (int g = 0; g < kMaxLive; ++g) if (c.glints[g].live) pos_at_choke = c.glints[g].pos;
+    }
+    REQUIRE(pos_at_choke > 0.3f);
+    REQUIRE(pos_at_choke < 0.7f);
+    p.choked = true;
+    for (float t = 0.0f; t < 0.3f; t += kDt) c.tick(p, kDt);
+    return launchedCount(c);
+  };
+  CHECK(throwInto(0.0f, 0.5f) == 1);    // off: it's still crossing
+  CHECK(throwInto(0.75f, 0.5f) == 0);   // caught short of 0.75: gone
+  CHECK(throwInto(0.25f, 0.5f) == 1);   // already past 0.25: it finishes
+}

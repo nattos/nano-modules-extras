@@ -1158,6 +1158,28 @@ TEST_CASE("lantern's sends, jitter and twang", "[effect_render][lantern]") {
   CHECK(quick.second < 0.15 * quick.first);
   CHECK(slow.second > 0.5 * slow.first);
   CHECK(none.second < 0.01 * quick.first);
+
+  // A throw (end to end in 0.3 s, frames 60-78) reaches the choke with its
+  // glint about halfway: Glint Choke fades it out there, where at 0 it goes
+  // on crossing a picture that has already let go. The blocks it is still
+  // charging (clearly red), at the choke and 0.23 s on.
+  std::vector<Edit> thrown;
+  for (int i = 0; i <= 18; i++) thrown.push_back({60 + i, "sweep", 1.0 - i / 18.0});
+  auto hot = [](const std::vector<uint8_t>& px) {
+    int n = 0;
+    for (size_t i = 0; i < px.size(); i += 4) n += (int)px[i] - (int)px[i + 1] > 20;
+    return n;
+  };
+  auto late = [&](double choke) {
+    const auto shots = run({{"debug_view", 8}, {"sweep", 1.0}, {"glint_choke", choke}},
+                           thrown, {78, 92});
+    return std::make_pair(hot(shots[0]), hot(shots[1]));
+  };
+  const auto kept = late(0.0), quenched = late(0.75);
+  INFO("a thrown glint's hot pixels at the choke / 0.23 s on: Glint Choke 0 " << kept.first
+       << " / " << kept.second << ", 0.75 " << quenched.first << " / " << quenched.second);
+  CHECK(kept.second > 0.4 * kept.first);          // still crossing...
+  CHECK(quenched.second < 0.15 * kept.second);    // ...or gone
 }
 // Lantern's aux outputs: each is rendered only while wired, carries what its
 // select picks, and the blocks' true depth rides render_outputs beside the

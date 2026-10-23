@@ -611,6 +611,7 @@ struct State {
   float glint_width = 0.12f;
   float glint_time = 1.2f;     // s a glint takes to cross once the knob rests
   float glint_fade = 0.15f;    // s (1/e) a block keeps its charge after the band
+  float glint_choke = 0.75f;   // crossings: a glint short of this at the choke fades out
   float glint_pull = 1.0f;
   float magnetism = 1.0f;      // the blocks' pull on the flakes, x their strain
   // The sends, [source][target] (see Source / Target); all 0 but a glint's
@@ -882,7 +883,8 @@ void module_init() {
           "screen, a slanted band (*Glint Angle*, *Glint Width*; as fast as "
           "the sweep, or *Glint Time* to cross once the knob rests) that "
           "makes the blocks under it stronger magnets (the Glint sends' "
-          "*Magnet*), for a moment after it passes (*Glint Fade*), and lures "
+          "*Magnet*), for a moment after it passes (*Glint Fade*; one that has barely "
+          "started when the sweep chokes fades out, *Glint Choke*), and lures "
           "the flakes off the blocks around them onto those (*Glint Pull*): "
           "the streams are handed along with the band. And a hard "
           "pass through the middle that goes on to the choke THROWS: the "
@@ -923,6 +925,12 @@ void module_init() {
                   "How long a block keeps its glint charge once the band has passed "
                   "(to about a third); 0 lets go the moment it has crossed.")
           .label("Glint Fade", "GFade")
+      .floatField("glint_choke", 0.75f, 0.f, 1.f, state::SecondaryInput, nullptr, 0.f, nullptr,
+                  "How far across a glint can be when the sweep reaches the choke and "
+                  "still fade out there, rather than finish crossing a picture that "
+                  "has let go (a full throw reaches the choke with its glint about "
+                  "halfway); 0 lets every glint finish.")
+          .label("Glint Choke", "GChk")
       .floatField("glint_pull", 1.0f, 0.f, 3.f, state::PrimaryInput, nullptr, 0.f, nullptr,
                   "How hard a glint lures flakes off the blocks around it onto the "
                   "blocks under it.")
@@ -1387,6 +1395,10 @@ void tick(void* self, double dt) {
   // once the knob rests it still crosses, in Glint Time.
   gp.drift = 1.0f / std::fmax(s->glint_time, 0.05f);
   gp.hold = 1.0f;
+  // ...unless the sweep chokes while it has barely started: then it is a
+  // glint arriving after the gesture is over, and it fades out.
+  gp.choked = s->knob.level <= sweep_knob::kMuteGain;
+  gp.quench_before = s->glint_choke;
   s->glint_core.tick(gp, (float)dt);
   // The blocks' glide (to a new layout, after their jut), and their jitter:
   // knocks at random, Jitter Rate a second, each ringing out on the glide's
@@ -1503,6 +1515,7 @@ void on_state_patched(void* self, int n, const char* pb, const int* off,
     else if (state::pathIs(p, l, "glint_width"))  s->glint_width = state::patchFloat(i);
     else if (state::pathIs(p, l, "glint_time"))   s->glint_time = state::patchFloat(i);
     else if (state::pathIs(p, l, "glint_fade"))   s->glint_fade = state::patchFloat(i);
+    else if (state::pathIs(p, l, "glint_choke"))  s->glint_choke = state::patchFloat(i);
     else if (state::pathIs(p, l, "glint_pull"))   s->glint_pull = state::patchFloat(i);
     else if (state::pathIs(p, l, "flakes"))       s->flakes = state::patchInt(i);
     else if (state::pathIs(p, l, "flake_size"))   s->flake_size = state::patchFloat(i);

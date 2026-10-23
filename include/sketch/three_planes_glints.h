@@ -54,6 +54,14 @@
  * instead; both deaths are real, and which one you get is a fact about the
  * gesture.
  *
+ * AND A CHOKE CAN TAKE ONE BACK. An effect whose glint is a force, not a glare
+ * (`hold`), would otherwise carry every launched glint all the way across — and
+ * one that has barely started when the sweep reaches its choke then crosses a
+ * picture that has already let go: a glint arriving late, for a gesture that
+ * is over. Given `choked` and `quench_before`, a glint short of that far
+ * across fades out instead (kQuenchTime), and stays fading if the knob comes
+ * back. One already past it finishes: the choke caught it late, not early.
+ *
  * `pos` is measured in CROSSINGS: 0 is the leading edge of the lit part of the
  * picture and 1 is the trailing edge, so advancing it by `speed * dt` is what
  * makes the invariant exact. The effect supplies `lead` and `trail` — the
@@ -138,6 +146,10 @@ constexpr float kLaunchWidthLo = 0.90f, kLaunchWidthHi = 1.15f;
 constexpr float kChaosWidthLo = 0.22f, kChaosWidthHi = 0.50f;
 constexpr float kMaxWidthFactor = kLaunchWidthHi;
 
+/// How fast a glint the choke caught early fades out, s (1/e): quick, but a
+/// fade rather than a cut, so it reads as the band going out.
+constexpr float kQuenchTime = 0.08f;
+
 /// Read fresh each tick.
 struct Params {
   float sweep = 0.5f;    ///< the knob, 0..1. Its MOTION is the whole input.
@@ -175,6 +187,12 @@ struct Params {
   /// effect whose glint is a FORCE, not a glare, holds it at 1 so every
   /// launched glint makes it across.
   float hold = 0.0f;
+
+  /// The sweep is at its choke right now (the knob's mute, the effect's
+  /// test). With `quench_before` > 0, a glint less than that many crossings
+  /// across fades out on kQuenchTime rather than finishing — see the header.
+  bool choked = false;
+  float quench_before = 0.0f;
 };
 
 /// One glint in flight. The three look values are drawn at birth and never
@@ -188,6 +206,7 @@ struct Glint {
   float shade = 0.0f;  ///< depth of the dark wake behind it, at birth
   bool live = false;
   bool launched = false;  ///< thrown by the knob, rather than chaos
+  bool quenched = false;  ///< caught early by a choke: fading out, for good
 
   /// How much push is left in it: 1 while the sweep is still driving it,
   /// falling in step with the speed once the knob comes to rest.
@@ -287,6 +306,9 @@ struct Core {
       if (!g.live) continue;
       g.pos += travel * dt;
       if (g.vit > vitality) g.vit = vitality;   // ratchet: down only
+      // Caught early by a choke: out it goes, whatever holds it up.
+      if (p.choked && g.pos < p.quench_before) g.quenched = true;
+      if (g.quenched) g.vit *= std::exp(-dt / kQuenchTime);
       // Two ways out, and both are real: cross the picture, or run down where
       // you are. Which one happens is a fact about the gesture — keep sweeping
       // and a glint makes it all the way over.
@@ -381,6 +403,7 @@ struct Core {
 
     slot->live = true;
     slot->launched = launched;
+    slot->quenched = false;
     slot->pos = pos;
     // Born at whatever push there is right now, rather than at full and
     // dropping a frame later — a gesture too faint to carry a glint should
