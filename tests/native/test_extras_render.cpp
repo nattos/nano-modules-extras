@@ -1201,9 +1201,10 @@ TEST_CASE("lantern's aux outputs render what they pick, only while wired",
   const int RGBA8 = 1;
   struct Shot {
     std::vector<uint8_t> px;           // the chain's output: Aux 1
+    std::vector<uint8_t> main;         // the lantern's own picture
     int32_t aux1, aux2, depth;         // the instance's published textures
   };
-  auto run = [&](int aux1) {
+  auto run = [&](int aux1, int debug_view = 0) {
     sketch_executor::SketchExecutor ex(&rt, &registry, backend.get());
     int in = backend->createTexture(W, H, RGBA8);
     int out = backend->createTexture(W, H, RGBA8);
@@ -1230,6 +1231,7 @@ TEST_CASE("lantern's aux outputs render what they pick, only while wired",
     sketch["instances"][k] = sketch["instances"]["K"];
     sketch["instances"].erase("K");
     sketch["instances"][k]["state"]["aux1"] = aux1;
+    sketch["instances"][k]["state"]["debug_view"] = debug_view;
     int32_t res = 0;
     for (int f = 0; f < 3; ++f) {
       res = ex.execute(sketch, in, out, (int)W, (int)H, 1.0 / 60.0, f == 0);
@@ -1241,6 +1243,8 @@ TEST_CASE("lantern's aux outputs render what they pick, only while wired",
     sh.aux1 = ex.chainEntryFieldTexture(0, 0, "aux1_out");
     sh.aux2 = ex.chainEntryFieldTexture(0, 0, "aux2_out");
     sh.depth = ex.chainEntryFieldTexture(0, 0, "render_outputs/depth");
+    const int32_t main = ex.chainEntryFieldTexture(0, 0, "tex_out");
+    if (main > 0) sh.main = backend->readbackTexture(main, W, H);
     return sh;
   };
   auto rgb = [&](const std::vector<uint8_t>& px, uint32_t x, uint32_t y) {
@@ -1282,6 +1286,16 @@ TEST_CASE("lantern's aux outputs render what they pick, only while wired",
   CHECK(clear > 500);
   CHECK(rgb(tr.px, 2, 2)[2] < 20);
   CHECK(tr.aux2 == -1);
+  // Debug View Depth: the same picture as the Depth output, on the main one
+  // (give or take the composite's dither).
+  const Shot dbg = run(1, 9);
+  REQUIRE(dbg.main.size() == depth.px.size());
+  int worst = 0;
+  for (uint32_t y = 0; y < H; y++)
+    for (uint32_t x = 0; x < W; x++)
+      worst = std::max(worst, std::abs(rgb(dbg.main, x, y)[0] - rgb(depth.px, x, y)[0]));
+  INFO("debug depth vs aux depth: worst " << worst);
+  CHECK(worst <= 2);
   // render_outputs' depth is published while a motion blur reads it (the
   // readback is 8-bit here: its metres clamp to white).
   CHECK(depth.depth > 0);

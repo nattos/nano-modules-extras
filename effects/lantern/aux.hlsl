@@ -15,12 +15,11 @@ RWTexture2D<float4> aux2Tex  : register(u8);
 RWTexture2D<float4> depthTex : register(u9);
 
 // Aux output `what` at this pixel. Pictures are graded like the main output;
-// data (depth, transmittance, glint) is not. Depth: a ramp over 5 m either
-// side of the structure's center, white nearest; black where rays miss.
+// data (depth, transmittance, glint) is not. Depth: ltn_depth_ramp.
 float4 ltn_aux_out(int what, uint2 px, bool hit, float z, float3 surface, float3 I, float3 T,
                    float4 sp, float3 c) {
   if (what == LTN_AUX_DEPTH) {
-    float g = hit ? saturate(0.5 - (z - aux.w) / 10.0) : 0.0;
+    float g = ltn_depth_ramp(hit, z);
     return float4(g, g, g, 1.0);
   }
   if (what == LTN_AUX_SURFACES) return float4(ltn_agx(hit ? surface * grade.x : 0.0, grade.w), 1.0);

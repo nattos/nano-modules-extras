@@ -1081,7 +1081,7 @@ void module_init() {
       .selectField("debug_view", 0, state::SecondaryInput,
                    {{"Off", 0}, {"Linear", 1}, {"Surfaces", 2}, {"In-scatter", 3},
                     {"Transmittance", 4}, {"Flakes", 5}, {"Anchors", 6}, {"X-Ray", 7},
-                    {"Glint", 8}})
+                    {"Glint", 8}, {"Depth", 9}})
           .label("Debug View", "Dbg")
       .group("aux", "Aux Outputs")
         .groupHelp(

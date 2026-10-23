@@ -38,10 +38,15 @@ void main(uint3 gid : SV_DispatchThreadID) {
     c = c * (1.0 - saturate(sp.a)) + sp.rgb;
   }
   // Debug: the flakes alone, their coverage a faint gray under them.
-  if (dust.w > 0.5 && dbg >= 5 && dbg != 8) c = sp.rgb + 0.02 * saturate(sp.a);
+  if (dust.w > 0.5 && dbg >= 5 && dbg <= 7) c = sp.rgb + 0.02 * saturate(sp.a);
   if (dbg == 8) {
     // Glint: the blocks' charge alone, flat, on black.
     c = ltn_srgb(hit ? surface : float3(0.0, 0.0, 0.0));
+  } else if (dbg == 9) {
+    // Depth: the Depth aux output's ramp, as data (no grade).
+    float3 ro, rd;
+    ltn_camera_ray(float2(gid.xy), vp.xy, ro, rd);
+    c = ltn_depth_ramp(hit, d * dot(rd, cam_f.xyz));
   } else if (dbg == 0 || dbg >= 5) {
     c = ltn_agx(c * grade.x, grade.w);
   } else {

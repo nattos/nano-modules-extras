@@ -32,6 +32,13 @@ float3 ltn_agx(float3 c, float contrast) {
   return pow(saturate(mul(c, outset)), 1.3);
 }
 
+// The Depth picture (Aux output and Debug View): a ramp over 5 m either side
+// of the structure's center (aux.w, its camera-space depth), white nearest;
+// black where rays miss. `z` is camera-space depth in metres.
+float ltn_depth_ramp(bool hit, float z) {
+  return hit ? saturate(0.5 - (z - aux.w) / 10.0) : 0.0;
+}
+
 float3 ltn_srgb(float3 c) {
   c = saturate(c);
   return select(c <= 0.0031308, 12.92 * c, 1.055 * pow(c, 1.0 / 2.4) - 0.055);
