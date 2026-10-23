@@ -28,6 +28,15 @@ static const int   LTN_MAX_SAMPLES = 8;
 static const float LTN_PI = 3.14159265;
 static const float LTN_MISS = 6.0e4;   // largest sentinel an RGBA16F holds
 
+// What an aux output carries (main.cpp's Aux select).
+static const int LTN_AUX_DEPTH = 1;
+static const int LTN_AUX_SURFACES = 2;
+static const int LTN_AUX_INSCATTER = 3;
+static const int LTN_AUX_TRANSMIT = 4;
+static const int LTN_AUX_FLAKES = 5;
+static const int LTN_AUX_GLINT = 6;
+static const int LTN_AUX_LINEAR = 7;
+
 cbuffer Frame : register(b0) {
   float4 cam_r;     // camera right (world), w = camera position x
   float4 cam_u;     // camera up,            w = camera position y
@@ -60,10 +69,15 @@ cbuffer Frame : register(b0) {
   float4 surf;      // shell glow, chip amount, albedo scale, 0
   float4 dust;      // flake dust: extinction per (flake/m^3), scatter albedo,
                     //   presence grid half extent (m), spark layer on (0/1)
+  float4 aux;       // what Aux 1 / 2 carry (LTN_AUX_*, 0: not wired);
+                    //   render_outputs depth wired (0/1); the structure's view depth (m)
   float4 lsamp[LTN_MAX_SAMPLES];  // core light sample positions (world)
 };
 
 StructuredBuffer<float4> boxes : register(t1);
+
+// Does an aux output carry `what` this frame?
+bool ltn_aux_wants(int what) { return (int)aux.x == what || (int)aux.y == what; }
 
 int ltn_box_count() { return (int)cam_p.w; }
 

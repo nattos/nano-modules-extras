@@ -22,6 +22,8 @@
 
 Texture2D<float4>   atlas    : register(t2);
 RWTexture2D<float4> sceneOut : register(u3);
+// Only while an aux output carries the glint: the hit block's glint charge.
+RWTexture2D<float4> sceneAux : register(u4);
 
 // egg_r*.w carry the core's plain color (for ember emission).
 float3 ltn_core_color() { return float3(egg_r0.w, egg_r1.w, egg_r2.w); }
@@ -425,6 +427,8 @@ void main(uint3 gid : SV_DispatchThreadID) {
       tmin = tn + 1e-4;
     }
   }
+  if (ltn_aux_wants(LTN_AUX_GLINT))
+    sceneAux[gid.xy] = float4(box >= 0 ? boxes[box * LTN_BOX_ROWS + 5].x : 0.0, 0.0, 0.0, 0.0);
 
   // The incandescent heart: a small emissive ball at the core, seen only by
   // the camera (it lights nothing — the core light does that).
@@ -439,6 +443,7 @@ void main(uint3 gid : SV_DispatchThreadID) {
         float3 hn = normalize(oc + rd * th);
         float limb = 0.75 + 0.25 * saturate(dot(hn, -rd));
         sceneOut[gid.xy] = float4(heart.rgb * limb, th);
+        if (ltn_aux_wants(LTN_AUX_GLINT)) sceneAux[gid.xy] = float4(0.0, 0.0, 0.0, 0.0);
         return;
       }
     }

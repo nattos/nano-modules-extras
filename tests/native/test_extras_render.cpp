@@ -1133,6 +1133,111 @@ TEST_CASE("lantern's sends, jitter and twang", "[effect_render][lantern]") {
   CHECK(twang_over > cut_moved);           // ...overshoots...
   CHECK(landed < 0.5);                     // ...and lands where the cut did
 }
+// Lantern's aux outputs: each is rendered only while wired, carries what its
+// select picks, and the blocks' true depth rides render_outputs beside the
+// motion vectors. Aux 1 is read through a sidechannel (send_in takes any
+// texture), so the stage's picture IS the aux picture.
+TEST_CASE("lantern's aux outputs render what they pick, only while wired",
+          "[effect_render][lantern]") {
+  auto backend = gpu::createBackend();
+  if (!backend) SKIP("No GPU device available");
+
+  sketch_executor::WasmEffectBundles bundles;
+  REQUIRE(bundles.init());
+  EffectRuntime rt(backend.get());
+  sketch_executor::ModuleRegistry registry(&rt);
+  REQUIRE(bundles.loadBundleFile(kCoreWasm, registry, backend.get(), nullptr) > 1);
+  REQUIRE(bundles.loadBundleFile(kNanoWasm, registry, backend.get(), nullptr) > 1);
+
+  const uint32_t W = 160, H = 120;
+  const int RGBA8 = 1;
+  struct Shot {
+    std::vector<uint8_t> px;           // the chain's output: Aux 1
+    int32_t aux1, aux2, depth;         // the instance's published textures
+  };
+  auto run = [&](int aux1) {
+    sketch_executor::SketchExecutor ex(&rt, &registry, backend.get());
+    int in = backend->createTexture(W, H, RGBA8);
+    int out = backend->createTexture(W, H, RGBA8);
+    const std::string k = "la" + std::to_string(++s_lantern_run);
+    auto sketch = nlohmann::json::parse(R"JSON({
+      "chain": [
+        { "type": "module", "module_type": "source.mesh.lantern", "instance_key": "K" },
+        { "type": "module", "module_type": "motion.blur", "instance_key": "mb" },
+        { "type": "module", "module_type": "util.sidechannel_out", "instance_key": "send" },
+        { "type": "module", "module_type": "util.sidechannel_in", "instance_key": "recv" }
+      ],
+      "wires": [ { "id": "aw", "src": { "instanceKey": "K", "field": "aux1_out" },
+                   "dest": { "instanceKey": "send", "field": "send_in" } } ],
+      "instances": {
+        "K": { "module_type": "source.mesh.lantern", "state": {
+          "drift": 0.0, "flakes": 0, "distance": 50.0 } },
+        "mb": { "module_type": "motion.blur", "state": { "strength": 0.0 } },
+        "send": { "module_type": "util.sidechannel_out", "state": { "channel": 7 } },
+        "recv": { "module_type": "util.sidechannel_in", "state": { "channel": 7 } }
+      }
+    })JSON");
+    sketch["chain"][0]["instance_key"] = k;
+    sketch["wires"][0]["src"]["instanceKey"] = k;
+    sketch["instances"][k] = sketch["instances"]["K"];
+    sketch["instances"].erase("K");
+    sketch["instances"][k]["state"]["aux1"] = aux1;
+    int32_t res = 0;
+    for (int f = 0; f < 3; ++f) {
+      res = ex.execute(sketch, in, out, (int)W, (int)H, 1.0 / 60.0, f == 0);
+      REQUIRE(res > 0);
+      backend->submit();
+    }
+    Shot sh;
+    sh.px = backend->readbackTexture(res, W, H);
+    sh.aux1 = ex.chainEntryFieldTexture(0, 0, "aux1_out");
+    sh.aux2 = ex.chainEntryFieldTexture(0, 0, "aux2_out");
+    sh.depth = ex.chainEntryFieldTexture(0, 0, "render_outputs/depth");
+    return sh;
+  };
+  auto rgb = [&](const std::vector<uint8_t>& px, uint32_t x, uint32_t y) {
+    const size_t i = ((size_t)y * W + x) * 4;
+    return std::array<int, 3>{px[i], px[i + 1], px[i + 2]};
+  };
+
+  // Depth: gray, lit where the blocks are, black in the open water round them.
+  const Shot depth = run(1);
+  CHECK(depth.aux1 > 0);
+  CHECK(depth.aux2 == -1);   // nothing wired to Aux 2: never made
+  // (A ramp across the structure: nearer blocks lighter.)
+  int lit = 0, gray = 0, lo = 255, hi = 0;
+  for (uint32_t y = 0; y < H; y++)
+    for (uint32_t x = 0; x < W; x++) {
+      const auto c = rgb(depth.px, x, y);
+      if (c[0] > 30) {
+        lit++;
+        if (std::abs(c[0] - c[1]) <= 2 && std::abs(c[0] - c[2]) <= 2) gray++;
+        lo = std::min(lo, c[0]);
+        hi = std::max(hi, c[0]);
+      }
+    }
+  const auto corner = rgb(depth.px, 2, 2);
+  INFO("depth: lit " << lit << ", gray " << gray << ", " << lo << ".." << hi << ", corner "
+                     << corner[0]);
+  CHECK(lit > 500);
+  CHECK(gray > 0.95 * lit);
+  CHECK(hi - lo > 60);
+  CHECK(corner[0] < 4);
+  // Transmittance: what the water in front lets through -- most of it in
+  // front of the blocks, next to nothing past them (open water's 60 m).
+  const Shot tr = run(4);
+  int clear = 0;
+  for (uint32_t y = 0; y < H; y++)
+    for (uint32_t x = 0; x < W; x++)
+      if (rgb(tr.px, x, y)[2] > 100) clear++;
+  INFO("transmittance: clear " << clear << ", corner " << rgb(tr.px, 2, 2)[2]);
+  CHECK(clear > 500);
+  CHECK(rgb(tr.px, 2, 2)[2] < 20);
+  CHECK(tr.aux2 == -1);
+  // render_outputs' depth is published while a motion blur reads it (the
+  // readback is 8-bit here: its metres clamp to white).
+  CHECK(depth.depth > 0);
+}
 // Lantern's two motion-vector scales, read through a real motion.blur: at 0
 // both, the blur has nothing to smear; each alone brings its own smear back.
 TEST_CASE("lantern scales the flakes' and the scene's motion vectors apart",

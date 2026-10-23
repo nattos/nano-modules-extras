@@ -28,6 +28,8 @@
  *   fog       — half res: water + halo, equiangular march about the core.
  *   blur (x2) — depth-aware separable blur of the march's dithered in-scatter.
  *   composite — depth-aware upsample, AgX, dither, over the input.
+ *   aux       — only while wired: the Aux 1 / 2 pictures and render_outputs'
+ *               depth.
  *
  * And the FLAKES (particles.hlsl): ~1000 specks of mica, grit and silt,
  * simulated (p_update), splatted into a presence grid the fog reads as dust
@@ -124,9 +126,10 @@ struct FrameUniforms {
   float air[4];
   float surf[4];
   float dust[4];
+  float aux[4];
   float lsamp[kSamples][4];
 };
-static_assert(sizeof(FrameUniforms) == 38 * 16, "FrameUniforms layout mismatch");
+static_assert(sizeof(FrameUniforms) == 39 * 16, "FrameUniforms layout mismatch");
 
 // Mirrors `cbuffer Part` (part_ub.hlsl), row for row.
 struct PartUniforms {
@@ -504,7 +507,7 @@ constexpr float kJitterTurn = 0.5f;
 // ---------------------------------------------------------------------------
 
 static gpu::ComputePSO s_pso_shadow, s_pso_escape, s_pso_reduce, s_pso_vis, s_pso_scene,
-    s_pso_fog, s_pso_blur, s_pso_comp, s_pso_prefill;
+    s_pso_fog, s_pso_blur, s_pso_comp, s_pso_prefill, s_pso_aux;
 static gpu::ComputePSO s_pso_p_update, s_pso_p_resolve, s_pso_p_shade, s_pso_motion;
 static gpu::RenderPSO s_pso_spark, s_pso_spark_mv;
 
@@ -536,6 +539,11 @@ struct State {
   gpu::Buffer ub_part, p_state, p_grid, p_accum, p_recs, prev_box_buf;
   gpu::Texture presence, presence_zero, spark, motion_tex;
   int spark_w = 0, spark_h = 0, motion_w = 0, motion_h = 0;
+  // The optional outputs (made only once wired): Aux 1 / 2, render_outputs'
+  // depth, the scene's glint charge per pixel; and 1x1 stand-ins bound in
+  // their place, never written.
+  gpu::Texture aux_tex[2], depth_tex, glint_tex, stand_in[3];
+  int aux_w[2] = {}, aux_h[2] = {}, depth_w = 0, depth_h = 0, glint_w = 0, glint_h = 0;
   int p_live = 0;            // flakes the state buffer holds
   // Last frame's poses, for motion vectors.
   Row prev_rows[kMaxBoxes * kBoxRows];
@@ -591,6 +599,7 @@ struct State {
   float albedo = 1.0f;
   float opacity = 1.0f;
   int debug_view = 0;
+  int aux_what[2] = {1, 3};    // what Aux 1 / 2 carry (LTN_AUX_*): Depth, In-scatter
 
   // The sweep.
   float sweep = sweep_knob::kSweepCenter;
@@ -1063,8 +1072,29 @@ void module_init() {
                     {"Transmittance", 4}, {"Flakes", 5}, {"Anchors", 6}, {"X-Ray", 7},
                     {"Glint", 8}})
           .label("Debug View", "Dbg")
+      .group("aux", "Aux Outputs")
+        .groupHelp(
+          "Two extra pictures to wire on to other effects, each showing what "
+          "you pick: *Depth* (a ramp across the structure, white nearest, "
+          "black in open water), the *Surfaces* alone, the "
+          "lit water's *In-scatter* alone, its *Transmittance*, the *Flakes* "
+          "alone, the blocks' *Glint* charge (white = charged), or the "
+          "*Linear* picture before the tonemap. Each is only rendered while "
+          "something is wired to it. (Effects reading render_outputs also get "
+          "the blocks' true depth, in metres, beside the motion vectors.)")
+      // (What an aux output can carry: common.hlsl's LTN_AUX_*.)
+      .selectField("aux1", 1, state::SecondaryInput,
+                   {{"Depth", 1}, {"Surfaces", 2}, {"In-scatter", 3}, {"Transmittance", 4},
+                    {"Flakes", 5}, {"Glint", 6}, {"Linear", 7}})
+          .label("Aux 1", "Aux1")
+      .selectField("aux2", 3, state::SecondaryInput,
+                   {{"Depth", 1}, {"Surfaces", 2}, {"In-scatter", 3}, {"Transmittance", 4},
+                    {"Flakes", 5}, {"Glint", 6}, {"Linear", 7}})
+          .label("Aux 2", "Aux2")
       .textureField("tex_in", state::PrimaryInput)
       .textureField("tex_out", state::PrimaryOutput)
+      .textureField("aux1_out", state::SecondaryOutput)
+      .textureField("aux2_out", state::SecondaryOutput)
       // Motion vectors (blocks + flakes) on the render_outputs motion leaf,
       // made only when something downstream reads it.
       .renderOutputs(state::PrimaryOutput);
@@ -1090,6 +1120,8 @@ void module_init() {
   state::registerShaderSPV("lantern_composite", LANTERN_COMPOSITE_SPV,
                            LANTERN_COMPOSITE_SPV_SIZE);
   state::registerShaderSPV("lantern_prefill", LANTERN_PREFILL_SPV, LANTERN_PREFILL_SPV_SIZE);
+  state::registerShaderSPV("lantern_aux", LANTERN_AUX_SPV, LANTERN_AUX_SPV_SIZE, "rgba16float",
+                           "write");
   state::registerShaderSPV("lantern_p_update", LANTERN_P_UPDATE_SPV, LANTERN_P_UPDATE_SPV_SIZE);
   state::registerShaderSPV("lantern_p_resolve", LANTERN_P_RESOLVE_SPV, LANTERN_P_RESOLVE_SPV_SIZE,
                            "rgba16float", "write");
@@ -1109,6 +1141,7 @@ void module_init() {
   auto cs_blur = gpu::Device::createShaderModuleByName("lantern_blur");
   auto cs_comp = gpu::Device::createShaderModuleByName("lantern_composite");
   auto cs_prefill = gpu::Device::createShaderModuleByName("lantern_prefill");
+  auto cs_aux = gpu::Device::createShaderModuleByName("lantern_aux");
   auto cs_p_update = gpu::Device::createShaderModuleByName("lantern_p_update");
   auto cs_p_resolve = gpu::Device::createShaderModuleByName("lantern_p_resolve");
   auto cs_p_shade = gpu::Device::createShaderModuleByName("lantern_p_shade");
@@ -1116,7 +1149,7 @@ void module_init() {
   auto vs_spark = gpu::Device::createShaderModuleByName("lantern_spark_vs");
   auto fs_spark = gpu::Device::createShaderModuleByName("lantern_spark_fs");
   auto fs_spark_mv = gpu::Device::createShaderModuleByName("lantern_spark_mv_fs");
-  if (!cs_shadow || !cs_escape || !cs_reduce || !cs_vis || !cs_scene || !cs_fog || !cs_blur || !cs_comp || !cs_prefill) return;
+  if (!cs_shadow || !cs_escape || !cs_reduce || !cs_vis || !cs_scene || !cs_fog || !cs_blur || !cs_comp || !cs_prefill || !cs_aux) return;
   if (!cs_p_update || !cs_p_resolve || !cs_p_shade || !cs_motion || !vs_spark || !fs_spark ||
       !fs_spark_mv) return;
 
@@ -1145,7 +1178,8 @@ void module_init() {
       .uniform(0)
       .storage(1)
       .tex2d(2)
-      .storageTex2d(3, gpu::TextureFormat::RGBA16F));
+      .storageTex2d(3, gpu::TextureFormat::RGBA16F)
+      .storageTex2d(4, gpu::TextureFormat::RGBA16F));
   s_pso_fog = gpu::Device::createComputePSO(cs_fog, "main", gpu::Bindings()
       .uniform(0)
       .storage(1)
@@ -1172,6 +1206,17 @@ void module_init() {
       .tex2d(5)
       .storageTex2d(6)
       .tex2d(7));
+  s_pso_aux = gpu::Device::createComputePSO(cs_aux, "main", gpu::Bindings()
+      .uniform(0)
+      .storage(1)
+      .tex2d(2)
+      .tex2d(3)
+      .tex2d(4)
+      .tex2d(5)
+      .tex2d(6)
+      .storageTex2d(7, gpu::TextureFormat::RGBA16F)
+      .storageTex2d(8, gpu::TextureFormat::RGBA16F)
+      .storageTex2d(9, gpu::TextureFormat::RGBA16F));
   s_pso_prefill = gpu::Device::createComputePSO(cs_prefill, "main", gpu::Bindings()
       .tex2d(0)
       .storageTex2d(1));
@@ -1240,6 +1285,7 @@ void* create() {
                                               gpu::BufferUsage::Storage);
   s->presence = gpu::Device::createTexture3D(kGrid, kGrid, kGrid, gpu::TextureFormat::RGBA16F);
   s->presence_zero = gpu::Device::createTexture3D(1, 1, 1, gpu::TextureFormat::RGBA16F);
+  for (auto& t : s->stand_in) t = gpu::Device::createTexture(1, 1, gpu::TextureFormat::RGBA16F);
   {
     // Storage buffers start undefined: the grid's counts and average start at 0.
     static uint32_t zeros[kGrid * kGrid * kGrid] = {};
@@ -1277,6 +1323,10 @@ void destroy(void* self) {
   s->presence_zero.release();
   s->spark.release();
   s->motion_tex.release();
+  for (auto& t : s->aux_tex) t.release();
+  s->depth_tex.release();
+  s->glint_tex.release();
+  for (auto& t : s->stand_in) t.release();
   delete s;
 }
 
@@ -1288,10 +1338,12 @@ void init(void* self) {
                    s->vis_d.valid() && s_pso_escape.valid() && s_pso_reduce.valid() &&
                    s_pso_vis.valid() && s_pso_shadow.valid() && s_pso_scene.valid() && s_pso_fog.valid() &&
                    s_pso_blur.valid() && s_pso_comp.valid() && s_pso_prefill.valid() &&
+                   s_pso_aux.valid() &&
                    s->ub_blur_h.valid() && s->ub_blur_v.valid() &&
                    s->ub_part.valid() && s->p_state.valid() && s->p_recs.valid() &&
                    s->p_grid.valid() && s->p_accum.valid() && s->prev_box_buf.valid() &&
                    s->presence.valid() && s->presence_zero.valid() &&
+                   s->stand_in[0].valid() && s->stand_in[1].valid() && s->stand_in[2].valid() &&
                    s_pso_p_update.valid() && s_pso_p_resolve.valid() && s_pso_p_shade.valid() &&
                    s_pso_motion.valid() && s_pso_spark.valid() && s_pso_spark_mv.valid();
 }
@@ -1430,6 +1482,8 @@ void on_state_patched(void* self, int n, const char* pb, const int* off,
     else if (state::pathIs(p, l, "albedo"))       s->albedo = state::patchFloat(i);
     else if (state::pathIs(p, l, "opacity"))      s->opacity = state::patchFloat(i);
     else if (state::pathIs(p, l, "debug_view"))   s->debug_view = state::patchInt(i);
+    else if (state::pathIs(p, l, "aux1"))         s->aux_what[0] = state::patchInt(i);
+    else if (state::pathIs(p, l, "aux2"))         s->aux_what[1] = state::patchInt(i);
     else if (state::pathIs(p, l, "sweep"))        s->sweep = state::patchFloat(i);
     else if (state::pathIs(p, l, "sustain"))      s->sustain = state::patchFloat(i);
     else if (state::pathIs(p, l, "deadzone"))     s->deadzone = state::patchFloat(i);
@@ -1841,6 +1895,7 @@ void render(void* self, int vp_w, int vp_h) {
     // The air wall: a plane facing the camera, air_depth in front of the
     // structure's center (view depth of the center = -pos . fwd).
     const float zc = -dot(pos, fwd);
+    u.aux[3] = zc;
     const float zw = zc - s->air_depth;
     const float half = 0.5f * s->air_soft;
     u.air[0] = zw - half;
@@ -1938,6 +1993,41 @@ void render(void* self, int vp_w, int vp_h) {
   }
   const int nflakes = s->flakes < 0 ? 0 : (s->flakes > kMaxFlakes ? kMaxFlakes : s->flakes);
   const bool want_motion = state::isOutputConnected("render_outputs");
+  // The optional outputs: each only while something is wired to it.
+  {
+    auto fit = [&](gpu::Texture& t, int& tw, int& th) {
+      if (t.valid() && tw == vp_w && th == vp_h) return;
+      t.release();
+      t = gpu::Device::createTexture(vp_w, vp_h, gpu::TextureFormat::RGBA16F);
+      tw = vp_w;
+      th = vp_h;
+    };
+    static const char* const kAuxField[2] = {"aux1_out", "aux2_out"};
+    bool glint = false;
+    for (int k = 0; k < 2; k++) {
+      const int what = s->aux_what[k] >= 1 && s->aux_what[k] <= 7 ? s->aux_what[k] : 1;
+      u.aux[k] = 0.0f;
+      if (!state::isOutputConnected(kAuxField[k])) continue;
+      fit(s->aux_tex[k], s->aux_w[k], s->aux_h[k]);
+      if (!s->aux_tex[k].valid()) continue;
+      state::setGpuTexture(kAuxField[k], s->aux_tex[k].id);
+      u.aux[k] = (float)what;
+      glint = glint || what == 6;
+    }
+    if (glint) fit(s->glint_tex, s->glint_w, s->glint_h);
+    if (glint && !s->glint_tex.valid()) {   // (no charge to show: show none)
+      for (int k = 0; k < 2; k++)
+        if (u.aux[k] == 6.0f) u.aux[k] = 0.0f;
+    }
+    u.aux[2] = 0.0f;
+    if (want_motion) {
+      fit(s->depth_tex, s->depth_w, s->depth_h);
+      if (s->depth_tex.valid()) {
+        state::setGpuTexture("render_outputs/depth", s->depth_tex.id);
+        u.aux[2] = 1.0f;
+      }
+    }
+  }
   u.dust[0] = nflakes > 0 ? 0.012f * s->dust : 0.0f;
   u.dust[1] = 0.6f;
   u.dust[2] = kGridExtent;
@@ -2164,6 +2254,7 @@ void render(void* self, int vp_w, int vp_h) {
     cp.setBuffer(s->box_buf, 1);
     cp.setTexture(s->atlas, 2, 0);
     cp.setTexture(s->scene_tex, 3, 1);
+    cp.setTexture(s->glint_tex.valid() ? s->glint_tex : s->stand_in[0], 4, 1);
     cp.dispatch((vp_w + 7) / 8, (vp_h + 7) / 8);
     cp.end();
   }
@@ -2300,6 +2391,23 @@ void render(void* self, int vp_w, int vp_h) {
     cp.setTexture(in.valid() ? in : s->zero_tex, 5, 0);
     cp.setTexture(out, 6, 1);
     cp.setTexture(nflakes > 0 && s->spark.valid() ? s->spark : s->zero_tex, 7, 0);
+    cp.dispatch((vp_w + 7) / 8, (vp_h + 7) / 8);
+    cp.end();
+  }
+  // The optional outputs, while any is wired.
+  if (u.aux[0] > 0.5f || u.aux[1] > 0.5f || u.aux[2] > 0.5f) {
+    auto cp = gpu::ComputePass::begin();
+    cp.setPSO(s_pso_aux);
+    cp.setBuffer(s->ub_frame, 0);
+    cp.setBuffer(s->box_buf, 1);
+    cp.setTexture(s->scene_tex, 2, 0);
+    cp.setTexture(s->fog_blur, 3, 0);
+    cp.setTexture(s->fog_t, 4, 0);
+    cp.setTexture(nflakes > 0 && s->spark.valid() ? s->spark : s->zero_tex, 5, 0);
+    cp.setTexture(s->glint_tex.valid() ? s->glint_tex : s->zero_tex, 6, 0);
+    cp.setTexture(u.aux[0] > 0.5f ? s->aux_tex[0] : s->stand_in[0], 7, 1);
+    cp.setTexture(u.aux[1] > 0.5f ? s->aux_tex[1] : s->stand_in[1], 8, 1);
+    cp.setTexture(u.aux[2] > 0.5f ? s->depth_tex : s->stand_in[2], 9, 1);
     cp.dispatch((vp_w + 7) / 8, (vp_h + 7) / 8);
     cp.end();
   }

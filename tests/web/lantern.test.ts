@@ -217,3 +217,82 @@ describe('source.mesh.lantern backend parity', () => {
     expect(meanAbsDiff(web, metal)).toBeLessThan(6);
   });
 });
+
+// The aux outputs on WebGPU, in the editor: Aux 1 (Depth) wired out through a
+// sidechannel and received back as the sketch's picture, so the monitor shows
+// it -- gray blocks on black. (The Metal side, and that an unwired aux is
+// never made, are pinned in the native render tests.)
+describe('source.mesh.lantern aux outputs (editor, WebGPU)', () => {
+  jest.setTimeout(120000);
+  const BASE = process.env.GPU_TEST_BASE_URL || 'http://localhost:5173';
+  const WALK = `function* walk(root){for(const el of root.querySelectorAll('*')){yield el; if(el.shadowRoot) yield* walk(el.shadowRoot);}}`;
+
+  it('Aux 1 Depth reaches a wire: gray blocks, black water', async () => {
+    await page.goto(`${BASE}/resolume/index.html?playground`, { waitUntil: 'networkidle0' });
+    await new Promise(r => setTimeout(r, 2000));
+    await page.evaluate(`(() => {
+      const ac = window.appController;
+      ac.mutate('seed', d => {
+        d.sketches['sk_aux'] = {
+          anchor: null,
+          chain: [
+            { type: 'module', module_type: 'source.mesh.lantern', instance_key: 'ln@0' },
+            { type: 'module', module_type: 'util.sidechannel_out', instance_key: 'so@0' },
+            { type: 'module', module_type: 'util.sidechannel_in', instance_key: 'si@0' },
+          ],
+          wires: [{ id: 'aw', src: { instanceKey: 'ln@0', field: 'aux1_out' },
+                    dest: { instanceKey: 'so@0', field: 'send_in' } }],
+          instances: {
+            'ln@0': { module_type: 'source.mesh.lantern', state: { drift: 0, flakes: 0, aux1: 1 } },
+            'so@0': { module_type: 'util.sidechannel_out', state: { channel: 9 } },
+            'si@0': { module_type: 'util.sidechannel_in', state: { channel: 9 } },
+          },
+        };
+      });
+      ac.setActiveTab('edit');
+      ac.editSketch('sk_aux');
+      ac.setTappingMode(false);
+    })()`);
+    // The monitor: the largest texture monitor on screen. Its canvas is
+    // WebGPU, so read it from a screenshot decoded in the page.
+    const sample = async () => {
+      const box: any = await page.evaluate(`(() => { ${WALK} let best = null;
+        for (const el of walk(document)) if (el.tagName === 'TEXTURE-MONITOR') {
+          const b = el.getBoundingClientRect();
+          if (b.top >= 0 && b.bottom <= innerHeight && (!best || b.width * b.height > best.w * best.h))
+            best = { x: b.x, y: b.y, w: b.width, h: b.height };
+        } return best; })()`);
+      if (!box) return null;
+      const png = await page.screenshot({ clip: { x: box.x, y: box.y, width: box.w, height: box.h }, encoding: 'base64' });
+      return page.evaluate(async (b64: string) => {
+        const img = new Image();
+        img.src = 'data:image/png;base64,' + b64;
+        await img.decode();
+        const c = document.createElement('canvas');
+        c.width = img.width; c.height = img.height;
+        const ctx = c.getContext('2d')!;
+        ctx.drawImage(img, 0, 0);
+        const d = ctx.getImageData(0, 0, c.width, c.height).data;
+        let lit = 0, gray = 0, blue = 0;
+        for (let i = 0; i < d.length; i += 4) {
+          if (d[i + 2] > d[i] + 25) blue++;
+          if (d[i] > 40) {
+            lit++;
+            if (Math.abs(d[i] - d[i + 1]) < 6 && Math.abs(d[i] - d[i + 2]) < 6) gray++;
+          }
+        }
+        return { lit, gray, blue, n: d.length / 4 };
+      }, png as string);
+    };
+    let s: any = null;
+    for (let i = 0; i < 40; i++) {
+      await new Promise(r => setTimeout(r, 250));
+      s = await sample();
+      if (s && s.lit > 0.03 * s.n) break;
+    }
+    expect(s).toBeTruthy();
+    expect(s.lit).toBeGreaterThan(0.03 * s.n);    // the blocks...
+    expect(s.gray).toBeGreaterThan(0.95 * s.lit); // ...in gray
+    expect(s.blue).toBeLessThan(0.01 * s.n);      // no water: not the main picture
+  });
+});

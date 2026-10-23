@@ -146,6 +146,7 @@ echo "  plume shaders compiled (SPV: shell + bake + compose + march + prefill + 
 #   fog       — water + halo, equiangular march about the core (half res).
 #   blur      — depth-aware separable blur of the march's in-scatter.
 #   composite — depth-aware upsample + AgX.
+#   aux       — the optional outputs (Aux 1 / 2, render_outputs depth), only while wired.
 #   p_update / p_resolve / p_shade — the mica flakes: sim + presence grid, shading.
 #   spark_vs / spark_fs / spark_mv_fs — the flakes' EWA splats (and motion vectors).
 #   motion    — the blocks' motion vectors (render_outputs).
@@ -158,6 +159,7 @@ compile_shaders_compute_var_spv lantern scene
 compile_shaders_compute_var_spv lantern fog
 compile_shaders_compute_var_spv lantern blur
 compile_shaders_compute_var_spv lantern composite
+compile_shaders_compute_var_spv lantern aux
 compile_shaders_compute_var_spv lantern p_update
 compile_shaders_compute_var_spv lantern p_resolve
 compile_shaders_compute_var_spv lantern p_shade
@@ -187,8 +189,9 @@ dxc -T ps_6_0 -E main -spirv -fspv-target-env=vulkan1.1 \
   "lantern_fog=$TMP_DIR/lantern_fog.spv" \
   "lantern_blur=$TMP_DIR/lantern_blur.spv" \
   "lantern_composite=$TMP_DIR/lantern_composite.spv" \
+  "lantern_aux=$TMP_DIR/lantern_aux.spv" \
   "lantern_prefill=$TMP_DIR/plume_prefill.spv"
-echo "  lantern shaders compiled (SPV: shadow + escape + escape_reduce + vis + scene + fog + blur + composite + flakes + motion + prefill reuse)"
+echo "  lantern shaders compiled (SPV: shadow + escape + escape_reduce + vis + scene + fog + blur + composite + aux + flakes + motion + prefill reuse)"
 
 # helio_field — simulated sun on the sdf_field rail: 2D MHD-lite (fluid +
 # magnetic potential) on an oct map, shell ridges derived from the live
