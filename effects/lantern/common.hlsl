@@ -71,6 +71,9 @@ cbuffer Frame : register(b0) {
                     //   presence grid half extent (m), spark layer on (0/1)
   float4 aux;       // what Aux 1 / 2 carry (LTN_AUX_*, 0: not wired);
                     //   render_outputs depth wired (0/1); the structure's view depth (m)
+  float4 pulse;     // the throw's pulse: radius about the core (m), width (m),
+                    //   heal (0 as thrown .. 1 healed), shape (escape map share)
+  float4 pulse_c;   // its glow per m of front at 1 m from the core (rgb), on (0/1)
   float4 lsamp[LTN_MAX_SAMPLES];  // core light sample positions (world)
 };
 

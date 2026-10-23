@@ -92,6 +92,9 @@ constexpr float kPointE = 0.2359f;
 constexpr float kAreaE = 0.4732f;
 constexpr float kSunVolK = 1.0f / kSunE;
 constexpr float kPointVolK = 0.0756f / kPointE;
+// The throw's pulse at Pulse 1: glow per m of front, as a share of the core's
+// light there (about what water at density 0.3 would scatter of it).
+constexpr float kPulseGlow = 0.15f;
 
 constexpr int kMaxBoxes = 192;
 constexpr int kBoxRows = 6;
@@ -125,9 +128,11 @@ struct FrameUniforms {
   float surf[4];
   float dust[4];
   float aux[4];
+  float pulse[4];
+  float pulse_c[4];
   float lsamp[kSamples][4];
 };
-static_assert(sizeof(FrameUniforms) == 39 * 16, "FrameUniforms layout mismatch");
+static_assert(sizeof(FrameUniforms) == 41 * 16, "FrameUniforms layout mismatch");
 
 // Mirrors `cbuffer Part` (part_ub.hlsl), row for row.
 struct PartUniforms {
@@ -651,6 +656,13 @@ struct State {
   float vibe = 0.06f;
   float vibe_hz = 16.0f;
   float vibe_spread = 0.25f;
+  float pulse = 1.0f;          // the throw's pulse: glow
+  float pulse_time = 0.35f;    // s, its slowing (to 1/e of the way left)
+  float pulse_gap = 0.6f;      // m beyond the shell it lingers
+  float pulse_width = 0.12f;   // m
+  float pulse_shape = 0.85f;   // how much the escape map shapes it
+  float pulse_heal = 1.2f;     // s for its beams to fill in
+  float pulse_fade = 2.5f;     // s it lingers, fading out
   float dust = 0.5f;
 
   sweep_knob::Knob knob;
@@ -660,6 +672,8 @@ struct State {
   double sim_dt = 0.0;         // time the flakes haven't been stepped through
   float frame_dt = 1.0f / 60.0f;
   float pending_fling = 0.0f;  // a throw this frame (its charge)
+  float pulse_age = 1e9f;      // s since the last throw sent its pulse out
+  float pulse_charge = 0.0f;   // ...and how hard it was thrown
   float pending_bite = 0.0f;   // how far the sustain has risen since the flakes last stepped
   float bite_prev_S = -1.0f;
   double vibe_phase = 0.0;
@@ -1055,7 +1069,12 @@ void module_init() {
           "onto a sphere *Shell Radius* around the structure; while the tail "
           "rings out they shake there -- *Shake* far, starting at *Shake Hz* "
           "and slowing as the tail dies, all in step unless *Shake Spread* "
-          "detunes them. Wire a motion blur after this effect to streak it.")
+          "detunes them. Wire a motion blur after this effect to streak it. "
+          "A throw also sends out a PULSE from the core: a glowing front that "
+          "leaves through the gaps in beams, slows over *Pulse Time* and "
+          "lingers *Pulse Gap* outside the shell, its beams filling in over "
+          "*Pulse Heal* (*Pulse Shape*: how much the gaps shape it), and "
+          "fades out over *Pulse Fade*.")
       .floatField("fling", 1.0f, 0.f, 4.f, state::PrimaryInput)
           .label("Fling", "Flng")
       .floatField("shell_radius", 4.0f, 2.f, 10.f, state::PrimaryInput, nullptr, 0.f, "m")
@@ -1066,6 +1085,20 @@ void module_init() {
           .label("Shake Hz", "ShHz")
       .floatField("vibe_spread", 0.25f, 0.f, 1.f, state::PrimaryInput)
           .label("Shake Spread", "ShSp")
+      .floatField("pulse", 1.0f, 0.f, 8.f, state::PrimaryInput)
+          .label("Pulse", "Puls")
+      .floatField("pulse_time", 0.35f, 0.05f, 3.f, state::PrimaryInput, nullptr, 0.f, "s")
+          .label("Pulse Time", "PTim")
+      .floatField("pulse_gap", 0.6f, -2.f, 4.f, state::PrimaryInput, nullptr, 0.f, "m")
+          .label("Pulse Gap", "PGap")
+      .floatField("pulse_width", 0.12f, 0.02f, 2.f, state::PrimaryInput, nullptr, 0.f, "m")
+          .label("Pulse Width", "PWid")
+      .floatField("pulse_shape", 0.85f, 0.f, 1.f, state::PrimaryInput)
+          .label("Pulse Shape", "PShp")
+      .floatField("pulse_heal", 1.2f, 0.05f, 8.f, state::PrimaryInput, nullptr, 0.f, "s")
+          .label("Pulse Heal", "PHea")
+      .floatField("pulse_fade", 2.5f, 0.1f, 12.f, state::PrimaryInput, nullptr, 0.f, "s")
+          .label("Pulse Fade", "PFad")
       .group("motion", "Motion Vectors")
         .groupHelp(
           "What a motion blur wired after this effect reads: how far each "
@@ -1384,6 +1417,12 @@ void tick(void* self, double dt) {
   kp.ring_time = s->tail;
   s->knob.tick(kp, (float)dt);
   if (s->knob.fresh_throw) s->pending_fling = std::fmax(s->pending_fling, s->knob.release);
+  if (s->knob.fresh_throw) {
+    s->pulse_age = 0.0f;
+    s->pulse_charge = s->knob.release;
+  } else {
+    s->pulse_age = std::fmin(s->pulse_age + (float)dt, 1e9f);
+  }
   three_planes_glints::Params gp;
   gp.sweep = s->sweep;
   gp.band = s->deadzone;
@@ -1549,6 +1588,13 @@ void on_state_patched(void* self, int n, const char* pb, const int* off,
     else if (state::pathIs(p, l, "vibe"))         s->vibe = state::patchFloat(i);
     else if (state::pathIs(p, l, "vibe_hz"))      s->vibe_hz = state::patchFloat(i);
     else if (state::pathIs(p, l, "vibe_spread"))  s->vibe_spread = state::patchFloat(i);
+    else if (state::pathIs(p, l, "pulse"))        s->pulse = state::patchFloat(i);
+    else if (state::pathIs(p, l, "pulse_time"))   s->pulse_time = state::patchFloat(i);
+    else if (state::pathIs(p, l, "pulse_gap"))    s->pulse_gap = state::patchFloat(i);
+    else if (state::pathIs(p, l, "pulse_width"))  s->pulse_width = state::patchFloat(i);
+    else if (state::pathIs(p, l, "pulse_shape"))  s->pulse_shape = state::patchFloat(i);
+    else if (state::pathIs(p, l, "pulse_heal"))   s->pulse_heal = state::patchFloat(i);
+    else if (state::pathIs(p, l, "pulse_fade"))   s->pulse_fade = state::patchFloat(i);
     else
       for (int k = 0; k < kSources; k++)
         for (int t = 0; t < kTargets; t++)
@@ -1925,6 +1971,28 @@ void render(void* self, int vp_w, int vp_h) {
   u.core_p[3] = s->core_radius;
   u.core_i[0] = core_e * s->core_r; u.core_i[1] = core_e * s->core_g;
   u.core_i[2] = core_e * s->core_b; u.core_i[3] = (float)kSamples;
+  // The throw's pulse: out from the core, slowing (exponentially) to a halt
+  // Pulse Gap outside the flakes' shell, healing as it goes and fading out
+  // over Pulse Fade. It flares as it leaves.
+  {
+    const float age = s->pulse_age;
+    const float left = std::fmax(0.0f, 1.0f - age / std::fmax(s->pulse_fade, 0.01f));
+    const float amp = s->pulse_charge * s->pulse * left * left;
+    const float from = s->core_radius;
+    const float to = std::fmax(s->shell_radius + s->pulse_gap, from + 0.1f);
+    const float out = std::exp(-age / std::fmax(s->pulse_time, 0.01f));
+    // It heals once it has all but arrived: in flight it is all beams.
+    const float settled = std::fmax(0.0f, age - 2.0f * s->pulse_time);
+    const float heal = 1.0f - std::exp(-settled / std::fmax(s->pulse_heal, 0.01f));
+    u.pulse[0] = to - (to - from) * out;
+    u.pulse[1] = s->pulse_width * (1.0f + heal);
+    u.pulse[2] = heal;
+    u.pulse[3] = s->pulse_shape;
+    // (Widening as it heals spreads its glow, it doesn't add to it.)
+    const float g = amp * (1.0f + 2.0f * out) / (1.0f + heal) * kPulseGlow * core_e * kPointVolK;
+    u.pulse_c[0] = g * s->core_r; u.pulse_c[1] = g * s->core_g; u.pulse_c[2] = g * s->core_b;
+    u.pulse_c[3] = amp > 1e-4f ? 1.0f : 0.0f;
+  }
   // Suns: directions TOWARD the light (the scene's lights point the other way).
   {
     const V3 amb = normalize(v3(0.06907761f, 0.13917311f, 0.98785585f));

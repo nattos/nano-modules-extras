@@ -1181,6 +1181,94 @@ TEST_CASE("lantern's sends, jitter and twang", "[effect_render][lantern]") {
   CHECK(kept.second > 0.4 * kept.first);          // still crossing...
   CHECK(quenched.second < 0.15 * kept.second);    // ...or gone
 }
+// A throw sends a pulse out from the core: nothing before the throw, then a
+// front that moves out, slows to a halt outside the flakes' shell and fades
+// over Pulse Fade. Read as what Pulse adds to the picture: its spread from
+// the glow's center (the core, on screen), and its amount.
+TEST_CASE("lantern's throw sends a pulse out that lingers outside the shell",
+          "[effect_render][lantern]") {
+  auto backend = gpu::createBackend();
+  if (!backend) SKIP("No GPU device available");
+
+  sketch_executor::WasmEffectBundles bundles;
+  REQUIRE(bundles.init());
+  EffectRuntime rt(backend.get());
+  sketch_executor::ModuleRegistry registry(&rt);
+  REQUIRE(bundles.loadBundleFile(kCoreWasm, registry, backend.get(), nullptr) > 1);
+  REQUIRE(bundles.loadBundleFile(kNanoWasm, registry, backend.get(), nullptr) > 1);
+
+  const uint32_t W = 160, H = 120;
+  const int RGBA8 = 1;
+  // The throw: end to end in 0.3 s (frames 60-78), through the middle into
+  // the choke.
+  auto run = [&](double pulse, const std::vector<int>& at) {
+    sketch_executor::SketchExecutor ex(&rt, &registry, backend.get());
+    int in = backend->createTexture(W, H, RGBA8);
+    int out = backend->createTexture(W, H, RGBA8);
+    auto sketch = nlohmann::json::parse(R"JSON({
+      "wires": [],
+      "chain": [ { "type": "module", "module_type": "source.mesh.lantern", "instance_key": "l" } ],
+      "instances": { "l": { "module_type": "source.mesh.lantern", "state": {
+        "drift": 0.0, "flakes": 0, "distance": 50.0, "sweep": 1.0, "pulse_fade": 2.0 } } }
+    })JSON");
+    sketch["instances"]["l"]["state"]["pulse"] = pulse;
+    rekey(sketch);
+    std::vector<std::vector<uint8_t>> shots;
+    for (int f = 0; f <= at.back(); ++f) {
+      bool change = f == 0;
+      if (f >= 60 && f <= 78) {
+        sketch["instances"][key]["state"]["sweep"] = 1.0 - (f - 60) / 18.0;
+        change = true;
+      }
+      REQUIRE(ex.execute(sketch, in, out, (int)W, (int)H, 1.0 / 60.0, change) > 0);
+      backend->submit();
+      if (std::find(at.begin(), at.end(), f) != at.end())
+        shots.push_back(backend->readbackTexture(out, W, H));
+    }
+    return shots;
+  };
+  const std::vector<int> at = {59, 84, 120, 150, 180, 210};   // before; 0.1, 0.7, 1.2, 1.7, 2.2 s on
+  const auto off = run(0.0, at), on = run(2.0, at);
+  // What the pulse adds at frame k: its total, and its mean distance from the
+  // center of the glow of the most lit frame (px).
+  struct Added { double sum, spread; };
+  auto added = [&](size_t k, double cx, double cy) {
+    double sum = 0.0, spread = 0.0;
+    for (uint32_t y = 0; y < H; y++)
+      for (uint32_t x = 0; x < W; x++) {
+        const size_t i = (y * W + x) * 4;
+        double d = 0.0;
+        for (int c = 0; c < 3; c++) d += std::fmax(0, (int)on[k][i + c] - (int)off[k][i + c]);
+        sum += d;
+        spread += d * std::hypot(x - cx, y - cy);
+      }
+    return Added{sum, sum > 0.0 ? spread / sum : 0.0};
+  };
+  // The glow's center: where the lingering pulse adds most, weighted.
+  double cx = 0.0, cy = 0.0, wsum = 0.0;
+  for (uint32_t y = 0; y < H; y++)
+    for (uint32_t x = 0; x < W; x++) {
+      const size_t i = (y * W + x) * 4;
+      double d = 0.0;
+      for (int c = 0; c < 3; c++) d += std::fmax(0, (int)on[2][i + c] - (int)off[2][i + c]);
+      cx += d * x; cy += d * y; wsum += d;
+    }
+  REQUIRE(wsum > 0.0);
+  cx /= wsum; cy /= wsum;
+  const Added before = added(0, cx, cy), early = added(1, cx, cy), mid = added(2, cx, cy),
+              late = added(3, cx, cy), dim = added(4, cx, cy), gone = added(5, cx, cy);
+  INFO("added (sum / spread px): before " << before.sum << ", 0.1 s " << early.sum << " / "
+       << early.spread << ", 0.7 s " << mid.sum << " / " << mid.spread << ", 1.2 s " << late.sum
+       << " / " << late.spread << ", 1.7 s " << dim.sum << " / " << dim.spread << ", 2.2 s "
+       << gone.sum);
+  CHECK(before.sum == 0.0);                          // nothing before the throw
+  CHECK(mid.sum > 2000.0);                           // a visible front...
+  CHECK(early.spread < 0.6 * late.spread);           // ...that moved out
+  CHECK(std::abs(dim.spread - late.spread) < 0.05 * late.spread);   // and halted
+  CHECK(dim.sum < 0.5 * mid.sum);                    // fading
+  CHECK(gone.sum < 0.01 * mid.sum);                  // gone after Pulse Fade
+}
+
 // Lantern's aux outputs: each is rendered only while wired, carries what its
 // select picks, and the blocks' true depth rides render_outputs beside the
 // motion vectors. Aux 1 is read through a sidechannel (send_in takes any

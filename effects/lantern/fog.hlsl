@@ -54,6 +54,36 @@ float ltn_fog_vis(float3 dl, float r) {
   return lerp(v3, v4, saturate(pos - 3.0));
 }
 
+// The pulse a throw sends out (main.cpp): a glowing front about the core at
+// radius pulse.x, thrown out through the gaps -- its glow is the core's
+// visibility there, the escape map, blurred more and more and lifted toward
+// even as it heals (pulse.z), so the beams fill in while it slows to a halt.
+float ltn_pulse_mask(float3 dl, float r) {
+  float2 uv = nano_oct_encode(dl / max(r, 1e-5));
+  float2 e = esc.SampleLevel(samp, uv, 0.0).rg;
+  float4 F = visF.SampleLevel(samp, uv, 0.0);
+  float4 D = visD.SampleLevel(samp, uv, 0.0);
+  float v0 = ltn_lit(e.x, e.y / max(1.0 - e.x, 1e-3), r);
+  float v1 = ltn_lit(F.x, D.x, r), v2 = ltn_lit(F.y, D.y, r);
+  float v3 = ltn_lit(F.z, D.z, r), v4 = ltn_lit(F.w, D.w, r);
+  float pos = 4.0 * pulse.z;
+  float v = pos < 1.0 ? lerp(v0, v1, pos) : pos < 2.0 ? lerp(v1, v2, pos - 1.0)
+          : pos < 3.0 ? lerp(v2, v3, pos - 2.0) : lerp(v3, v4, saturate(pos - 3.0));
+  return lerp(1.0, v, pulse.w * (1.0 - pulse.z));
+}
+
+// The front's glow where the ray crosses it at t (the path through the front
+// already folded into pulse_c / w): radiance added there.
+// It lights the water's wisps (the halo's noise, as its density takes it).
+float3 ltn_pulse_glow(float3 ro, float3 rd, float t, float w, float cv) {
+  float3 p = ro + rd * t;
+  float3 dl = p - core_p.xyz;
+  float wn = 0.5 + 0.5 * nano_gfbm3((p - halo_c.xyz) * halo_k.xyz * halo_p.y +
+                                    float3(0.0, 0.0, halo_p.z), 3, 0.6);
+  float wisp = lerp(1.0, lerp(0.25, 1.7, saturate((wn - 0.35) / 0.35)), halo_k.w);
+  return pulse_c.rgb * w * wisp * ltn_pulse_mask(dl, pulse.x) * ltn_air_f(t, cv);
+}
+
 // Water lit by the ambient sun over [ta, tb]: in-scatter and transmittance
 // of the segment. The source is uniform per unit density, so the air wall
 // only changes the segment's integrated length (ltn_air_len).
@@ -97,6 +127,27 @@ void main(uint3 gid : SV_DispatchThreadID) {
   float cv = dot(rd, cam_f.xyz);
   ltn_water_segment(0.0, t0, rd, cv, I, T);
 
+  // The pulse is a thin front: integrated in closed form where the ray
+  // crosses it (twice, near and far), not left to the march's steps. A
+  // Gaussian shell of width w crossed at angle: path sqrt(2 pi) w r / s, s the
+  // half chord; held at its grazing limit near the tangent, and fading as the
+  // ray passes outside it.
+  float pt0 = -1.0, pt1 = -1.0;   // the near and far crossings (-1: none)
+  float pw = 0.0;
+  if (pulse_c.w > 0.0) {
+    float pr = pulse.x, wd = pulse.y;
+    float hc = length(oc - rd * b);
+    float s2 = pr * pr - hc * hc;
+    float s = sqrt(max(s2, 0.0));
+    float out_by = max(hc - pr, 0.0);
+    pw = 2.5066283 * wd * pr / sqrt(max(s2, 0.0) + 2.0 * pr * wd) *
+         exp(-out_by * out_by / (2.0 * wd * wd)) / max(pr * pr, 1.0);
+    pt0 = -b - s;
+    pt1 = -b + s;
+    if (pt0 < 0.0 || pt0 >= depth) pt0 = -1.0;
+    if (pt1 < 0.0 || pt1 >= depth) pt1 = -1.0;
+  }
+
   if (t1 > t0) {
     // Equiangular parameterisation about the core.
     float D = -b;                                   // closest approach along the ray
@@ -136,11 +187,18 @@ void main(uint3 gid : SV_DispatchThreadID) {
                     dh * halo_alb * (Lc * ltn_hg(halo_p.x, cosv) + amb_h)) * fa +
                    dd * dust.y * float3(1.0, 0.93, 0.82) * (Lc * ltn_hg(0.35, cosv) + amb_h);
 
+      // The pulse's crossings this step reached, lit as far as the water lets.
+      if (pt0 >= 0.0 && pt0 <= t) { I += T * ltn_pulse_glow(ro, rd, pt0, pw, cv); pt0 = -1.0; }
+      if (pt1 >= 0.0 && pt1 <= t) { I += T * ltn_pulse_glow(ro, rd, pt1, pw, cv); pt1 = -1.0; }
+
       float3 seg = exp(-sig_t * dt);
       I += T * src * (1.0 - seg) / max(sig_t, 1e-6);
       T *= seg;
     }
   }
+  // ...and any past the last step.
+  if (pt0 >= 0.0) I += T * ltn_pulse_glow(ro, rd, pt0, pw, cv);
+  if (pt1 >= 0.0) I += T * ltn_pulse_glow(ro, rd, pt1, pw, cv);
 
   // Beyond the sphere: water again, to the surface or to infinity (where the
   // near-black world is entirely absorbed).
