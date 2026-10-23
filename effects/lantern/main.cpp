@@ -658,6 +658,7 @@ struct State {
   float vibe_spread = 0.25f;
   float pulse = 1.0f;          // the throw's pulse: glow
   float pulse_time = 0.35f;    // s, its slowing (to 1/e of the way left)
+  float pulse_start = 0.0f;    // how far out it starts (0 core .. 1 where it settles)
   float pulse_gap = 0.6f;      // m beyond the shell it lingers
   float pulse_width = 0.12f;   // m
   float pulse_shape = 0.85f;   // how much the escape map shapes it
@@ -1074,7 +1075,9 @@ void module_init() {
           "leaves through the gaps in beams, slows over *Pulse Time* and "
           "lingers *Pulse Gap* outside the shell, its beams filling in over "
           "*Pulse Heal* (*Pulse Shape*: how much the gaps shape it), and "
-          "fades out over *Pulse Fade*.")
+          "fades out over *Pulse Fade*. *Pulse Start* starts it further out "
+          "(1: where it settles), fading in as it comes instead of bursting "
+          "out -- it wafts into place.")
       .floatField("fling", 1.0f, 0.f, 4.f, state::PrimaryInput)
           .label("Fling", "Flng")
       .floatField("shell_radius", 4.0f, 2.f, 10.f, state::PrimaryInput, nullptr, 0.f, "m")
@@ -1089,6 +1092,8 @@ void module_init() {
           .label("Pulse", "Puls")
       .floatField("pulse_time", 0.35f, 0.05f, 3.f, state::PrimaryInput, nullptr, 0.f, "s")
           .label("Pulse Time", "PTim")
+      .floatField("pulse_start", 0.0f, 0.f, 1.f, state::PrimaryInput)
+          .label("Pulse Start", "PSta")
       .floatField("pulse_gap", 0.6f, -2.f, 4.f, state::PrimaryInput, nullptr, 0.f, "m")
           .label("Pulse Gap", "PGap")
       .floatField("pulse_width", 0.12f, 0.02f, 2.f, state::PrimaryInput, nullptr, 0.f, "m")
@@ -1590,6 +1595,7 @@ void on_state_patched(void* self, int n, const char* pb, const int* off,
     else if (state::pathIs(p, l, "vibe_spread"))  s->vibe_spread = state::patchFloat(i);
     else if (state::pathIs(p, l, "pulse"))        s->pulse = state::patchFloat(i);
     else if (state::pathIs(p, l, "pulse_time"))   s->pulse_time = state::patchFloat(i);
+    else if (state::pathIs(p, l, "pulse_start"))  s->pulse_start = state::patchFloat(i);
     else if (state::pathIs(p, l, "pulse_gap"))    s->pulse_gap = state::patchFloat(i);
     else if (state::pathIs(p, l, "pulse_width"))  s->pulse_width = state::patchFloat(i);
     else if (state::pathIs(p, l, "pulse_shape"))  s->pulse_shape = state::patchFloat(i);
@@ -1971,16 +1977,20 @@ void render(void* self, int vp_w, int vp_h) {
   u.core_p[3] = s->core_radius;
   u.core_i[0] = core_e * s->core_r; u.core_i[1] = core_e * s->core_g;
   u.core_i[2] = core_e * s->core_b; u.core_i[3] = (float)kSamples;
-  // The throw's pulse: out from the core, slowing (exponentially) to a halt
-  // Pulse Gap outside the flakes' shell, healing as it goes and fading out
-  // over Pulse Fade. It flares as it leaves.
+  // The throw's pulse: out from the core (or Pulse Start of the way out),
+  // slowing (exponentially) to a halt Pulse Gap outside the flakes' shell,
+  // healing as it goes and fading out over Pulse Fade. From the core it
+  // flares as it leaves; started out, it fades in as it comes instead.
   {
     const float age = s->pulse_age;
     const float left = std::fmax(0.0f, 1.0f - age / std::fmax(s->pulse_fade, 0.01f));
     const float amp = s->pulse_charge * s->pulse * left * left;
-    const float from = s->core_radius;
-    const float to = std::fmax(s->shell_radius + s->pulse_gap, from + 0.1f);
+    const float start = std::fmin(std::fmax(s->pulse_start, 0.0f), 1.0f);
+    const float to = std::fmax(s->shell_radius + s->pulse_gap, s->core_radius + 0.1f);
+    const float from = s->core_radius + (to - s->core_radius) * start;
     const float out = std::exp(-age / std::fmax(s->pulse_time, 0.01f));
+    const float burst = (1.0f - start) * (1.0f - start);
+    const float onset = (1.0f + 2.0f * out) * burst + (1.0f - out) * (1.0f - out) * (1.0f - burst);
     // It heals once it has all but arrived: in flight it is all beams.
     const float settled = std::fmax(0.0f, age - 2.0f * s->pulse_time);
     const float heal = 1.0f - std::exp(-settled / std::fmax(s->pulse_heal, 0.01f));
@@ -1989,7 +1999,7 @@ void render(void* self, int vp_w, int vp_h) {
     u.pulse[2] = heal;
     u.pulse[3] = s->pulse_shape;
     // (Widening as it heals spreads its glow, it doesn't add to it.)
-    const float g = amp * (1.0f + 2.0f * out) / (1.0f + heal) * kPulseGlow * core_e * kPointVolK;
+    const float g = amp * onset / (1.0f + heal) * kPulseGlow * core_e * kPointVolK;
     u.pulse_c[0] = g * s->core_r; u.pulse_c[1] = g * s->core_g; u.pulse_c[2] = g * s->core_b;
     u.pulse_c[3] = amp > 1e-4f ? 1.0f : 0.0f;
   }
