@@ -64,7 +64,7 @@ cbuffer Frame : register(b0) {
   float4 egg_r1;
   float4 egg_r2;
   float4 vol_k;     // volume light scale vs surfaces: core, ambient sun; core clear (m), 0
-  float4 heart;     // the heart's emission (rgb radiance), 0
+  float4 heart;     // the heart's emission (rgb radiance), radius (m; negative: a cube)
   float4 air;       // the air wall: view depth its edge starts, ends; amount, 0
   float4 surf;      // shell glow, chip amount, albedo scale, 0
   float4 dust;      // flake dust: extinction per (flake/m^3), scatter albedo,

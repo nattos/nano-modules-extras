@@ -984,10 +984,10 @@ static void rekey(nlohmann::json& sketch) {
   sketch["instances"].erase("l");
 }
 
-// source.mesh.lantern's layouts GLIDE (sketch/glide.h): a new layout springs
-// in rather than cutting, and lands exactly where the cut would have. The
-// web suites set params once and then tick, so a change mid-run is only
-// reachable here.
+// source.mesh.lantern's layouts GLIDE (sketch/glide.h): a new layout (or
+// Shape) springs in rather than cutting, and lands exactly where the cut
+// would have; every shape is its own. The web suites set params once and
+// then tick, so a change mid-run is only reachable here.
 TEST_CASE("lantern glides between layouts and lands where a cut lands",
           "[effect_render][lantern]") {
   auto backend = gpu::createBackend();
@@ -1004,8 +1004,8 @@ TEST_CASE("lantern glides between layouts and lands where a cut lands",
   const int RGBA8 = 1;
   constexpr int kSwitch = 30, kMid = 36, kLate = 90;   // 100 ms and 1 s after the switch
 
-  // Frames kMid and kLate of a run that switches layout 0 -> `to` at kSwitch.
-  auto run = [&](int to, double glide) {
+  // Frames kMid and kLate of a run that switches `field` 0 -> `to` at kSwitch.
+  auto run = [&](const char* field, int to, double glide) {
     sketch_executor::SketchExecutor ex(&rt, &registry, backend.get());
     int in = backend->createTexture(W, H, RGBA8);
     int out = backend->createTexture(W, H, RGBA8);
@@ -1020,7 +1020,7 @@ TEST_CASE("lantern glides between layouts and lands where a cut lands",
     std::vector<std::vector<uint8_t>> shots;
     for (int f = 0; f <= kLate; ++f) {
       const bool change = f == kSwitch;
-      if (change) sketch["instances"][key]["state"]["layout"] = to;
+      if (change) sketch["instances"][key]["state"][field] = to;
       REQUIRE(ex.execute(sketch, in, out, (int)W, (int)H, 1.0 / 60.0, f == 0 || change) > 0);
       backend->submit();
       if (f == kMid || f == kLate) shots.push_back(backend->readbackTexture(out, W, H));
@@ -1034,10 +1034,10 @@ TEST_CASE("lantern glides between layouts and lands where a cut lands",
     return sum / (a.size() / 4 * 3);
   };
 
-  const auto glided = run(7, 0.4);
-  const auto cut = run(7, 0.0);
-  const auto cut2 = run(7, 0.0);
-  const auto stay = run(0, 0.4);
+  const auto glided = run("layout", 7, 0.4);
+  const auto cut = run("layout", 7, 0.0);
+  const auto cut2 = run("layout", 7, 0.0);
+  const auto stay = run("layout", 0, 0.4);
   REQUIRE(glided.size() == 2);
   // (Measured against two identical runs, which match exactly without the
   // flakes — their splats land in a different order run to run.)
@@ -1052,6 +1052,19 @@ TEST_CASE("lantern glides between layouts and lands where a cut lands",
   CHECK(mid_vs_cut > 5.0 * noise);    // 100 ms in it is neither...
   CHECK(mid_vs_old > 5.0 * noise);
   CHECK(late < 1.5 * noise + 0.1);    // ...and it lands where the cut did
+
+  // Shapes: each its own, and a change of shape glides in too.
+  for (int shape = 1; shape <= 8; shape++) {
+    const auto shape_cut = run("shape", shape, 0.0);
+    INFO("shape " << shape << " vs the shell " << mad(shape_cut[0], stay[0]));
+    CHECK(mad(shape_cut[0], stay[0]) > 5.0 * noise);
+    if (shape != 3) continue;
+    const auto shape_glided = run("shape", shape, 0.4);
+    INFO("ring: mid vs cut " << mad(shape_glided[0], shape_cut[0]) << ", 1 s later vs cut "
+                             << mad(shape_glided[1], shape_cut[1]));
+    CHECK(mad(shape_glided[0], shape_cut[0]) > 5.0 * noise);
+    CHECK(mad(shape_glided[1], shape_cut[1]) < 1.5 * noise + 0.1);
+  }
 }
 // Lantern's sends: the sweep drives the blocks and the core. An envelope send
 // moves the blocks at home and lets them back at the choke; Jitter keeps a

@@ -32,6 +32,16 @@ float3 ltn_to_egg(float3 p) {
   return float3(dot(egg_r0.xyz, p), dot(egg_r1.xyz, p), dot(egg_r2.xyz, p));
 }
 
+// The cube heart's axes in the structure's frame (turned XYZ 0.6, 0.35, 0.2
+// rad, as the scene's riffs turn it), and a vector in its frame.
+static const float3 LTN_HEART_X = float3(0.920648, 0.186625, -0.342898);
+static const float3 LTN_HEART_Y = float3(0.025786, 0.847349, 0.530410);
+static const float3 LTN_HEART_Z = float3(0.389542, -0.497163, 0.775298);
+float3 ltn_heart_local(float3 v) {
+  float3 e = ltn_to_egg(v);
+  return float3(dot(LTN_HEART_X, e), dot(LTN_HEART_Y, e), dot(LTN_HEART_Z, e));
+}
+
 float ltn_ggx_d(float ndh, float a) {
   float a2 = a * a;
   float d = ndh * ndh * (a2 - 1.0) + 1.0;
@@ -430,22 +440,38 @@ void main(uint3 gid : SV_DispatchThreadID) {
   if (ltn_aux_wants(LTN_AUX_GLINT))
     sceneAux[gid.xy] = float4(box >= 0 ? boxes[box * LTN_BOX_ROWS + 5].x : 0.0, 0.0, 0.0, 0.0);
 
-  // The incandescent heart: a small emissive ball at the core, seen only by
-  // the camera (it lights nothing — the core light does that).
+  // The incandescent heart: a small emissive ball (or, heart.w < 0, a cube)
+  // at the core, seen only by the camera (it lights nothing — the core light
+  // does that).
   {
-    float hr = 0.33 * core_p.w;
+    float hr = abs(heart.w);
     float3 oc = ro - core_p.xyz;
-    float b = dot(oc, rd);
-    float disc = b * b - (dot(oc, oc) - hr * hr);
-    if (disc > 0.0) {
-      float th = -b - sqrt(disc);
-      if (th > 0.0 && th < t) {
-        float3 hn = normalize(oc + rd * th);
-        float limb = 0.75 + 0.25 * saturate(dot(hn, -rd));
-        sceneOut[gid.xy] = float4(heart.rgb * limb, th);
-        if (ltn_aux_wants(LTN_AUX_GLINT)) sceneAux[gid.xy] = float4(0.0, 0.0, 0.0, 0.0);
-        return;
+    float th = -1.0, limb = 1.0;
+    if (heart.w < 0.0) {
+      float hh = 0.65 * hr;
+      float3 lo = ltn_heart_local(oc), l = ltn_heart_local(rd);
+      float3 inv = 1.0 / select(abs(l) < 1e-8, 1e-8, l);
+      float3 ta = (-hh - lo) * inv, tb = (hh - lo) * inv;
+      float3 tmn = min(ta, tb), tmx = max(ta, tb);
+      float tn = max(max(tmn.x, tmn.y), tmn.z);
+      float tf = min(min(tmx.x, tmx.y), tmx.z);
+      if (tf >= tn) {
+        th = tn;
+        float c = tmn.x >= max(tmn.y, tmn.z) ? l.x : (tmn.y >= tmn.z ? l.y : l.z);
+        limb = 0.75 + 0.25 * abs(c);
       }
+    } else {
+      float b = dot(oc, rd);
+      float disc = b * b - (dot(oc, oc) - hr * hr);
+      if (disc > 0.0) {
+        th = -b - sqrt(disc);
+        limb = 0.75 + 0.25 * saturate(dot(normalize(oc + rd * th), -rd));
+      }
+    }
+    if (th > 0.0 && th < t) {
+      sceneOut[gid.xy] = float4(heart.rgb * limb, th);
+      if (ltn_aux_wants(LTN_AUX_GLINT)) sceneAux[gid.xy] = float4(0.0, 0.0, 0.0, 0.0);
+      return;
     }
   }
   if (box < 0) {

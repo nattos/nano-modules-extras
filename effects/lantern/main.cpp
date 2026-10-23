@@ -269,10 +269,15 @@ struct Block {
   float jut;      // block: jut distance (m)
   V3 tip;         // block: tip direction in [-1,1]³; fragment: rotation (rad)
   V3 spin;        // fragment: tumble rate
-  V3 size;        // fragment size; blocks use span
+  V3 size;        // fragment: size; block: its cell, the seam coming off it
   int span[3];
   bool stone;
   float seed;     // [0,1): shell tint, edge wear, breathing phase
+  M3 base = {{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}};   // block: its turn, before tipping
+  float glow0 = 0.0f;    // block: its ember at no strain...
+  float glow_k = 1.0f;   // ...and per unit of strain
+  float orbit = 0.0f;    // block: turn about `pole` per s of Drift (rad)
+  V3 pole = {0, 0, 1};
 };
 
 inline float jutStrain(float jut) { return jut / (kCell * kJutMax); }
@@ -291,10 +296,15 @@ int buildReference(Block* out) {
     b.size = v3(r.size[0], r.size[1], r.size[2]);
     b.spin = v3(r.spin[0], r.spin[1], r.spin[2]);
     for (int a = 0; a < 3; a++) b.span[a] = r.span[a];
+    b.base = M3{{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}};
+    b.glow0 = 0.0f;
+    b.glow_k = 1.0f;
+    b.orbit = 0.0f;
     if (b.fragment) {
       b.axis = normalize(b.axis);
       b.tip = v3(r.rot[0], r.rot[1], r.rot[2]);
     } else {
+      b.size = v3(r.span[0] * kCell, r.span[1] * kCell, r.span[2] * kCell);
       // Recover the tip direction from the scene's rotation (its tip angles
       // are uniform in ±0.18 strain^1.5), so tipping follows the jut.
       float tip = std::pow(jutStrain(r.jut), 1.5f) * 0.18f;
@@ -307,6 +317,8 @@ int buildReference(Block* out) {
   }
   return n;
 }
+
+int addFragments(Block* out, int n, Rng& rng, int count, V3 radii);
 
 // The scene's generator (part_structure.py), on our own RNG and noise: a
 // hollow, slightly irregular superellipsoid shell of cells, some fused 2x2x2
@@ -379,6 +391,7 @@ int buildProcedural(Block* out, int seed) {
           if (n >= kMaxBoxes) return;
           V3 nn = normalAt(center);
           Block& b = out[n++];
+          b = Block();
           b.fragment = false;
           b.rest = center;
           b.axis = axisOf(nn);
@@ -408,12 +421,18 @@ int buildProcedural(Block* out, int seed) {
           }
         }
       }
-  for (int f = 0; f < 6 && n < kMaxBoxes; f++) {
+  return addFragments(out, n, rng, 6, v3(kRadii[0], kRadii[1], kRadii[2]));
+}
+
+// `count` loose fragments drifting about, 1.35-2x `radii` out.
+int addFragments(Block* out, int n, Rng& rng, int count, V3 radii) {
+  for (int f = 0; f < count && n < kMaxBoxes; f++) {
     V3 d = normalize(v3(rng.gauss(0, 1), rng.gauss(0, 1), std::fabs(rng.gauss(0.4f, 1))));
     float reach = rng.uniform(1.35f, 2.0f);
     Block& b = out[n++];
+    b = Block();
     b.fragment = true;
-    b.rest = v3(d.x * kRadii[0], d.y * kRadii[1], d.z * kRadii[2]) * reach;
+    b.rest = v3(d.x * radii.x, d.y * radii.y, d.z * radii.z) * reach;
     float s = kCell * 0.94f * rng.uniform(0.25f, 0.45f);
     b.size = v3(s, s, s);
     b.tip = v3(rng.uniform(-kPi, kPi), rng.uniform(-kPi, kPi), rng.uniform(-kPi, kPi));
@@ -423,6 +442,320 @@ int buildProcedural(Block* out, int seed) {
     for (int a = 0; a < 3; a++) b.span[a] = 1;
     b.stone = true;
     b.seed = rng.uniform();
+  }
+  return n;
+}
+
+// ---------------------------------------------------------------------------
+// Shapes: the scene's riffs (blender/scripts/part_structure.py ARRANGEMENTS,
+// framed by riffs.py), the same blocks in other arrangements. Each is built
+// upright about the core and leant as its riff leans it; Layout seeds it
+// (the shell's Layout 0 is the poster's exact one). Sizes are the scene's
+// with the default seam added back, so Seam opens every gap alike.
+
+enum Shape { kShell, kSplit, kMonolith, kRing, kLattice, kUrchin, kNested, kSwarm, kCairn, kShapes };
+// The riffs' lean (XYZ, deg) and loose fragments.
+constexpr float kShapeTilt[kShapes][3] = {
+    {-12.0f, -28.0f, 8.0f}, {-12.0f, -28.0f, 8.0f}, {-8.0f, -38.0f, 14.0f},
+    {-10.0f, -18.0f, 38.0f}, {-20.0f, -30.0f, 25.0f}, {-12.0f, -20.0f, 8.0f},
+    {-12.0f, -28.0f, 8.0f}, {32.0f, -14.0f, 0.0f}, {-6.0f, -14.0f, 0.0f}};
+constexpr int kShapeFragments[kShapes] = {6, 6, 4, 3, 6, 0, 3, 0, 3};
+constexpr float kSeam0 = kCell * (1.0f - 0.94f);   // the scene's seam
+constexpr float kJutReach = kCell * kJutMax;       // the jut of strain 1
+constexpr int kSwarmCount = 72;   // (the riff's 110 would cost half as much again)
+
+// Stone where calm, shell where bursting (part_structure.py's materials).
+bool stoneAt(V3 rest, float glow, uint32_t nseed) {
+  return vnoise(rest * 0.45f + v3(5.3f, -2.9f, 8.1f), nseed + 7u) + 0.3f - 1.1f * glow > 0.0f;
+}
+
+M3 jitterTurn(Rng& rng, float a) {
+  const float x = rng.uniform(-a, a), y = rng.uniform(-a, a), z = rng.uniform(-a, a);
+  return euler(x, y, z);
+}
+
+// A turn taking +z to `d`.
+M3 trackZ(V3 d) {
+  const V3 up = std::fabs(d.y) > 0.99f ? v3(1, 0, 0) : v3(0, 1, 0);
+  const V3 x = normalize(cross(up, d)), y = cross(d, x);
+  return {{{x.x, y.x, d.x}, {x.y, y.y, d.y}, {x.z, y.z, d.z}}};
+}
+
+// One block of the scene's `size` (m), resting at `rest` + `jut` along `axis`.
+Block& addBox(Block* out, int& n, Rng& rng, uint32_t nseed, V3 rest, V3 size, const M3& base,
+              V3 axis, float jut, float glow0, float glow_k) {
+  static Block spare;
+  if (n >= kMaxBoxes) return spare;
+  Block& b = out[n++];
+  b = Block();
+  b.fragment = false;
+  b.rest = rest;
+  b.axis = normalize(axis);
+  b.jut = jut;
+  b.tip = v3(rng.uniform(-1, 1), rng.uniform(-1, 1), rng.uniform(-1, 1));
+  b.spin = v3(0, 0, 0);
+  b.size = size + v3(kSeam0, kSeam0, kSeam0);
+  for (int a = 0; a < 3; a++) b.span[a] = 1;
+  b.base = base;
+  b.glow0 = glow0;
+  b.glow_k = glow_k;
+  b.seed = rng.uniform();
+  b.stone = stoneAt(rest + b.axis * jut, std::fmin(glow0 + glow_k * jutStrain(jut), 1.0f), nseed);
+  return b;
+}
+
+// The shell cleaved in two, the halves drifting apart: a sheet of light
+// pours from the cut.
+void splitShell(Block* out, int n) {
+  const V3 nrm = normalize(v3(1.0f, -0.25f, 0.15f));
+  for (int i = 0; i < n; i++) {
+    Block& b = out[i];
+    if (b.fragment) continue;
+    const float side = dot(b.rest, nrm) >= 0.0f ? 1.0f : -1.0f;
+    b.rest = b.rest + nrm * (side * 0.75f);
+    b.glow0 = std::fmax(b.glow0, 0.5f * (1.0f - std::fabs(dot(b.rest, nrm)) / kRadii[0]));
+  }
+}
+
+// A tall slab sawn into layers that have slipped against each other; the
+// core sits in an open seam halfway up. Jut: the slips.
+int buildMonolith(Block* out, Rng& rng, uint32_t nseed) {
+  const float sx = 2.6f, sy = 1.4f, sz = 7.2f, pocket = 0.225f;
+  float cuts[64][2];
+  int nc = 0;
+  for (float z = -sz / 2; z < sz / 2 && nc < 64;) {
+    const float t = rng.uniform(0.25f, 1.1f);
+    cuts[nc][0] = z;
+    cuts[nc][1] = std::fmin(z + t, sz / 2);
+    nc++;
+    z += t + rng.uniform(0.05f, 0.16f);
+  }
+  int n = 0;
+  for (int c = 0; c < nc; c++) {
+    const float halves[2][2] = {{cuts[c][0], std::fmin(cuts[c][1], -pocket)},
+                                {std::fmax(cuts[c][0], pocket), cuts[c][1]}};
+    for (int h = 0; h < 2; h++) {
+      const float lo = halves[h][0], hi = halves[h][1];
+      if (hi - lo < 0.08f) continue;
+      const float mid = 0.5f * (lo + hi);
+      const float near = 1.0f - std::fmin(std::fabs(mid) / (sz / 2), 1.0f);
+      const V3 slip = v3(rng.gauss(0, 0.07f), rng.gauss(0, 0.05f), 0.0f) * (1.0f + near);
+      const float rx = rng.gauss(0, 0.015f), ry = rng.gauss(0, 0.015f), rz = rng.gauss(0, 0.04f);
+      const M3 rot = euler(rx, ry, rz);
+      float pieces[2][2] = {{-sx / 2, sx / 2}, {0, 0}};
+      int np = 1;
+      if (rng.uniform() < 0.35f) {   // a vertical fault through this layer
+        const float x = rng.uniform(-0.3f, 0.3f) * sx;
+        pieces[0][1] = x - 0.03f;
+        pieces[1][0] = x + 0.03f;
+        pieces[1][1] = sx / 2;
+        np = 2;
+      }
+      const float slen = std::sqrt(dot(slip, slip));
+      const V3 axis = slen > 1e-5f ? slip * (1.0f / slen) : v3(1, 0, 0);
+      for (int q = 0; q < np; q++) {
+        const float x0 = pieces[q][0], x1 = pieces[q][1];
+        addBox(out, n, rng, nseed, v3(0.5f * (x0 + x1), 0.0f, mid), v3(x1 - x0, sy, hi - lo), rot,
+               axis, slen, near * near, 1.0f);
+      }
+    }
+  }
+  return n;
+}
+
+// An upright ring of blocks about a bare core, a couple gone adrift.
+int buildRing(Block* out, Rng& rng, uint32_t nseed) {
+  constexpr int kCount = 18;
+  const float radius = 3.1f, chord = kTau * radius / kCount;
+  const int miss0 = (int)(rng.uniform() * kCount) % kCount;
+  const int miss1 = (miss0 + 1 + (int)(rng.uniform() * (kCount - 1))) % kCount;
+  int n = 0;
+  for (int i = 0; i < kCount; i++) {
+    if (i == miss0 || i == miss1) continue;
+    const float a = kTau * (i + rng.uniform(-0.08f, 0.08f)) / kCount;
+    const V3 radial = v3(std::cos(a), 0.0f, std::sin(a));
+    const float jut = 0.5f * std::pow(rng.uniform(), 2.5f);
+    const float depth = rng.uniform(0.8f, 1.4f);
+    const V3 size = v3(chord * rng.uniform(0.7f, 0.88f), depth, rng.uniform(0.8f, 1.2f) * chord);
+    // Local x along the ring, local z outward.
+    const M3 rot = mul(euler(0.0f, kPi / 2 - a, 0.0f), jitterTurn(rng, 0.05f));
+    const V3 rest = radial * radius + v3(0.0f, rng.gauss(0, 0.12f), 0.0f);
+    addBox(out, n, rng, nseed, rest, size, rot, radial, jut, 0.0f, kJutReach / 0.5f);
+  }
+  return n;
+}
+
+// A cube of cubes, the middle one gone: light floods out along the gaps.
+int buildLattice(Block* out, Rng& rng, uint32_t nseed) {
+  const float cube = 1.3f, gap = 0.32f, explode = 0.35f, pitch = cube + gap;
+  int n = 0;
+  for (int i = -1; i <= 1; i++)
+    for (int j = -1; j <= 1; j++)
+      for (int k = -1; k <= 1; k++) {
+        if (!i && !j && !k) continue;
+        const V3 p = v3((float)i, (float)j, (float)k);
+        const float out_by = gap * explode * rng.uniform(0.3f, 1.6f);
+        const float a = rng.uniform(0.92f, 1.0f), b = rng.uniform(0.92f, 1.0f),
+                    c = rng.uniform(0.92f, 1.0f);
+        const M3 rot = jitterTurn(rng, 0.05f);
+        addBox(out, n, rng, nseed, p * pitch, v3(cube * a, cube * b, cube * c), rot, p, out_by,
+               0.0f, kJutReach / (gap * explode * 1.6f));
+      }
+  return n;
+}
+
+// Long square beams bursting out of the core, a crystal cluster or an urchin.
+// Jut: how far out of the hub each starts.
+int buildUrchin(Block* out, Rng& rng, uint32_t nseed) {
+  constexpr int kCount = 26;
+  const float hub = 0.75f, golden = kPi * (3.0f - std::sqrt(5.0f));
+  int n = 0;
+  for (int i = 0; i < kCount; i++) {
+    const float z = 1.0f - 2.0f * (i + 0.5f) / kCount;
+    const float a = golden * i, r = std::sqrt(1.0f - z * z);
+    const float gx = rng.gauss(0, 0.12f), gy = rng.gauss(0, 0.12f), gz = rng.gauss(0, 0.12f);
+    const V3 d = normalize(v3(r * std::cos(a) + gx, r * std::sin(a) + gy, z + gz));
+    const float length = rng.uniform(2.0f, 4.8f) * (d.z > 0.5f ? 0.75f : 1.0f);
+    const float w = rng.uniform(0.28f, 0.6f), w2 = w * rng.uniform(0.7f, 1.0f);
+    const M3 rot = mul(trackZ(d), euler(0.0f, 0.0f, rng.uniform(0.0f, kPi)));
+    const float lift = rng.uniform(0.0f, 0.4f);
+    addBox(out, n, rng, nseed, d * (hub + length / 2), v3(w, w2, length), rot, d, lift, 0.0f,
+           kJutReach / 0.4f);
+  }
+  return n;
+}
+
+// A cage of beams about an inner box stood on its corner, whose six plates
+// have parted: the core's light leaks out along every one of its edges.
+int buildNested(Block* out, Rng& rng, uint32_t nseed) {
+  const float frame = 5.4f, beam = 0.42f, inner = 2.5f, plate = 0.3f, slit = 0.05f;
+  const float h = frame / 2;
+  int n = 0;
+  for (int a = 0; a < 3; a++) {
+    const int b = (a + 1) % 3, c = (a + 2) % 3;
+    for (int sb = -1; sb <= 1; sb += 2)
+      for (int sc = -1; sc <= 1; sc += 2) {
+        float p[3] = {0, 0, 0}, sz[3] = {beam, beam, beam};
+        p[b] = sb * h;
+        p[c] = sc * h;
+        sz[a] = frame - beam * 1.6f;
+        const M3 rot = jitterTurn(rng, 0.01f);
+        const V3 at = v3(p[0], p[1], p[2]);
+        addBox(out, n, rng, nseed, at, v3(sz[0], sz[1], sz[2]), rot, at, 0.0f, 0.0f, 1.0f);
+      }
+  }
+  for (int sx = -1; sx <= 1; sx += 2)
+    for (int sy = -1; sy <= 1; sy += 2)
+      for (int sz = -1; sz <= 1; sz += 2) {
+        const V3 at = v3((float)sx, (float)sy, (float)sz) * h;
+        const M3 rot = jitterTurn(rng, 0.06f);
+        addBox(out, n, rng, nseed, at, v3(beam, beam, beam) * 1.45f, rot, at, 0.0f, 0.0f, 1.0f);
+      }
+  const M3 turn = euler(45.0f * kDeg, 35.26f * kDeg, 10.0f * kDeg);
+  const float hi = inner / 2;
+  for (int a = 0; a < 3; a++)
+    for (int sgn = -1; sgn <= 1; sgn += 2) {
+      float nv[3] = {0, 0, 0}, sz[3];
+      nv[a] = (float)sgn;
+      for (int q = 0; q < 3; q++) sz[q] = inner - 2 * plate - 2 * slit;
+      sz[a] = plate;
+      const float push = slit * rng.uniform(0.6f, 1.8f);
+      const V3 nrm = mul(turn, v3(nv[0], nv[1], nv[2]));
+      addBox(out, n, rng, nseed, nrm * (hi - plate / 2), v3(sz[0], sz[1], sz[2]), turn, nrm, push,
+             0.6f, 1.0f);
+    }
+  return n;
+}
+
+// A disc of loose blocks orbiting the bare core, faster near it (with
+// Drift). Jut: how far out of the inner edge each orbits.
+int buildSwarm(Block* out, Rng& rng, uint32_t nseed) {
+  const float r0 = 1.1f, r1 = 3.6f, thick = 0.35f, s0 = 0.14f, s1 = 0.85f;
+  int n = 0;
+  for (int i = 0; i < kSwarmCount; i++) {
+    const float r = r0 + (r1 - r0) * std::pow(rng.uniform(), 0.8f);
+    const float a = rng.uniform(0.0f, kTau);
+    const V3 dir = v3(std::cos(a), std::sin(a), 0.0f);
+    const float z = rng.gauss(0, thick * (r / r1));
+    const float s = s0 + (s1 - s0) * std::pow(rng.uniform(), 2.6f);
+    const float sa = rng.uniform(0.75f, 1.25f), sb = rng.uniform(0.75f, 1.25f),
+                sc = rng.uniform(0.75f, 1.25f);
+    const M3 rot = jitterTurn(rng, kPi);
+    Block& b = addBox(out, n, rng, nseed, dir * r0 + v3(0.0f, 0.0f, z), v3(s * sa, s * sb, s * sc),
+                      rot, dir, r - r0, 1.0f - r / r1, 0.0f);
+    b.orbit = 0.35f * std::pow(r0 / r, 1.5f);
+  }
+  return n;
+}
+
+// A stack of hulking blocks hovering apart, the core caught in the widest
+// gap. Jut: the gaps (all but the core's).
+int buildCairn(Block* out, Rng& rng, uint32_t nseed) {
+  constexpr int kCount = 6, kCoreAt = kCount / 2;   // the core sits below this block
+  const float core_gap = 0.7f;
+  V3 size[kCount];
+  float gap[kCount];
+  for (int i = 0; i < kCount; i++) {
+    const float w = rng.uniform(1.6f, 3.0f) * (1.15f - 0.12f * i);
+    const float d = w * rng.uniform(0.6f, 0.95f);
+    size[i] = v3(w, d, rng.uniform(0.6f, 1.3f));
+  }
+  for (int i = 0; i < kCount; i++) gap[i] = i == kCoreAt ? core_gap : rng.uniform(0.15f, 0.4f);
+  int n = 0;
+  for (int i = 0; i < kCount; i++) {
+    // Packed against the core's gap, then pushed off it by the gaps between.
+    float z = 0.5f * core_gap, jut = 0.0f;
+    if (i >= kCoreAt) {
+      for (int k = kCoreAt; k < i; k++) z += size[k].z;
+      for (int k = kCoreAt + 1; k <= i; k++) jut += gap[k];
+      z += 0.5f * size[i].z;
+    } else {
+      for (int k = i + 1; k < kCoreAt; k++) z += size[k].z;
+      for (int k = i + 1; k < kCoreAt; k++) jut += gap[k];
+      z = -(z + 0.5f * size[i].z);
+    }
+    const V3 off = v3(rng.gauss(0, 0.2f), rng.gauss(0, 0.15f), 0.0f);
+    const float rx = rng.gauss(0, 0.06f), ry = rng.gauss(0, 0.06f), rz = rng.uniform(-0.5f, 0.5f);
+    const float glow = (i == kCoreAt - 1 || i == kCoreAt) ? 1.0f : 0.0f;
+    addBox(out, n, rng, nseed, off + v3(0.0f, 0.0f, z), size[i], euler(rx, ry, rz),
+           v3(0.0f, 0.0f, i >= kCoreAt ? 1.0f : -1.0f), jut, glow, 1.0f);
+  }
+  return n;
+}
+
+// Shape `shape`, seeded by `seed`, in the shell's leant frame.
+int buildLayout(Block* out, int shape, int seed) {
+  shape = shape < 0 || shape >= kShapes ? 0 : shape;
+  int n;
+  if (shape == kShell || shape == kSplit) {
+    n = seed == 0 ? buildReference(out) : buildProcedural(out, seed);
+    if (shape == kSplit) splitShell(out, n);
+    return n;
+  }
+  Rng rng((uint64_t)seed * 16u + (uint64_t)shape + 0x51u);
+  const uint32_t nseed = (uint32_t)seed * 977u + 13u + (uint32_t)shape * 101u;
+  V3 radii = v3(kRadii[0], kRadii[1], kRadii[2]);
+  switch (shape) {
+    case kMonolith: n = buildMonolith(out, rng, nseed); radii = v3(1.9f, 1.3f, 4.2f); break;
+    case kRing:     n = buildRing(out, rng, nseed);     radii = v3(3.0f, 1.5f, 3.0f); break;
+    case kLattice:  n = buildLattice(out, rng, nseed);  radii = v3(2.9f, 2.9f, 2.9f); break;
+    case kUrchin:   n = buildUrchin(out, rng, nseed); break;
+    case kNested:   n = buildNested(out, rng, nseed);   radii = v3(3.3f, 3.3f, 3.3f); break;
+    case kSwarm:    n = buildSwarm(out, rng, nseed); break;
+    default:        n = buildCairn(out, rng, nseed);    radii = v3(1.8f, 1.5f, 2.8f); break;
+  }
+  n = addFragments(out, n, rng, kShapeFragments[shape], radii);
+  // Lean it as its riff does, in the frame the shell's lean already turns.
+  const float* t = kShapeTilt[shape];
+  const M3 lean = mul(transpose(euler(kRefTiltDeg[0] * kDeg, kRefTiltDeg[1] * kDeg,
+                                      kRefTiltDeg[2] * kDeg)),
+                      euler(t[0] * kDeg, t[1] * kDeg, t[2] * kDeg));
+  for (int i = 0; i < n; i++) {
+    Block& b = out[i];
+    b.rest = mul(lean, b.rest);
+    b.axis = mul(lean, b.axis);
+    b.pole = mul(lean, b.pole);
+    if (!b.fragment) b.base = mul(lean, b.base);
   }
   return n;
 }
@@ -526,7 +859,7 @@ struct State {
 
   Block blocks[kMaxBoxes];
   int block_count = 0;
-  int built_layout = -1;
+  int built_layout = -1, built_shape = -1;
   // What is drawn: slots gliding to the layout's blocks; their rows, then
   // (on a frame slots were compacted) the flakes' remap, a row per last
   // frame's slot.
@@ -556,6 +889,9 @@ struct State {
 
   // Params.
   int layout = 0;
+  int shape = 0;               // Shape
+  int heart_shape = 0;         // 0 ball, 1 cube
+  float heart_size = 1.0f;     // x a third of the core's radius
   float glide_time = 0.4f;     // s a change of layout rings out over (0: a cut)
   float stiffness = 10.0f;     // Hz it rings at
   float glitch = 0.5f;
@@ -656,7 +992,7 @@ struct State {
   float vibe = 0.06f;
   float vibe_hz = 16.0f;
   float vibe_spread = 0.25f;
-  float pulse = 1.0f;          // the throw's pulse: glow
+  float pulse = 0.0f;          // the throw's pulse: glow
   float pulse_time = 0.35f;    // s, its slowing (to 1/e of the way left)
   float pulse_start = 0.0f;    // how far out it starts (0 core .. 1 where it settles)
   float pulse_gap = 0.6f;      // m beyond the shell it lingers
@@ -740,8 +1076,14 @@ void module_init() {
         "to swing the beams around; *Seam* wider to let the light out.")
       .group("structure", "Structure")
         .groupHelp(
-          "*Layout* 0 is the poster scene's exact arrangement; other numbers "
-          "grow new ones the same way. A new layout doesn't cut in: the blocks "
+          "*Shape* is how the blocks are arranged: the poster's hollow *Shell*, "
+          "that shell *Split* in two, a sawn and slipped *Monolith*, a *Ring* "
+          "about a bare core, a *Lattice* (a cube of cubes), an *Urchin* of "
+          "beams bursting out, a *Nested* cage round a box stood on its "
+          "corner, a *Swarm* orbiting the core (with *Drift*), or a hovering "
+          "*Cairn*. *Layout* grows a new one of that shape from its number "
+          "(the Shell's 0 is the poster scene's exact arrangement). A new shape "
+          "or layout doesn't cut in: the blocks "
           "spring there, overshooting and ringing out over *Glide* (0 cuts), "
           "ringing *Stiffness* times a second; *Glitch* breaks it up — blocks "
           "letting go one after another, moving an axis at a time, freezing "
@@ -755,6 +1097,10 @@ void module_init() {
           "of that, some sealing shut while others push out, at *Breathe Rate*. *Seam* is the gap "
           "between neighboring blocks. *Spin* turns the whole structure; "
           "*Drift* sets the loose fragments bobbing.")
+      .selectField("shape", 0, state::SecondaryInput,
+                   {{"Shell", 0}, {"Split", 1}, {"Monolith", 2}, {"Ring", 3}, {"Lattice", 4},
+                    {"Urchin", 5}, {"Nested", 6}, {"Swarm", 7}, {"Cairn", 8}})
+          .label("Shape", "Shape")
       .intField("layout", 0, 0, 999, state::SecondaryInput)
           .label("Layout", "Lay")
       .floatField("glide", 0.4f, 0.f, 2.f, state::PrimaryInput, nullptr, 0.f, "s")
@@ -794,7 +1140,10 @@ void module_init() {
           "*Wander* moves it around inside the hollow, which swings every beam "
           "at once; *Flicker* makes it gutter. *Clear*: a block that strays "
           "nearer the middle than this lets the beams through, fading out the "
-          "nearer it comes, so one brushing the heart doesn't mute the core.")
+          "nearer it comes, so one brushing the heart doesn't mute the core. "
+          "*Heart* is the glowing thing seen at the very middle: a ball, or a "
+          "cube (which reads better where the core is bare); *Heart Size* "
+          "scales it apart from the light (1: a third of *Radius*).")
       .floatField("core_power", 0.5f, 0.f, 1.f, state::PrimaryInput)
           .label("Power", "Pwr")
       .rgbField("core_color", 1.0f, 0.56f, 0.26f, state::PrimaryInput)
@@ -803,6 +1152,10 @@ void module_init() {
           .label("Radius", "Rad")
       .floatField("core_clear", 0.4f, 0.f, 1.5f, state::PrimaryInput, nullptr, 0.f, "m")
           .label("Clear", "Clr")
+      .selectField("heart", 0, state::SecondaryInput, {{"Ball", 0}, {"Cube", 1}})
+          .label("Heart", "Hrt")
+      .floatField("heart_size", 1.0f, 0.f, 6.f, state::PrimaryInput)
+          .label("Heart Size", "HSz")
       .floatField("wander", 0.0f, 0.f, 1.f, state::PrimaryInput)
           .label("Wander", "Wndr")
       .floatField("wander_rate", 0.3f, 0.f, 1.f, state::PrimaryInput)
@@ -1071,7 +1424,8 @@ void module_init() {
           "rings out they shake there -- *Shake* far, starting at *Shake Hz* "
           "and slowing as the tail dies, all in step unless *Shake Spread* "
           "detunes them. Wire a motion blur after this effect to streak it. "
-          "A throw also sends out a PULSE from the core: a glowing front that "
+          "*Pulse* (off at 0; use it sparingly) has a throw send out a PULSE "
+          "from the core too: a glowing front that "
           "leaves through the gaps in beams, slows over *Pulse Time* and "
           "lingers *Pulse Gap* outside the shell, its beams filling in over "
           "*Pulse Heal* (*Pulse Shape*: how much the gaps shape it), and "
@@ -1088,7 +1442,7 @@ void module_init() {
           .label("Shake Hz", "ShHz")
       .floatField("vibe_spread", 0.25f, 0.f, 1.f, state::PrimaryInput)
           .label("Shake Spread", "ShSp")
-      .floatField("pulse", 1.0f, 0.f, 8.f, state::PrimaryInput)
+      .floatField("pulse", 0.0f, 0.f, 8.f, state::PrimaryInput)
           .label("Pulse", "Puls")
       .floatField("pulse_time", 0.35f, 0.05f, 3.f, state::PrimaryInput, nullptr, 0.f, "s")
           .label("Pulse Time", "PTim")
@@ -1495,6 +1849,9 @@ void on_state_patched(void* self, int n, const char* pb, const int* off,
     const char* p = pb + off[i];
     int l = len[i];
     if      (state::pathIs(p, l, "layout"))       s->layout = state::patchInt(i);
+    else if (state::pathIs(p, l, "shape"))        s->shape = state::patchInt(i);
+    else if (state::pathIs(p, l, "heart"))        s->heart_shape = state::patchInt(i);
+    else if (state::pathIs(p, l, "heart_size"))   s->heart_size = state::patchFloat(i);
     else if (state::pathIs(p, l, "glide"))        s->glide_time = state::patchFloat(i);
     else if (state::pathIs(p, l, "stiffness"))    s->stiffness = state::patchFloat(i);
     else if (state::pathIs(p, l, "glitch"))       s->glitch = state::patchFloat(i);
@@ -1633,12 +1990,19 @@ Pose goalPose(const State* s, const Block& b, float jutk, float seam) {
     float jut = std::fmax(b.jut * jutk + s->breathe * jmax * 0.9f * (open - 0.5f), 0.0f);
     float strain = jutStrain(jut);
     float tip = std::pow(std::fmin(strain, 1.5f), 1.5f) * 0.18f;
-    p.c = b.rest + b.axis * jut;
-    p.rot = euler(b.tip.x * tip, b.tip.y * tip, b.tip.z * tip);
-    V3 half = v3(b.span[0] * kCell - seam, b.span[1] * kCell - seam,
-                 b.span[2] * kCell - seam) * 0.5f;
+    V3 rest = b.rest, axis = b.axis;
+    M3 base = b.base;
+    if (b.orbit != 0.0f) {   // (a swarm's blocks orbit, with Drift)
+      const M3 o = rotExp(b.pole * (b.orbit * dp * 14.0f * s->drift));
+      rest = mul(o, rest);
+      axis = mul(o, axis);
+      base = mul(o, base);
+    }
+    p.c = rest + axis * jut;
+    p.rot = mul(euler(b.tip.x * tip, b.tip.y * tip, b.tip.z * tip), base);
+    V3 half = (b.size - v3(seam, seam, seam)) * 0.5f;
     p.half = v3(std::fmax(half.x, 0.02f), std::fmax(half.y, 0.02f), std::fmax(half.z, 0.02f));
-    p.glow = std::fmin(strain, 1.0f);
+    p.glow = std::fmin(b.glow0 + b.glow_k * strain, 1.0f);
   }
   return p;
 }
@@ -1647,7 +2011,8 @@ Pose goalPose(const State* s, const Block& b, float jutk, float seam) {
 // along, picked per block (-1: a loose fragment).
 float circOf(const Block& b) {
   if (b.fragment) return -1.0f;
-  const float ax = std::fabs(b.axis.x), ay = std::fabs(b.axis.y), az = std::fabs(b.axis.z);
+  const V3 l = mul(transpose(b.base), b.axis);   // (in the block's own frame)
+  const float ax = std::fabs(l.x), ay = std::fabs(l.y), az = std::fabs(l.z);
   const int jut = (ax >= ay && ax >= az) ? 0 : (ay >= az ? 1 : 2);
   const float pick = b.seed * 7.31f - std::floor(b.seed * 7.31f);
   return (float)((jut + (pick < 0.5f ? 1 : 2)) % 3);
@@ -1706,9 +2071,9 @@ void relayout(State* s) {
   // measured from last frame's pose, a layout changing every frame would
   // pin every block where it was.
   for (int i = 0; i < s->slot_count; i++) s->slots[i].shown = showOf(s, s->slots[i]);
-  s->block_count = s->layout == 0 ? buildReference(s->blocks)
-                                  : buildProcedural(s->blocks, s->layout);
+  s->block_count = buildLayout(s->blocks, s->shape, s->layout);
   s->built_layout = s->layout;
+  s->built_shape = s->shape;
   const glide::Params gp = glideParams(s);
   const int m = s->block_count;
   // A new slot's Jut and Seam: the sends with no glint of its own yet.
@@ -1819,7 +2184,7 @@ void relayout(State* s) {
 M3 poseBlocks(State* s, int& count) {
   s->pose_jump = false;
   for (int i = 0; i < s->slot_count; i++) s->slots[i].prev = i;
-  if (s->built_layout != s->layout) relayout(s);
+  if (s->built_layout != s->layout || s->built_shape != s->shape) relayout(s);
   compact(s);
   // Each slot's Jut and Seam this frame, the sends and its glint charge in.
   // A change of jut goes (Twang of it) through the glide's spring: what it
@@ -2072,6 +2437,8 @@ void render(void* self, int vp_w, int vp_h) {
     u.heart[0] = hs * (0.5f + 0.5f * s->core_r);
     u.heart[1] = hs * (0.75f * (0.5f + 0.5f * s->core_g / 0.56f));
     u.heart[2] = hs * (0.5f * (0.5f + 0.5f * s->core_b / 0.26f));
+    const float hr = 0.33f * s->core_radius * s->heart_size;
+    u.heart[3] = s->heart_shape == 1 ? -hr : hr;
   }
   u.vol_k[0] = kPointVolK;
   u.vol_k[1] = kSunVolK;

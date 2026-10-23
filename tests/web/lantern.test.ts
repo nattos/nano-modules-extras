@@ -75,6 +75,18 @@ forEachBackend((backend) => {
       expect(peak).toBeGreaterThan(150);
     });
 
+    it('arranges the blocks in other shapes, with a cube heart', async () => {
+      // Ring (3) bares the core and Nested (6) cages it; each its own.
+      const ref = await render(`lantern_${backend}_layout0`);
+      for (const shape of [3, 6]) {
+        const f = await render(`lantern_${backend}_shape${shape}`, [['shape', shape], ['heart', 1]]);
+        expect(meanAbsDiff(ref, f)).toBeGreaterThan(2.0);
+        let peak = 0;
+        f.forEachPixel((c: any) => { peak = Math.max(peak, lum(c)); });
+        expect(peak).toBeGreaterThan(150);
+      }
+    });
+
     it('the beams hold still: a static scene barely changes frame to frame', async () => {
       // The fog's core visibility is prefiltered (vis.hlsl), so only the
       // march's step dither varies per frame. With random shadow lookups the
